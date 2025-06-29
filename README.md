@@ -1,6 +1,6 @@
 # Inflation-Resistant Medium of Account (IRMA)
 
-NOTE to Breakout Hackathon judges: we did not complete the IRMA program, but we are continuing to work on it. We are making progress.
+NOTE to Breakout Hackathon judges: we did not complete the IRMA program, but the main routine for managing IRMA mint priced and redemption price is done and some testing done. I have started working on interfacing with OpenBook V2.
 
 This a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using OpenBook. Switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
 
