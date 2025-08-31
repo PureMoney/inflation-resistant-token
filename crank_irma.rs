@@ -43,8 +43,10 @@ pub mod crank_irma {
         let crank_state = &mut ctx.accounts.crank_state;
         let current_slot = Clock::get()?.slot;
         
+        // Quick sanity check - make sure the bot is actually enabled
         require!(crank_state.active, ErrorCode::BotInactive);
         
+        // Smart timing -
         if !crank_state.should_crank(current_slot) {
             msg!("Skipping crank - not enough time elapsed");
             return Ok(());
@@ -52,13 +54,14 @@ pub mod crank_irma {
         
         msg!("Starting crank at slot: {}", current_slot);
         
+        // Pull market events from OpenBook 
         let events = process_market_events(&ctx)?;
         let event_count = events.len();
         
         if event_count == 0 {
             msg!("No events to process");
             crank_state.metrics.update_after_crank(current_slot, 0);
-            return Ok(()); // Nothing to do, just update our stats and bail
+            return Ok(()); 
         }
         
         msg!("Processing {} market events", event_count);
@@ -80,13 +83,13 @@ pub mod crank_irma {
                     msg!("[REDEEM] {} IRMA for {}", amount, quote_token);
                 }
                 IrmaAction::Skip => {
-                    // Order cancellations and other stuff we don't care about
+                   
                     continue;
                 }
             }
         }
         
-        // Keep track of what we did for stats and adaptive timing
+     
         crank_state.metrics.update_after_crank(current_slot, event_count as u16);
         crank_state.metrics.total_mints += total_mints;
         crank_state.metrics.total_redeems += total_redeems;
@@ -97,8 +100,6 @@ pub mod crank_irma {
         Ok(())
     }
 
-    // Admin function to tweak bot settings - timing intervals, limits, etc.
-    pub fn update_config(
         ctx: Context<UpdateConfig>,
         new_config: BotConfig,
     ) -> Result<()> {
@@ -117,7 +118,7 @@ pub mod crank_irma {
         Ok(())
     }
 
-    // Emergency kill switch - can pause the bot if something goes wrong
+
     pub fn set_active(
         ctx: Context<UpdateConfig>,
         active: bool,
@@ -137,17 +138,60 @@ pub mod crank_irma {
         Ok(())
     }
 
-    // Just a helper to check bot stats - doesn't change anything
+
     pub fn get_metrics(ctx: Context<ViewState>) -> Result<BotMetrics> {
         Ok(ctx.accounts.crank_state.metrics.clone())
     }
+
+
+    pub fn get_irma_prices(
+        ctx: Context<CrankMarket>,
+        quote_token: String,
+    ) -> Result<IrmaPriceInfo> {
+        let price_info = get_current_irma_prices(&ctx, &quote_token)?;
+        msg!("IRMA Prices for {}: Mint={}, Redeem={}, Spread={}", 
+             quote_token, price_info.mint_price, price_info.redemption_price, price_info.spread);
+        Ok(price_info)
+    }
+
+    pub fn set_irma_mint_price(
+        ctx: Context<UpdateConfig>,
+        quote_token: String,
+        mint_price: f64,
+    ) -> Result<()> {
+        let crank_state = &ctx.accounts.crank_state;
+
+        require!(
+            ctx.accounts.authority.key() == crank_state.authority,
+            ErrorCode::Unauthorized
+        );
+        
+
+        require!(mint_price > 0.0 && mint_price < 100.0, ErrorCode::InvalidAmount);
+        
+        msg!("Setting {} mint price to {} via IRMA protocol", quote_token, mint_price);
+        
+ 
+        let cpi_accounts = irma_protocol::cpi::accounts::Common {
+            state: ctx.accounts.irma_state.to_account_info(),
+            trader: ctx.accounts.authority.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+        };
+        
+        let cpi_program = ctx.accounts.irma_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        
+        irma_protocol::cpi::set_mint_price(cpi_ctx, &quote_token, mint_price)?;
+        
+        msg!("✅ Set {} mint price to {}", quote_token, mint_price);
+        Ok(())
+    }
 }
 
-// Takes raw market events and figures out what IRMA actions we should take
 fn process_market_events(ctx: &Context<CrankMarket>) -> Result<Vec<ProcessedEvent>> {
     let mut events = Vec::new();
     
-
+   
     let raw_events = read_openbook_events(ctx)?;
     
     for raw_event in raw_events {
@@ -162,19 +206,22 @@ fn process_market_events(ctx: &Context<CrankMarket>) -> Result<Vec<ProcessedEven
                 let market_quote_mint = get_market_quote_mint(ctx)?;
                 let quote_token = determine_quote_token(ctx, &market_quote_mint)?;
                 
-                let action = if taker_side == "ask" {
-                    // Someone sold -> market is going down -> mint IRMA to add stability
-                    IrmaAction::Mint {
-                        quote_token: quote_token.clone(),
-                        amount: calculate_irma_amount(quantity, price),
+              
+                let action = make_intelligent_decision(ctx, &raw_event, &quote_token).unwrap_or_else(|_| {
+                    msg!("Failed to get IRMA prices, falling back to simple logic");
+               
+                    if taker_side == "ask" {
+                        IrmaAction::Mint {
+                            quote_token: quote_token.clone(),
+                            amount: calculate_irma_amount(quantity, price),
+                        }
+                    } else {
+                        IrmaAction::Redeem {
+                            quote_token: quote_token.clone(),
+                            amount: calculate_irma_amount(quantity, price),
+                        }
                     }
-                } else {
-                    // Someone bought -> market is going up -> redeem IRMA to take liquidity out
-                    IrmaAction::Redeem {
-                        quote_token: quote_token.clone(),
-                        amount: calculate_irma_amount(quantity, price),
-                    }
-                };
+                });
                 
                 ProcessedEvent {
                     event_type: "fill".to_string(),
@@ -183,7 +230,7 @@ fn process_market_events(ctx: &Context<CrankMarket>) -> Result<Vec<ProcessedEven
                 }
             }
             0 => {
-
+                // Out event - order cancelled, don't care about these
                 ProcessedEvent {
                     event_type: "out".to_string(),
                     action: IrmaAction::Skip,
@@ -191,7 +238,7 @@ fn process_market_events(ctx: &Context<CrankMarket>) -> Result<Vec<ProcessedEven
                 }
             }
             _ => {
-
+                // No idea what this is, just ignore it
                 ProcessedEvent {
                     event_type: "unknown".to_string(),
                     action: IrmaAction::Skip,
@@ -223,8 +270,7 @@ fn execute_irma_mint(
     
     msg!("Executing IRMA mint: {} {} tokens", amount, quote_token);
     
-
-
+   
     let cpi_accounts = irma_protocol::cpi::accounts::Common {
         state: ctx.accounts.irma_state.to_account_info(),
         trader: ctx.accounts.cranker.to_account_info(), // Bot acts as trader
@@ -241,7 +287,7 @@ fn execute_irma_mint(
     Ok(())
 }
 
-
+// Call the IRMA program to redeem/burn tokens
 fn execute_irma_redeem(
     ctx: &Context<CrankMarket>,
     quote_token: &str,
@@ -249,6 +295,7 @@ fn execute_irma_redeem(
 ) -> Result<()> {
     let crank_state = &ctx.accounts.crank_state;
     
+
     require!(amount > 0, ErrorCode::InvalidAmount);
     require!(
         amount <= crank_state.config.max_irma_per_crank,
@@ -276,21 +323,18 @@ fn execute_irma_redeem(
 }
 
 // Read and parse real events from OpenBook's event heap
-
 fn read_openbook_events(ctx: &Context<CrankMarket>) -> Result<Vec<RawMarketEvent>> {
     let mut events = Vec::new();
     
-    // Get the event heap account data
     let event_heap_account = &ctx.accounts.event_heap;
     let event_heap_data = event_heap_account.try_borrow_data()?;
     
-
     if event_heap_data.len() < 16 {
         msg!("Event heap data too small");
         return Ok(events);
     }
     
-
+    // EventHeapHeader structure from IDL:
     let used_head = u16::from_le_bytes([event_heap_data[2], event_heap_data[3]]);
     let count = u16::from_le_bytes([event_heap_data[4], event_heap_data[5]]);
     
@@ -301,7 +345,7 @@ fn read_openbook_events(ctx: &Context<CrankMarket>) -> Result<Vec<RawMarketEvent
         return Ok(events);
     }
     
-
+    // Calculate offset to event nodes (header is 16 bytes)
     let header_size = 16;
     let node_size = 152; 
 
@@ -363,7 +407,7 @@ fn read_openbook_events(ctx: &Context<CrankMarket>) -> Result<Vec<RawMarketEvent
         // Move to next node in the linked list
         current_node = next_node;
         if current_node == used_head {
-
+            // We've gone full circle
             break;
         }
     }
@@ -379,6 +423,8 @@ fn parse_fill_event(data: &[u8]) -> Option<ParsedFillEvent> {
     if data.len() < 144 { // FillEvent is 144 bytes total
         return None;
     }
+    
+
     
     let taker_side = data[1];
     let timestamp = i64::from_le_bytes([
@@ -448,9 +494,8 @@ struct ParsedOutEvent {
     quantity: i64,
 }
 
-
 fn simulate_market_events(_ctx: &Context<CrankMarket>) -> Result<Vec<RawMarketEvent>> {
-    // Backup mock events for testing
+
     Ok(vec![
         RawMarketEvent {
             event_type: 1, // Fill event
@@ -470,7 +515,7 @@ fn simulate_market_events(_ctx: &Context<CrankMarket>) -> Result<Vec<RawMarketEv
 }
 
 fn determine_quote_token(ctx: &Context<CrankMarket>, market_mint: &Pubkey) -> Result<String> {
-
+  
     
     let cpi_accounts = irma_protocol::cpi::accounts::Common {
         state: ctx.accounts.irma_state.to_account_info(),
@@ -480,7 +525,7 @@ fn determine_quote_token(ctx: &Context<CrankMarket>, market_mint: &Pubkey) -> Re
     
     let cpi_program = ctx.accounts.irma_program.to_account_info();
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-
+ 
     match irma_protocol::cpi::get_stablecoin_symbol(cpi_ctx, *market_mint) {
         Ok(Some(symbol)) => {
             msg!("Found quote token: {} for mint: {}", symbol, market_mint);
@@ -497,9 +542,8 @@ fn determine_quote_token(ctx: &Context<CrankMarket>, market_mint: &Pubkey) -> Re
     }
 }
 
-
 fn get_market_quote_mint(ctx: &Context<CrankMarket>) -> Result<Pubkey> {
- 
+
     
     let market_account = &ctx.accounts.market;
     let market_data = market_account.try_borrow_data()?;
@@ -514,6 +558,107 @@ fn get_market_quote_mint(ctx: &Context<CrankMarket>) -> Result<Pubkey> {
 
         Ok(Pubkey::from_str("Es9vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p").unwrap())
     }
+}
+
+fn get_current_irma_prices(ctx: &Context<CrankMarket>, quote_token: &str) -> Result<IrmaPriceInfo> {
+    let cpi_accounts = irma_protocol::cpi::accounts::Common {
+        state: ctx.accounts.irma_state.to_account_info(),
+        trader: ctx.accounts.cranker.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+    };
+    
+    let cpi_program = ctx.accounts.irma_program.to_account_info();
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    
+    // Get reserve info to calculate prices
+    let reserve_info = irma_protocol::cpi::get_reserve_info(cpi_ctx, quote_token)?;
+    
+    let mint_price = reserve_info.mint_price;
+    let redemption_price = if reserve_info.irma_in_circulation > 0 {
+        reserve_info.backing_reserves as f64 / reserve_info.irma_in_circulation as f64
+    } else {
+        1.0 // Default if no circulation
+    };
+    
+    let spread = mint_price - redemption_price;
+    
+    Ok(IrmaPriceInfo {
+        mint_price,
+        redemption_price,
+        spread,
+        backing_reserves: reserve_info.backing_reserves,
+        irma_circulation: reserve_info.irma_in_circulation,
+    })
+}
+
+fn make_intelligent_decision(
+    ctx: &Context<CrankMarket>,
+    market_event: &RawMarketEvent,
+    quote_token: &str,
+) -> Result<IrmaAction> {
+    let irma_prices = get_current_irma_prices(ctx, quote_token)?;
+    let market_price = market_event.price as f64 / 100.0; // Assuming 2 decimal precision
+    
+    msg!("Market Decision: price={}, mint_price={}, redeem_price={}, spread={}", 
+         market_price, irma_prices.mint_price, irma_prices.redemption_price, irma_prices.spread);
+    
+    let action = if market_event.taker_side == 1 {
+        // ASK (someone sold) - market pressure downward
+        if market_price < irma_prices.redemption_price * 1.01 {
+            // Market price below redemption price - great arbitrage opportunity
+            IrmaAction::Mint {
+                quote_token: quote_token.to_string(),
+                amount: calculate_intelligent_amount(&irma_prices, market_event, true),
+            }
+        } else if irma_prices.spread > 0.02 {
+            // Large spread available - mint to capture it
+            IrmaAction::Mint {
+                quote_token: quote_token.to_string(),
+                amount: calculate_intelligent_amount(&irma_prices, market_event, true),
+            }
+        } else {
+            IrmaAction::Skip // Small opportunity, skip to save costs
+        }
+    } else {
+        if market_price > irma_prices.mint_price * 0.99 {
+            // Market price above mint price - redeem opportunity
+            IrmaAction::Redeem {
+                quote_token: quote_token.to_string(),
+                amount: calculate_intelligent_amount(&irma_prices, market_event, false),
+            }
+        } else if irma_prices.spread > 0.02 {
+            // Large spread - redeem some IRMA
+            IrmaAction::Redeem {
+                quote_token: quote_token.to_string(),
+                amount: calculate_intelligent_amount(&irma_prices, market_event, false),
+            }
+        } else {
+            IrmaAction::Skip // Not profitable enough
+        }
+    };
+    
+    Ok(action)
+}
+
+fn calculate_intelligent_amount(irma_prices: &IrmaPriceInfo, market_event: &RawMarketEvent, is_mint: bool) -> u64 {
+    let market_value = (market_event.quantity * market_event.price) / 100; // Basic value calculation
+    
+    let spread_multiplier = if irma_prices.spread > 0.05 {
+        2.0 // Large spread - double the amount
+    } else if irma_prices.spread > 0.02 {
+        1.5 // Medium spread - 1.5x amount
+    } else {
+        1.0 // Small spread - normal amount
+    };
+    
+    let base_amount = if is_mint {
+        (market_value as f64 * spread_multiplier) as u64
+    } else {
+        (market_value as f64 * spread_multiplier * 0.8) as u64
+    };
+    
+    // Safety limits
+    std::cmp::min(base_amount, 50_000) // Max 50k per operation
 }
 
 fn calculate_irma_amount(quantity: u64, price: u64) -> u64 {
@@ -535,7 +680,7 @@ pub struct Initialize<'info> {
     
     #[account(mut)]
     pub authority: Signer<'info>,
-
+    
     pub market_address: UncheckedAccount<'info>,
     
     pub system_program: Program<'info, System>,
@@ -550,16 +695,12 @@ pub struct CrankMarket<'info> {
     )]
     pub crank_state: Account<'info, CrankState>,
     
-
     pub market: UncheckedAccount<'info>,
     
-
     pub event_heap: UncheckedAccount<'info>,
     
-
     pub irma_state: UncheckedAccount<'info>,
     
-
     pub irma_program: UncheckedAccount<'info>,
     
 
@@ -581,7 +722,16 @@ pub struct UpdateConfig<'info> {
     )]
     pub crank_state: Account<'info, CrankState>,
     
+    #[account(mut)]
     pub authority: Signer<'info>,
+    
+    /// CHECK: IRMA program for CPI calls
+    pub irma_program: UncheckedAccount<'info>,
+    
+    /// CHECK: IRMA state account
+    pub irma_state: UncheckedAccount<'info>,
+    
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -742,6 +892,16 @@ pub enum IrmaAction {
     Mint { quote_token: String, amount: u64 },
     Redeem { quote_token: String, amount: u64 },
     Skip,
+}
+
+/// IRMA pricing information for intelligent decision making
+#[derive(Debug, Clone)]
+pub struct IrmaPriceInfo {
+    pub mint_price: f64,           // Pm - price to mint IRMA
+    pub redemption_price: f64,     // Pr - current redemption value  
+    pub spread: f64,               // Pm - Pr (profit opportunity)
+    pub backing_reserves: u64,     // Total backing for this token
+    pub irma_circulation: u64,     // IRMA backed by this token
 }
 
 /// Error Codes
