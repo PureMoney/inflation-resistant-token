@@ -1,0 +1,19 @@
+[package]
+name = "irma-orca-pool-creator"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "create_orca_pool"
+path = "scripts/create_orca_pool_irma_usdc.rs"
+
+[dependencies]
+orca_whirlpools = "0.1"
+orca_tx_sender = "0.1"
+solana_client = "1.18"
+solana_sdk = "1.18"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+dirs = "5.0"
+chrono = "0.4"

@@ -26,8 +26,9 @@ pub struct ProtocolState {
     pub mint_price: u64,
     
     /// The current redemption price in lamports (scaled by 1e9 for precision)
-    /// This is the price at which users can redeem IRMA tokens
-    /// Example: 1.00 USDC = 1_000_000_000
+    /// This is CALCULATED dynamically as: backing_reserves / irma_in_circulation
+    /// It is NOT stored; instead it's computed from StateMap in pricing.rs
+    /// This field is kept for reference but should not be used for calculations
     pub redemption_price: u64,
     
     /// The Pubkey of the Orca Whirlpool this protocol manages
@@ -64,11 +65,11 @@ impl ProtocolState {
     pub const PRICE_SCALE: u64 = 1_000_000_000;
     
     /// Initialize a new ProtocolState
+    /// Both mint_price and redemption_price should start EQUAL (both 1.0 USDC)
     pub fn initialize(
         &mut self,
         authority: Pubkey,
-        mint_price: u64,
-        redemption_price: u64,
+        initial_price: u64,  // Both prices start here (e.g., 1_000_000_000 for 1.0 USDC)
         whirlpool: Pubkey,
         position: Pubkey,
         token_a_mint: Pubkey,
@@ -76,17 +77,13 @@ impl ProtocolState {
         bump: u8,
     ) -> Result<()> {
         require!(
-            mint_price >= redemption_price,
-            ProtocolError::InvalidPriceRelation
-        );
-        require!(
-            redemption_price > 0,
+            initial_price > 0,
             ProtocolError::ZeroPrice
         );
         
         self.authority = authority;
-        self.mint_price = mint_price;
-        self.redemption_price = redemption_price;
+        self.mint_price = initial_price;
+        self.redemption_price = initial_price;  // Both start equal
         self.whirlpool = whirlpool;
         self.position = position;
         self.token_a_mint = token_a_mint;
@@ -98,8 +95,8 @@ impl ProtocolState {
         
         msg!("ProtocolState initialized:");
         msg!("  Authority: {}", authority);
-        msg!("  Mint Price: {} ({})", mint_price, Self::format_price(mint_price));
-        msg!("  Redemption Price: {} ({})", redemption_price, Self::format_price(redemption_price));
+        msg!("  Initial Mint Price: {} ({})", initial_price, Self::format_price(initial_price));
+        msg!("  Initial Redemption Price: {} ({})", initial_price, Self::format_price(initial_price));
         msg!("  Whirlpool: {}", whirlpool);
         msg!("  Position: {}", position);
         
@@ -166,6 +163,45 @@ impl ProtocolState {
         );
         Ok(())
     }
+
+    pub fn apply_inflation_adjustment(
+        &mut self,
+        inflation_rate: f64, // e.g., 0.05 for 5% annual
+    ) -> Result<()> {
+        require!(
+            inflation_rate >= 0.0 && inflation_rate <= 1.0,
+            ProtocolError::InvalidInflationRate
+        );
+        
+        let now = Clock::get()?.unix_timestamp;
+        let time_elapsed_seconds = (now - self.last_price_update) as f64;
+        let seconds_per_year = 365.25 * 24.0 * 60.0 * 60.0;
+        
+        // Calculate compounding factor
+        let years_elapsed = time_elapsed_seconds / seconds_per_year;
+        let multiplier = (1.0 + inflation_rate).powf(years_elapsed);
+        
+        // Apply inflation ONLY to mint price
+        // Redemption price is calculated from backing_reserves / irma_in_circulation
+        // and is updated whenever stablecoins are swapped/minted for IRMA
+        let new_mint_price = (self.mint_price as f64 * multiplier) as u64;
+        
+        // Store current redemption as reference (actual value comes from StateMap)
+        let current_redemption = self.redemption_price;
+        
+        msg!(
+            "Inflation adjustment: time_elapsed={:.2} years, multiplier={:.6}, old_mint={}, new_mint={}",
+            years_elapsed,
+            multiplier,
+            self.mint_price,
+            new_mint_price
+        );
+        
+        // Only update prices, redemption_price is just for reference
+        self.update_prices(new_mint_price, current_redemption)?;
+        
+        Ok(())
+    }
 }
 
 /// Custom errors for protocol state management
@@ -182,4 +218,22 @@ pub enum ProtocolError {
     
     #[msg("Unauthorized: only protocol authority can perform this action")]
     UnauthorizedCaller,
+    
+    #[msg("Invalid mint address")]
+    InvalidMint,
+    
+    #[msg("Invalid token account")]
+    InvalidTokenAccount,
+    
+    #[msg("Amount cannot be zero")]
+    ZeroAmount,
+    
+    #[msg("Math operation overflow")]
+    MathOverflow,
+    
+    #[msg("Insufficient balance in protocol vault")]
+    InsufficientVaultBalance,
+    
+    #[msg("Invalid inflation rate (must be between 0 and 1)")]
+    InvalidInflationRate,
 }

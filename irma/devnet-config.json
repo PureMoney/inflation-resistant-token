@@ -1,0 +1,34 @@
+{
+  "network": "devnet",
+  "tokens": {
+    "irma": {
+      "mint": "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm",
+      "name": "IRMA",
+      "symbol": "IRMA",
+      "decimals": 6,
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    },
+    "usdc": {
+      "mint": "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+      "name": "devUSDC",
+      "symbol": "USDC",
+      "decimals": 6,
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    }
+  },
+  "orca": {
+    "poolUrl": "https://www.orca.so/pools?chainId=solanaDevnet&tokens=ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm&tokens=BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+    "whirlpool": "5A9fbjFRDFqaeb1PYns2PMi11jCV1nkfwrHVm4W3T7pQ",
+    "position": "2RB4Bi3awKj7tkucGfB75KH1hxXANNwYRft6vGZ8pPTV",
+    "tokenMintA": "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm",
+    "tokenMintB": "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+    "tokenVaultA": "9KQenWRTc3rH2fL3xpun4XsYbHE2Ea28RJAdCy1QzA5M",
+    "tokenVaultB": "12KBTJtPFm38sC5eVi1yVMAEq9tGbd3GBmQ3fXQ4b8XV",
+    "liquidity": "7837917283",
+    "currentTick": 0,
+    "feeRate": 4000
+  },
+  "program": {
+    "programId": "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+  }
+}

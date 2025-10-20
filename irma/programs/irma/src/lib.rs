@@ -11,7 +11,7 @@ use orca_integration::OrcaPoolState;
 use protocol_state::ProtocolState;
 
 // Declare your program's ID
-declare_id!("Fx8p5GAJzjBZTn3FHy9Y57Bo6DHpDuYNzURuimv4bA1N");
+declare_id!("FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC");
 
 // ====================================================================
 // START: DEFINE ALL INSTRUCTION ACCOUNT STRUCTS HERE
@@ -105,6 +105,136 @@ pub struct UpdateMockPrices<'info> {
     pub authority: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct ApplyInflation<'info> {
+    #[account(
+        mut,
+        seeds = [b"protocol_state"],
+        bump = protocol_state.bump,
+    )]
+    pub protocol_state: Account<'info, ProtocolState>,
+    
+    pub authority: Signer<'info>,
+}
+
+// ====================================================================
+// Token Operations Contexts
+// ====================================================================
+
+#[derive(Accounts)]
+pub struct MintIrma<'info> {
+    #[account(
+        seeds = [b"protocol_state"],
+        bump = protocol_state.bump,
+    )]
+    pub protocol_state: Account<'info, ProtocolState>,
+    
+    /// CHECK: Verified as SPL Token Mint via constraint
+    #[account(
+        mut,
+        constraint = irma_mint.key() == protocol_state.token_a_mint,
+    )]
+    pub irma_mint: UncheckedAccount<'info>,
+    
+    /// CHECK: Verified as SPL Token Mint via constraint
+    #[account(
+        constraint = usdc_mint.key() == protocol_state.token_b_mint,
+    )]
+    pub usdc_mint: UncheckedAccount<'info>,
+    
+    /// CHECK: User's USDC token account
+    #[account(mut)]
+    pub user_usdc: UncheckedAccount<'info>,
+    
+    /// CHECK: User's IRMA token account
+    #[account(mut)]
+    pub user_irma: UncheckedAccount<'info>,
+    
+    /// CHECK: Protocol's USDC vault
+    #[account(mut)]
+    pub protocol_usdc_vault: UncheckedAccount<'info>,
+    
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    /// CHECK: This is a PDA used as mint authority
+    #[account(
+        seeds = [b"mint_authority"],
+        bump,
+    )]
+    pub mint_authority: UncheckedAccount<'info>,
+    
+    /// CHECK: SPL Token program
+    pub token_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RedeemIrma<'info> {
+    #[account(
+        seeds = [b"protocol_state"],
+        bump = protocol_state.bump,
+    )]
+    pub protocol_state: Account<'info, ProtocolState>,
+    
+    /// CHECK: Verified as SPL Token Mint via constraint
+    #[account(
+        mut,
+        constraint = irma_mint.key() == protocol_state.token_a_mint,
+    )]
+    pub irma_mint: UncheckedAccount<'info>,
+    
+    /// CHECK: Verified as SPL Token Mint via constraint
+    #[account(
+        constraint = usdc_mint.key() == protocol_state.token_b_mint,
+    )]
+    pub usdc_mint: UncheckedAccount<'info>,
+    
+    /// CHECK: User's IRMA token account
+    #[account(mut)]
+    pub user_irma: UncheckedAccount<'info>,
+    
+    /// CHECK: User's USDC token account
+    #[account(mut)]
+    pub user_usdc: UncheckedAccount<'info>,
+    
+    /// CHECK: Protocol's USDC vault
+    #[account(mut)]
+    pub protocol_usdc_vault: UncheckedAccount<'info>,
+    
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    /// CHECK: This is a PDA used as vault authority
+    #[account(
+        seeds = [b"vault_authority"],
+        bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+    
+    /// CHECK: SPL Token program
+    pub token_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RemoveFreezeAuthority<'info> {
+    /// CHECK: The IRMA mint
+    #[account(mut)]
+    pub irma_mint: UncheckedAccount<'info>,
+    
+    /// CHECK: The PDA that is currently the freeze authority
+    #[account(
+        seeds = [b"mint_authority"],
+        bump,
+    )]
+    pub freeze_authority: UncheckedAccount<'info>,
+    
+    /// The authority that can invoke the freeze authority removal
+    pub authority: Signer<'info>,
+    
+    /// CHECK: SPL Token program (or Token2022)
+    pub token_program: UncheckedAccount<'info>,
+}
+
 // ====================================================================
 // END: ACCOUNT STRUCT DEFINITIONS
 // ====================================================================
@@ -115,6 +245,7 @@ pub mod orca_integration;
 pub mod pricing;
 pub mod protocol_state;
 pub mod position_manager;
+pub mod token_operations;
 
 #[program]
 pub mod irma {
@@ -155,10 +286,10 @@ pub mod irma {
 
     /// Initialize the protocol state with initial prices and Orca pool information
     /// This must be called once before any other protocol operations
+    /// Both mint and redemption prices start equal at the initial_price
     pub fn initialize_protocol(
         ctx: Context<InitializeProtocol>,
-        initial_mint_price: u64,
-        initial_redemption_price: u64,
+        initial_price: u64,  // Both prices start here (e.g., 1_000_000_000 for 1.0 USDC)
         whirlpool: Pubkey,
         position: Pubkey,
         token_a_mint: Pubkey,
@@ -168,8 +299,7 @@ pub mod irma {
         
         protocol_state.initialize(
             ctx.accounts.authority.key(),
-            initial_mint_price,
-            initial_redemption_price,
+            initial_price,
             whirlpool,
             position,
             token_a_mint,
@@ -198,6 +328,49 @@ pub mod irma {
         
         msg!("Mock prices updated successfully!");
         Ok(())
+    }
+
+    /// Apply inflation adjustment to prices based on inflation rate
+    /// This simulates real-world inflation impact on IRMA mint/redemption prices
+    pub fn apply_inflation(
+        ctx: Context<ApplyInflation>,
+        inflation_rate_bps: u32,  // e.g., 500 for 5% = 500 basis points
+    ) -> Result<()> {
+        let protocol_state = &mut ctx.accounts.protocol_state;
+        
+        // Verify the caller is authorized
+        protocol_state.verify_authority(&ctx.accounts.authority)?;
+        
+        // Convert basis points to decimal (500 bps = 0.05)
+        let inflation_rate = (inflation_rate_bps as f64) / 10_000.0;
+        
+        msg!("Applying inflation rate: {} bps ({:.2}%)", inflation_rate_bps, inflation_rate * 100.0);
+        
+        // Apply inflation adjustment
+        protocol_state.apply_inflation_adjustment(inflation_rate)?;
+        
+        msg!("Inflation applied successfully!");
+        Ok(())
+    }
+
+    // ====================================================================
+    // Token Operations (Mint & Redeem)
+    // ====================================================================
+    
+    /// Mint IRMA tokens by depositing USDC at the current mint price
+    pub fn mint_irma(ctx: Context<MintIrma>, usdc_amount: u64) -> Result<()> {
+        token_operations::mint_irma(ctx, usdc_amount)
+    }
+    
+    /// Redeem IRMA tokens for USDC at the current redemption price
+    pub fn redeem_irma(ctx: Context<RedeemIrma>, irma_amount: u64) -> Result<()> {
+        token_operations::redeem_irma(ctx, irma_amount)
+    }
+
+    /// Remove the freeze authority from the IRMA token mint
+    /// This ensures the token cannot be frozen after setup
+    pub fn remove_irma_freeze_authority(ctx: Context<RemoveFreezeAuthority>) -> Result<()> {
+        token_operations::remove_irma_freeze_authority(ctx)
     }
 
     // ====================================================================

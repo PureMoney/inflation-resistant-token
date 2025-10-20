@@ -7,13 +7,13 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-irma = "4rVQnE69m14Qows2iwcgokb59nx7G49VD6fQ9GH9Y6KJ"
+irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
 
 [programs.localnet]
-irma = "Fx8p5GAJzjBZTn3FHy9Y57Bo6DHpDuYNzURuimv4bA1N"
+irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
 
 [programs.mainnet]
-irma = "4rVQnE69m14Qows2iwcgokb59nx7G49VD6fQ9GH9Y6KJ"
+irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
 
 [registry]
 url = "https://api.apr.dev"
