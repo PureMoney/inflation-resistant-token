@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+irma = "BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda"
 
 [programs.localnet]
 irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
