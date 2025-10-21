@@ -24,7 +24,8 @@ async function readProtocolState() {
   console.log("==========================================\n");
 
   // Connect to devnet WITHOUT wallet (read-only mode)
-  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+  const clusterUrl = process.env.ANCHOR_PROVIDER_URL || "https://api.devnet.solana.com";
+  const connection = new Connection(clusterUrl, "confirmed");
   
   // Create a dummy provider for reading (doesn't need wallet)
   const provider = new AnchorProvider(connection, null as any, { commitment: "confirmed" });

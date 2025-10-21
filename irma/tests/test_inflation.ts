@@ -28,7 +28,8 @@ async function testInflation() {
   console.log("================================\n");
 
   // Setup provider with wallet from keypair file
-  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+  const clusterUrl = process.env.ANCHOR_PROVIDER_URL || "https://api.devnet.solana.com";
+  const connection = new Connection(clusterUrl, "confirmed");
   const walletPath = path.join(process.env.HOME || "", ".config/solana/phantom1.json");
   const walletKeypair = Keypair.fromSecretKey(
     new Uint8Array(JSON.parse(fs.readFileSync(walletPath, "utf-8")))

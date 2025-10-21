@@ -23,7 +23,7 @@ cluster = "Devnet"
 wallet = "~/.config/solana/phantom1.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/devnet_protocol_test.ts"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/read_protocol_state.ts"
 
 [test]
 startup_wait = 10000
