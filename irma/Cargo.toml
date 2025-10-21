@@ -5,8 +5,8 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-openbook-v2 = "0.1.0"
 fixed = { git = "https://github.com/blockworks-foundation/fixed.git", branch = "v1.11.0-borsh0_10-mango", features = ["debug-assert-in-release"] }
+wasm-bindgen = "0.2.88"
 
 [profile.release]
 overflow-checks = true

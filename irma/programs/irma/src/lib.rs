@@ -7,7 +7,6 @@ use std::mem::size_of;
 
 // Import the state structs from your modules, as they are used in the account definitions.
 use pricing::{StateMap, StableState};
-use orca_integration::OrcaPoolState;
 use protocol_state::ProtocolState;
 
 // Declare your program's ID
@@ -41,35 +40,6 @@ pub struct Maint<'info> {
     pub state: Account<'info, StateMap>,
     pub irma_admin: Signer<'info>,
     pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct CreateOrcaPool<'info> {
-    #[account(init, payer = admin, space = 8 + 256)]
-    pub pool_state: Account<'info, OrcaPoolState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct UpdatePoolState<'info> {
-    #[account(mut)]
-    pub pool_state: Account<'info, OrcaPoolState>,
-    #[account(mut)]
-    pub updater: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct GetPoolInfo<'info> {
-    pub pool_state: Account<'info, OrcaPoolState>,
-}
-
-#[derive(Accounts)]
-pub struct SimulateSwap<'info> {
-    pub pool_state: Account<'info, OrcaPoolState>,
-    #[account(mut)]
-    pub trader: Signer<'info>,
 }
 
 // ====================================================================
@@ -241,7 +211,6 @@ pub struct RemoveFreezeAuthority<'info> {
 
 // Declare your modules
 // pub mod iopenbook;
-pub mod orca_integration;
 pub mod pricing;
 pub mod protocol_state;
 pub mod position_manager;
@@ -371,41 +340,5 @@ pub mod irma {
     /// This ensures the token cannot be frozen after setup
     pub fn remove_irma_freeze_authority(ctx: Context<RemoveFreezeAuthority>) -> Result<()> {
         token_operations::remove_irma_freeze_authority(ctx)
-    }
-
-    // ====================================================================
-    // Orca Integration Functions
-    // ====================================================================
-    pub fn create_orca_pool(
-        ctx: Context<CreateOrcaPool>,
-        pool_id: Pubkey,
-        token_a_mint: Pubkey,
-        token_b_mint: Pubkey,
-        fee_rate: u64,
-        tick_spacing: u16,
-    ) -> Result<()> {
-        orca_integration::create_orca_pool(ctx, pool_id, token_a_mint, token_b_mint, fee_rate, tick_spacing)
-    }
-
-    pub fn update_pool_state(
-        ctx: Context<UpdatePoolState>,
-        current_price: u64,
-        liquidity: u64,
-        volume_24h: u64,
-    ) -> Result<()> {
-        orca_integration::update_pool_state(ctx, current_price, liquidity, volume_24h)
-    }
-
-    pub fn get_pool_info(ctx: Context<GetPoolInfo>) -> Result<orca_integration::OrcaPoolState> {
-        orca_integration::get_pool_info(ctx)
-    }
-
-    pub fn simulate_swap(
-        ctx: Context<SimulateSwap>,
-        amount_in: u64,
-        token_in_mint: Pubkey,
-        min_amount_out: u64,
-    ) -> Result<u64> {
-        orca_integration::simulate_swap(ctx, amount_in, token_in_mint, min_amount_out)
     }
 }
