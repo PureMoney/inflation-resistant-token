@@ -1,6 +1,6 @@
 # Inflation-Resistant Medium of Account (IRMA)
 
-This a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using OpenBook. Switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
+This is a set of Solana contracts started in GoLang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using OpenBook. Switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
 
 IRMA Token: irmaN9bozBo9nnTqu1RBuoK7imbvBiFJTtdm6c7tC9f
 
@@ -16,7 +16,7 @@ Programming directly on Solana involves lots of complicated details. Using the A
 
 ## 0. Run Ubuntu 24.04
 
-The problem with previous versions of Ubuntu is that the glibc version that comes with those are not compatible with anchor version 0.31.1. You can save time by starting with the Ubuntu 24.04 distribution. If you are running Ubuntu undel WSL in Windows, you can terminate any previous running version and simply issue the following wsl command:
+The problem with previous versions of Ubuntu is that the glibc version that comes with those are not compatible with anchor version 0.31.1. You can save time by starting with the Ubuntu 24.04 distribution. If you are running Ubuntu undel WSL in Windows, you can terminate any previously running version and simply issue the following wsl command:
 
 wsl --install Ubuntu-24.04
 
