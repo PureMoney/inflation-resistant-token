@@ -1,0 +1,13 @@
+[build]
+rustflags = ["--cfg", "getrandom_custom"]
+
+# Specific configuration for Solana BPF target
+[target.bpfel-unknown-unknown]
+rustflags = ["--cfg", "getrandom_custom"]
+
+[target.'cfg(target_os = "solana")']
+rustflags = ["--cfg", "getrandom_custom"]
+
+# Ensure getrandom uses custom implementation
+[env]
+GETRANDOM_BACKEND = "custom"

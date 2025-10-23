@@ -6,6 +6,10 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
+# Build configuration for Solana BPF target
+[build]
+rustflags = ["--cfg", "getrandom_custom"]
+
 [programs.devnet]
 irma = "BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda"
 

@@ -7,7 +7,12 @@ use std::mem::size_of;
 
 // Import the state structs from your modules, as they are used in the account definitions.
 use pricing::{StateMap, StableState};
-use orca_integration::OrcaPoolState;
+
+// Temporarily disable orca integration to test getrandom
+// mod orca_integration;
+// use orca_integration::OrcaPoolState;
+
+mod protocol_state;
 use protocol_state::ProtocolState;
 
 // Declare your program's ID
@@ -43,6 +48,7 @@ pub struct Maint<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/*
 #[derive(Accounts)]
 pub struct CreateOrcaPool<'info> {
     #[account(init, payer = admin, space = 8 + 256)]
@@ -71,6 +77,7 @@ pub struct SimulateSwap<'info> {
     #[account(mut)]
     pub trader: Signer<'info>,
 }
+*/
 
 // ====================================================================
 // Protocol State Management Contexts
@@ -241,11 +248,9 @@ pub struct RemoveFreezeAuthority<'info> {
 
 // Declare your modules
 // pub mod iopenbook;
-pub mod orca_integration;
+// pub mod orca_integration;
 pub mod pricing;
-pub mod protocol_state;
 pub mod position_manager;
-pub mod token_operations;
 
 #[program]
 pub mod irma {
@@ -353,26 +358,7 @@ pub mod irma {
         Ok(())
     }
 
-    // ====================================================================
-    // Token Operations (Mint & Redeem)
-    // ====================================================================
-    
-    /// Mint IRMA tokens by depositing USDC at the current mint price
-    pub fn mint_irma(ctx: Context<MintIrma>, usdc_amount: u64) -> Result<()> {
-        token_operations::mint_irma(ctx, usdc_amount)
-    }
-    
-    /// Redeem IRMA tokens for USDC at the current redemption price
-    pub fn redeem_irma(ctx: Context<RedeemIrma>, irma_amount: u64) -> Result<()> {
-        token_operations::redeem_irma(ctx, irma_amount)
-    }
-
-    /// Remove the freeze authority from the IRMA token mint
-    /// This ensures the token cannot be frozen after setup
-    pub fn remove_irma_freeze_authority(ctx: Context<RemoveFreezeAuthority>) -> Result<()> {
-        token_operations::remove_irma_freeze_authority(ctx)
-    }
-
+    /*
     // ====================================================================
     // Orca Integration Functions
     // ====================================================================
@@ -408,4 +394,5 @@ pub mod irma {
     ) -> Result<u64> {
         orca_integration::simulate_swap(ctx, amount_in, token_in_mint, min_amount_out)
     }
-}
+    */
+    }

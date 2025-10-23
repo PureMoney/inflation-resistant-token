@@ -5,8 +5,15 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-openbook-v2 = "0.1.0"
 fixed = { git = "https://github.com/blockworks-foundation/fixed.git", branch = "v1.11.0-borsh0_10-mango", features = ["debug-assert-in-release"] }
+orca_whirlpools = "5.0.1"
+# Use git version to match the patch
+getrandom = { git = "https://github.com/rust-random/getrandom.git", tag = "v0.2.15", features = ["custom"] }
+# Remove networking dependencies - only for client-side scripts, not Solana programs
+# orca_tx_sender = "0.1.0"
+# solana-client = "2.3.13"  
+# solana-sdk = "2.3.1"
+# tokio = { version = "1.48.0", features = ["full"] }
 
 [profile.release]
 overflow-checks = true
@@ -17,3 +24,11 @@ codegen-units = 1
 opt-level = 3
 incremental = false
 codegen-units = 1
+
+# Force all dependencies to use our getrandom version
+[workspace.metadata.dependency-versions]
+getrandom = "0.2.15"
+
+# Use git patch to replace ALL getrandom versions with 0.2.15
+[patch.crates-io]
+getrandom = { git = "https://github.com/rust-random/getrandom.git", tag = "v0.2.15" }
