@@ -10,7 +10,6 @@ use pricing::{StateMap, StableState};
 
 // Use minimal orca implementation instead of full orca_whirlpools crate
 mod minimal_orca;
-use minimal_orca::{MinimalWhirlpool, MinimalPosition};
 
 mod protocol_state;
 use protocol_state::ProtocolState;
@@ -247,8 +246,7 @@ pub struct RemoveFreezeAuthority<'info> {
 // ====================================================================
 
 // Declare your modules
-// pub mod iopenbook;
-// pub mod orca_integration;
+pub mod orca_integration;
 pub mod pricing;
 pub mod position_manager;
 

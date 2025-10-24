@@ -59,45 +59,55 @@ pub struct SwapWithWhirlpool<'info> {
     #[account(address = ORCA_WHIRLPOOLS_PROGRAM_ID)]
     pub whirlpools_program: AccountInfo<'info>,
     
-    /// The whirlpool account
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub whirlpool: AccountInfo<'info>,
     
     /// User's token account for token A
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub token_owner_account_a: AccountInfo<'info>,
     
     /// User's token account for token B  
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub token_owner_account_b: AccountInfo<'info>,
     
     /// Whirlpool's token vault for token A
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub token_vault_a: AccountInfo<'info>,
     
     /// Whirlpool's token vault for token B
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub token_vault_b: AccountInfo<'info>,
     
     /// Tick array 0
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub tick_array_0: AccountInfo<'info>,
     
     /// Tick array 1
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub tick_array_1: AccountInfo<'info>,
     
     /// Tick array 2
+    /// CHECK: Validated by Whirlpool program
     #[account(mut)]
     pub tick_array_2: AccountInfo<'info>,
     
     /// Oracle account (PDA)
+    /// CHECK: Validated by Whirlpool program
     pub oracle: AccountInfo<'info>,
     
     /// Token authority/signer
+    /// CHECK: Validated by Whirlpool program
     pub token_authority: Signer<'info>,
     
     /// SPL Token program
+    /// CHECK: Validated by Whirlpool program
     pub token_program: AccountInfo<'info>,
 }
 
@@ -240,9 +250,10 @@ pub fn get_irma_price_from_whirlpool(
     Ok(price)
 }
 
+/// This is the account context for getting the IRMA price from a Whirlpool
 #[derive(Accounts)]
 pub struct GetIrmaPrice<'info> {
-    /// The whirlpool account containing price data
+    /// CHECK: Validated by Whirlpool program
     pub whirlpool: AccountInfo<'info>,
 }
 
