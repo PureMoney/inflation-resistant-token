@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
+use crate::minimal_orca::{MinimalWhirlpool, MinimalPosition};
 // use anchor_lang::solana_program;
 // use std::str::FromStr;
 
@@ -254,4 +255,238 @@ pub enum CustomError {
     InvalidPoolConfig,
     #[msg("Pool not active")]
     PoolNotActive,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anchor_lang::prelude::*;
+    use std::str::FromStr;
+
+    // Mock Pubkeys for testing
+    fn mock_pubkey(seed: &str) -> Pubkey {
+        Pubkey::from_str("11111111111111111111111111111112").unwrap()
+    }
+
+    fn mock_config_pubkey() -> Pubkey {
+        Pubkey::from_str("2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ").unwrap()
+    }
+
+    fn mock_mint_a() -> Pubkey {
+        Pubkey::from_str("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").unwrap() // USDC
+    }
+
+    fn mock_mint_b() -> Pubkey {
+        Pubkey::from_str("So11111111111111111111111111111111111111112").unwrap() // SOL
+    }
+
+    #[test]
+    fn test_orca_whirlpools_program_id() {
+        // Test that the program ID is correct
+        let expected = Pubkey::from_str("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap();
+        assert_eq!(ORCA_WHIRLPOOLS_PROGRAM_ID, expected);
+    }
+
+    #[test]
+    fn test_get_whirlpool_pdas() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+        let tick_spacing = 64u16;
+
+        let result = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing);
+        assert!(result.is_ok());
+
+        let (whirlpool_pda, oracle_pda, token_vault_a) = result.unwrap();
+        
+        // Verify PDAs are valid Pubkeys (not all zeros)
+        assert_ne!(whirlpool_pda, Pubkey::default());
+        assert_ne!(oracle_pda, Pubkey::default());
+        assert_ne!(token_vault_a, Pubkey::default());
+
+        // Test that the same inputs produce the same outputs (deterministic)
+        let result2 = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing);
+        assert!(result2.is_ok());
+        let (whirlpool_pda2, oracle_pda2, token_vault_a2) = result2.unwrap();
+        
+        assert_eq!(whirlpool_pda, whirlpool_pda2);
+        assert_eq!(oracle_pda, oracle_pda2);
+        assert_eq!(token_vault_a, token_vault_a2);
+    }
+
+    #[test]
+    fn test_get_whirlpool_pdas_different_tick_spacing() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+
+        // Test with different tick spacings produce different PDAs
+        let result_64 = get_whirlpool_pdas(&config, &mint_a, &mint_b, 64).unwrap();
+        let result_128 = get_whirlpool_pdas(&config, &mint_a, &mint_b, 128).unwrap();
+
+        assert_ne!(result_64.0, result_128.0); // Different whirlpool PDAs
+        assert_ne!(result_64.1, result_128.1); // Different oracle PDAs
+        assert_ne!(result_64.2, result_128.2); // Different vault PDAs
+    }
+
+    #[test]
+    fn test_get_whirlpool_pdas_swapped_mints() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+        let tick_spacing = 64u16;
+
+        // Test with mints in different order
+        let result1 = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing).unwrap();
+        let result2 = get_whirlpool_pdas(&config, &mint_b, &mint_a, tick_spacing).unwrap();
+
+        // Should produce different PDAs when mints are swapped
+        assert_ne!(result1.0, result2.0);
+        assert_ne!(result1.1, result2.1);
+        assert_ne!(result1.2, result2.2);
+    }
+
+    #[test]
+    fn test_build_swap_instruction_data() {
+        let amount = 1000000u64; // 1 USDC (6 decimals)
+        let threshold = 900000u64;
+        let sqrt_price_limit = 4295048016u128; // Example sqrt price
+        let amount_specified_is_input = true;
+        let a_to_b = true;
+
+        let result = build_swap_instruction_data(
+            amount,
+            threshold,
+            sqrt_price_limit,
+            amount_specified_is_input,
+            a_to_b,
+        );
+
+        assert!(result.is_ok());
+        let data = result.unwrap();
+
+        // Should start with the swap discriminator (8 bytes)
+        assert!(data.len() >= 8);
+        assert_eq!(&data[0..8], &[0xf8, 0xc6, 0x9e, 0x91, 0xe1, 0x75, 0x87, 0xc8]);
+
+        // Should have correct total length (8 + 8 + 8 + 16 + 1 + 1 = 42 bytes)
+        assert_eq!(data.len(), 42);
+    }
+
+    #[test]
+    fn test_build_swap_instruction_data_different_params() {
+        // Test with different parameters to ensure serialization works
+        let params = [
+            (1000000u64, 900000u64, 4295048016u128, true, true),
+            (2000000u64, 1800000u64, 4295048017u128, false, false),
+            (0u64, 0u64, 0u128, false, true),
+            (u64::MAX, u64::MAX, u128::MAX, true, false),
+        ];
+
+        for (amount, threshold, sqrt_price_limit, amount_specified_is_input, a_to_b) in params {
+            let result = build_swap_instruction_data(
+                amount,
+                threshold,
+                sqrt_price_limit,
+                amount_specified_is_input,
+                a_to_b,
+            );
+
+            assert!(result.is_ok(), "Failed for params: {:?}", (amount, threshold, sqrt_price_limit, amount_specified_is_input, a_to_b));
+            let data = result.unwrap();
+            assert_eq!(data.len(), 42);
+            assert_eq!(&data[0..8], &[0xf8, 0xc6, 0x9e, 0x91, 0xe1, 0x75, 0x87, 0xc8]);
+        }
+    }
+
+    #[test]
+    fn test_whirlpool_pda_seeds() {
+        // Test that our PDA derivation uses the correct seeds
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+        let tick_spacing = 64u16;
+
+        // Manually derive whirlpool PDA to verify our implementation
+        let (expected_whirlpool, _) = Pubkey::find_program_address(
+            &[
+                b"whirlpool",
+                config.as_ref(),
+                mint_a.as_ref(),
+                mint_b.as_ref(),
+                &tick_spacing.to_le_bytes(),
+            ],
+            &ORCA_WHIRLPOOLS_PROGRAM_ID,
+        );
+
+        let (actual_whirlpool, _, _) = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing).unwrap();
+        assert_eq!(expected_whirlpool, actual_whirlpool);
+    }
+
+    #[test]
+    fn test_oracle_pda_derivation() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+        let tick_spacing = 64u16;
+
+        let (whirlpool_pda, oracle_pda, _) = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing).unwrap();
+
+        // Manually derive oracle PDA to verify
+        let (expected_oracle, _) = Pubkey::find_program_address(
+            &[b"oracle", whirlpool_pda.as_ref()],
+            &ORCA_WHIRLPOOLS_PROGRAM_ID,
+        );
+
+        assert_eq!(expected_oracle, oracle_pda);
+    }
+
+    #[test]
+    fn test_token_vault_a_derivation() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+        let tick_spacing = 64u16;
+
+        let (whirlpool_pda, _, token_vault_a) = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing).unwrap();
+
+        // Manually derive token vault A PDA to verify
+        let (expected_vault_a, _) = Pubkey::find_program_address(
+            &[b"token_vault", whirlpool_pda.as_ref(), mint_a.as_ref()],
+            &ORCA_WHIRLPOOLS_PROGRAM_ID,
+        );
+
+        assert_eq!(expected_vault_a, token_vault_a);
+    }
+
+    // Test various tick spacing values
+    #[test]
+    fn test_common_tick_spacings() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+
+        // Common Orca tick spacings
+        let tick_spacings = [1, 8, 64, 128];
+
+        for &tick_spacing in &tick_spacings {
+            let result = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing);
+            assert!(result.is_ok(), "Failed for tick spacing: {}", tick_spacing);
+        }
+    }
+
+    #[test]
+    fn test_extreme_tick_spacing_values() {
+        let config = mock_config_pubkey();
+        let mint_a = mock_mint_a();
+        let mint_b = mock_mint_b();
+
+        // Test edge cases
+        let tick_spacings = [0, 1, u16::MAX];
+
+        for &tick_spacing in &tick_spacings {
+            let result = get_whirlpool_pdas(&config, &mint_a, &mint_b, tick_spacing);
+            assert!(result.is_ok(), "Failed for tick spacing: {}", tick_spacing);
+        }
+    }
 }

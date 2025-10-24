@@ -22,9 +22,9 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang = "0.32.1"
-# Temporarily disable orca_whirlpools to test if our getrandom issue is resolved
+# Remove orca_whirlpools entirely and use our minimal implementation
 # orca_whirlpools = { workspace = true, default-features = false }
 fixed = { workspace = true }
 static_assertions = "1.1.0"
-getrandom = { workspace = true, features = ["custom"] }
+getrandom = { workspace = true }
 

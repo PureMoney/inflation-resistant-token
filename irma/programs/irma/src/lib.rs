@@ -8,9 +8,9 @@ use std::mem::size_of;
 // Import the state structs from your modules, as they are used in the account definitions.
 use pricing::{StateMap, StableState};
 
-// Temporarily disable orca integration to test getrandom
-// mod orca_integration;
-// use orca_integration::OrcaPoolState;
+// Use minimal orca implementation instead of full orca_whirlpools crate
+mod minimal_orca;
+use minimal_orca::{MinimalWhirlpool, MinimalPosition};
 
 mod protocol_state;
 use protocol_state::ProtocolState;
