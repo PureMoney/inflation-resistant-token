@@ -8,9 +8,6 @@ use std::mem::size_of;
 // Import the state structs from your modules, as they are used in the account definitions.
 use pricing::{StateMap, StableState};
 
-// Use minimal orca implementation instead of full orca_whirlpools crate
-mod minimal_orca;
-
 mod protocol_state;
 use protocol_state::ProtocolState;
 

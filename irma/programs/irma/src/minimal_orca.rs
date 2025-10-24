@@ -3,6 +3,8 @@
 
 use anchor_lang::prelude::*;
 
+// NOTE: This is no longer used because we are using the Orca IDL directly in orca_integration.rs
+
 /// Whirlpool account structure - minimal version for reading pool state
 #[account]
 #[derive(Debug)]

@@ -1,18 +1,17 @@
 #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
-use crate::minimal_orca::{MinimalWhirlpool, MinimalPosition};
-// use anchor_lang::solana_program;
-// use std::str::FromStr;
-
-// Orca Whirlpools 5.0.1+ uses a different API structure
-// We'll use the raw program interactions instead of deprecated client modules
 
 /// Orca AMM integration for IRMA
 /// This module handles creating and managing Orca pools for IRMA trading
 
 // Orca Whirlpools program ID (same on mainnet and devnet)
 pub const ORCA_WHIRLPOOLS_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+
+// Orca Whirlpools 5.0.1+ uses a different API structure
+// We'll use the raw program interactions instead of deprecated client modules
+declare_program!(whirlpool_idl_devnet);
+// declare_program!(whirlpool_idl_mainnet);
 
 /// Modern helper function to get Whirlpool program derived addresses
 /// These are needed for interacting with Orca Whirlpools 5.0.1+
