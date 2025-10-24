@@ -7,10 +7,11 @@
     "test": "ts-mocha --timeout 20000 --reporter spec --require ts-node/register tests/**/*.ts"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "0.32.1",
+    "@coral-xyz/anchor": "0.30.1",
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
     "@orca-so/whirlpools": "^4.0.0",
-    "@orca-so/whirlpools-sdk": "^0.8.2",
+    "@orca-so/whirlpools-client": "^4.0.1",
+    "@orca-so/whirlpools-sdk": "^0.16.0",
     "@solana/kit": "^2.3.0",
     "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.87.6"

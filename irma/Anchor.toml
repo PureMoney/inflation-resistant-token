@@ -1,6 +1,5 @@
 [toolchain]
-anchor_version = "0.29.0"
-solana_version = "1.17.30"
+anchor_version = "0.30.1"
 package_manager = "yarn"
 
 [features]
@@ -8,13 +7,13 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+irma = "9akX8KP7Jvn7EzESjA88CKBAySQzB1CJvqLWGaDkGQMD"
 
 [programs.localnet]
-irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+irma = "9akX8KP7Jvn7EzESjA88CKBAySQzB1CJvqLWGaDkGQMD"
 
 [programs.mainnet]
-irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+irma = "9akX8KP7Jvn7EzESjA88CKBAySQzB1CJvqLWGaDkGQMD"
 
 [registry]
 url = "https://api.apr.dev"

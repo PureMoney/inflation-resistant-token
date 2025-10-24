@@ -10,7 +10,7 @@ use pricing::{StateMap, StableState};
 use protocol_state::ProtocolState;
 
 // Declare your program's ID
-declare_id!("FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC");
+declare_id!("9akX8KP7Jvn7EzESjA88CKBAySQzB1CJvqLWGaDkGQMD");
 
 // ====================================================================
 // START: DEFINE ALL INSTRUCTION ACCOUNT STRUCTS HERE
@@ -85,6 +85,34 @@ pub struct ApplyInflation<'info> {
     pub protocol_state: Account<'info, ProtocolState>,
     
     pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeOrcaPool<'info> {
+    #[account(mut)]
+    pub funder: Signer<'info>,
+    pub system_program: Program<'info, System>,
+    // Add other required accounts for Orca pool initialization
+}
+
+pub fn initialize_orca_pool(
+    ctx: Context<InitializeOrcaPool>,
+    whirlpool_config: Pubkey,
+    token_mint_a: Pubkey,
+    token_mint_b: Pubkey,
+    tick_spacing: u16,
+    initial_sqrt_price: u128,
+) -> Result<()> {
+    let pool_config = crate::orca_integration::create_orca_whirlpool(
+        whirlpool_config,
+        token_mint_a,
+        token_mint_b,
+        tick_spacing,
+        initial_sqrt_price,
+    )?;
+    
+    msg!("Pool created at: {}", pool_config.whirlpool_pda);
+    Ok(())
 }
 
 // ====================================================================
@@ -211,6 +239,7 @@ pub struct RemoveFreezeAuthority<'info> {
 
 // Declare your modules
 // pub mod iopenbook;
+pub mod orca_integration;
 pub mod pricing;
 pub mod protocol_state;
 pub mod position_manager;
@@ -335,10 +364,30 @@ pub mod irma {
     pub fn redeem_irma(ctx: Context<RedeemIrma>, irma_amount: u64) -> Result<()> {
         token_operations::redeem_irma(ctx, irma_amount)
     }
-
-    /// Remove the freeze authority from the IRMA token mint
-    /// This ensures the token cannot be frozen after setup
-    pub fn remove_irma_freeze_authority(ctx: Context<RemoveFreezeAuthority>) -> Result<()> {
-        token_operations::remove_irma_freeze_authority(ctx)
+    // ====================================================================
+    // Orca Integration Functions
+    // ====================================================================
+    
+    pub fn initialize_orca_pool(
+        ctx: Context<InitializeOrcaPool>,
+        whirlpool_config: Pubkey,
+        token_mint_a: Pubkey,
+        token_mint_b: Pubkey,
+        tick_spacing: u16,
+        initial_sqrt_price: u128,
+    ) -> Result<()> {
+        let pool_config = crate::orca_integration::create_orca_whirlpool(
+            whirlpool_config,
+            token_mint_a,
+            token_mint_b,
+            tick_spacing,
+            initial_sqrt_price,
+        )?;
+        
+        msg!("✅ Orca Pool Configuration Calculated!");
+        msg!("   Whirlpool Address: {}", pool_config.whirlpool_pda);
+        msg!("   Fee Tier: {}", pool_config.fee_tier);
+        
+        Ok(())
     }
 }

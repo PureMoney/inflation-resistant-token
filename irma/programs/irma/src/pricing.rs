@@ -16,7 +16,6 @@ use static_assertions::const_assert_eq;
 use core::mem::size_of;
 // use anchor_lang::solana_program::pubkey;
 
-use crate::pricing::solana_program::pubkey;
 
 // The number of stablecoins that are initially supported by the IRMA program.
 pub const BACKING_COUNT: usize = 6 as usize;
