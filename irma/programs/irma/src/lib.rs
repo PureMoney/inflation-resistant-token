@@ -228,4 +228,15 @@ pub mod irma {
         pricing::get_prices(ctx, &quote_token)
     }
 
+    /// Let pricing know about a sale trade event
+    /// Note that IRMA is what we are selling (minting).
+    pub fn sale_trade_event(ctx: Context<Common>, bought_token: String, bought_amount: u64) -> Result<()> {
+        return pricing::mint_irma(ctx, &bought_token, bought_amount);
+    }
+
+    /// Let pricing know about a buy trade event
+    /// Note that IRMA is what we are buying (burning).
+    pub fn buy_trade_event(ctx: Context<Common>, sold_token: String, bought_amount: u64) -> Result<()> {
+        return pricing::redeem_irma(ctx, &sold_token, bought_amount);
+    }
 }

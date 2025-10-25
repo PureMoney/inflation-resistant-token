@@ -218,7 +218,7 @@ fn build_swap_instruction_data(
 }
 
 pub fn open_whirlpool_position<'a, 'b, 'c, 'info>(
-    context: CpiContext<'a, 'b, 'c, 'info, OpenPosition<'info>>
+    context: CpiContext<'a, 'b, 'c, 'info, OpenPosition<'info>>, index0: i32, index1: i32
 ) -> Result<()> {
     // Implementation for opening a position in the Whirlpool
     // This would involve creating the necessary accounts and initializing them
@@ -229,7 +229,7 @@ pub fn open_whirlpool_position<'a, 'b, 'c, 'info>(
     };
 
     // Further CPI calls to initialize the position would go here
-    return whirlpool_idl::cpi::open_position(context, bumps, 0, 0);
+    return whirlpool_idl::cpi::open_position(context, bumps, index0, index1);
 }
 
 /// Function to read current price from an Orca Whirlpool using modern API

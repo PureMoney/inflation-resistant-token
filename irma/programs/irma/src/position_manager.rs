@@ -87,7 +87,10 @@ impl<'info> CreatePosition<'info> {
             },
             &signer_seeds,
         );
-        crate::orca_integration::open_whirlpool_position(context)
+        // set tick indexes according to how we initialized the pool
+        let index0: i32 = 0; // Placeholder for actual tick index calculation
+        let index1: i32 = 0; // Placeholder for actual tick index calculation
+        return crate::orca_integration::open_whirlpool_position(context, index0, index1);
     }
 }
 
