@@ -12,6 +12,8 @@ pub const ORCA_WHIRLPOOLS_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg
 // We'll use the raw program interactions instead of deprecated client modules
 declare_program!(whirlpool_idl_devnet);
 // declare_program!(whirlpool_idl_mainnet);
+use whirlpool_idl_devnet::accounts::Position;
+use whirlpool_idl_devnet::types::PositionRewardInfo;
 
 /// Modern helper function to get Whirlpool program derived addresses
 /// These are needed for interacting with Orca Whirlpools 5.0.1+
@@ -110,6 +112,8 @@ pub struct SwapWithWhirlpool<'info> {
     pub token_program: AccountInfo<'info>,
 }
 
+/// swap function
+/// This is not really useful for us because swaps are initiated by user through Orca website.
 /// Updated swap function for orca_whirlpools 5.0.1+
 pub fn swap_with_whirlpool(
     ctx: Context<SwapWithWhirlpool>,
@@ -207,6 +211,26 @@ fn build_swap_instruction_data(
     a_to_b.serialize(&mut data)?;
     
     Ok(data)
+}
+
+pub fn open_whirlpool_position() {
+    // Implementation for opening a position in the Whirlpool
+    // This would involve creating the necessary accounts and initializing them
+    // according to the Orca Whirlpool specifications.
+    // For brevity, this function is left as a placeholder.
+    const position: Position = Position {
+        // Fill in required fields for position initialization
+        fee_growth_checkpoint_a: 100000, // just some random value for now
+        fee_growth_checkpoint_b: 100000, // just some random value for now
+        tick_lower_index: -1,
+        tick_upper_index: -1,
+        liquidity: 0,
+        whirlpool: pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"), // dummy
+        position_mint: pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"), // dummy
+        fee_owed_a: 0,
+        fee_owed_b: 0,
+        reward_infos: [PositionRewardInfo { growth_inside_checkpoint: 0, amount_owed: 0 }; 3],
+    };
 }
 
 /// Function to read current price from an Orca Whirlpool using modern API
