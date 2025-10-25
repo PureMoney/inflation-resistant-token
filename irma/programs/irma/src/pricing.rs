@@ -114,34 +114,6 @@ pub fn set_mint_price(ctx: Context<Common>, quote_token: &str, mint_price: f64) 
     Ok(())
 }
 
-/// Update mint price based on mock inflation data for testing purposes.
-/// In production, this would fetch from Truflation or similar oracle.
-pub fn update_mint_price_with_inflation(ctx: Context<Common>, quote_token: &str, inflation_rate: f64) -> Result<()> {
-    let state_map = &mut ctx.accounts.state;
-    validate_params(&(*state_map), quote_token)?;
-    
-    // Get current stablecoin price in USD (mock: assume 1.0 for stablecoins)
-    let stablecoin_price_usd = 1.0;
-    
-    // Calculate new mint price based on inflation
-    // If inflation is below 2%, keep mint price at 1.0
-    // Otherwise, adjust by inflation rate
-    let new_mint_price = if inflation_rate < 2.0 {
-        1.0
-    } else {
-        stablecoin_price_usd * (1.0 + inflation_rate / 100.0)
-    };
-    
-    require!(new_mint_price > 0.0, CustomError::InvalidAmount);
-    require!(new_mint_price < 100.0, CustomError::InvalidAmount);
-    
-    let stablecoin = state_map.get_mut_stablecoin(quote_token).unwrap();
-    stablecoin.mint_price = new_mint_price;
-    
-    msg!("Updated mint price for {} to {} (inflation: {}%)", quote_token, new_mint_price, inflation_rate);
-    Ok(())
-}
-
 /// Mint IRMA tokens for a given amount of quote token.
 /// Input amount is  in quote token's smallest unit (e.g. 1 USDT = 10^6, 1 USDC = 10^6, etc.)
 /// The mint price is the price of IRMA in terms of the quote token, which is set by the Truflation oracle.

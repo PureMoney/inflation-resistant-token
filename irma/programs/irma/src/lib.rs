@@ -268,10 +268,6 @@ pub mod irma {
         pricing::disable_reserve(ctx, &symbol)
     }
 
-    pub fn update_mint_price_with_inflation(ctx: Context<Common>, quote_token: String, inflation_rate: f64) -> Result<()> {
-        pricing::update_mint_price_with_inflation(ctx, &quote_token, inflation_rate)
-    }
-
     pub fn get_redemption_price(ctx: Context<Common>, quote_token: String) -> Result<f64> {
         pricing::get_redemption_price(ctx, &quote_token)
     }
@@ -348,6 +344,8 @@ pub mod irma {
         
         // Apply inflation adjustment
         protocol_state.apply_inflation_adjustment(inflation_rate)?;
+
+        // update issueance (mint) price in pricing module
         
         msg!("Inflation applied successfully!");
         Ok(())

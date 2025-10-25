@@ -51,8 +51,8 @@ pub fn get_whirlpool_pdas(
 }
 
 
-
 /// Updated swap instruction context for Orca Whirlpools 5.0.1+
+/// Note: This is not useful for our objectives for the CypherPunk Hackathon.
 #[derive(Accounts)]
 pub struct SwapWithWhirlpool<'info> {
     /// The Orca Whirlpools program
@@ -113,8 +113,8 @@ pub struct SwapWithWhirlpool<'info> {
 }
 
 /// swap function
-/// This is not really useful for us because swaps are initiated by user through Orca website.
 /// Updated swap function for orca_whirlpools 5.0.1+
+/// Note: This is not useful for our objectives for the CypherPunk Hackathon.
 pub fn swap_with_whirlpool(
     ctx: Context<SwapWithWhirlpool>,
     amount: u64,
@@ -187,6 +187,7 @@ pub fn swap_with_whirlpool(
 
 /// Helper function to build swap instruction data
 /// This creates the instruction data in the format expected by Orca Whirlpools
+/// Note: This is not useful for our objectives for the CypherPunk Hackathon.
 fn build_swap_instruction_data(
     amount: u64,
     other_amount_threshold: u64,
