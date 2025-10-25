@@ -10,7 +10,8 @@ use anchor_lang::prelude::*;
 
 use crate::pricing::{StateMap, StableState};
 
-use crate::orca_integration;
+use crate::orca_integration::*;
+use whirlpool_idl::cpi::accounts::*;
 
 /// Orca Whirlpools Program ID (same on mainnet, devnet, and localnet)
 pub const WHIRLPOOL_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
@@ -61,6 +62,32 @@ impl<'info> CreatePosition<'info> {
     /// Get the position account Pubkey
     pub fn position_key(&self) -> Pubkey {
         self.position.key()
+    }
+
+    fn open_whirlpool_position(&self) -> Result<()> {
+        let authority_key = self.authority.key();
+        let bump_bytes = [1u8];
+        let seeds = [authority_key.as_ref(), &bump_bytes];
+        let signer_seeds = [&seeds[..]];
+        
+        let context = CpiContext::new_with_signer(
+            self.whirlpool_program.to_account_info(),
+            OpenPosition {
+                whirlpool: self.whirlpool.to_account_info(),
+                position: self.position.to_account_info(),
+                position_mint: self.position_mint.to_account_info(),
+                position_token_account: self.position_token_account.to_account_info(),
+                // authority: self.authority.to_account_info(),
+                token_program: self.token_program.to_account_info(),
+                associated_token_program: self.token_program.to_account_info(),
+                system_program: self.system_program.to_account_info(),
+                funder: self.authority.to_account_info(),
+                owner: self.authority.to_account_info(),
+                rent: self.rent.to_account_info(),
+            },
+            &signer_seeds,
+        );
+        crate::orca_integration::open_whirlpool_position(context)
     }
 }
 
