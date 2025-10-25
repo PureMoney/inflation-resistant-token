@@ -8,15 +8,19 @@
 
 use anchor_lang::prelude::*;
 
+use crate::pricing::{StateMap, StableState};
+
+use crate::orca_integration;
+
 /// Orca Whirlpools Program ID (same on mainnet, devnet, and localnet)
 pub const WHIRLPOOL_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
 
 /// Context for creating a position on Orca Whirlpool
 #[derive(Accounts)]
 pub struct CreatePosition<'info> {
-    /// The protocol state that will own the position
+    /// The pricing state that will own the position
     #[account(mut)]
-    pub protocol_state: Account<'info, crate::protocol_state::ProtocolState>,
+    pub pricing_state: Account<'info, crate::pricing::StateMap>,
     
     /// The Whirlpool in which to open the position
     /// CHECK: Validated by Whirlpool program
@@ -53,12 +57,19 @@ pub struct CreatePosition<'info> {
     pub rent: Sysvar<'info, Rent>,
 }
 
+impl<'info> CreatePosition<'info> {
+    /// Get the position account Pubkey
+    pub fn position_key(&self) -> Pubkey {
+        self.position.key()
+    }
+}
+
 /// Context for modifying liquidity in a position
 #[derive(Accounts)]
 pub struct ModifyLiquidity<'info> {
-    /// The protocol state
+    /// The pricing state
     #[account(mut)]
-    pub protocol_state: Account<'info, crate::protocol_state::ProtocolState>,
+    pub pricing_state: Account<'info, crate::pricing::StateMap>,
     
     /// The Whirlpool
     /// CHECK: Validated by Whirlpool program

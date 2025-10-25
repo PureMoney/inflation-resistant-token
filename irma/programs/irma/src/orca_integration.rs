@@ -9,11 +9,14 @@ use anchor_lang::prelude::*;
 pub const ORCA_WHIRLPOOLS_PROGRAM_ID: Pubkey = pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
 
 // Orca Whirlpools 5.0.1+ uses a different API structure
-// We'll use the raw program interactions instead of deprecated client modules
+// We'll use the raw program interactions instead of deprecated client modules.
+// Only the following three lines should change when switching between devnet and mainnet.
 declare_program!(whirlpool_idl_devnet);
 // declare_program!(whirlpool_idl_mainnet);
-use whirlpool_idl_devnet::accounts::Position;
-use whirlpool_idl_devnet::types::PositionRewardInfo;
+pub use whirlpool_idl_devnet as whirlpool_idl;
+use whirlpool_idl::accounts::Position;
+use whirlpool_idl::types::PositionRewardInfo;
+use whirlpool_idl::cpi::accounts::*;
 
 /// Modern helper function to get Whirlpool program derived addresses
 /// These are needed for interacting with Orca Whirlpools 5.0.1+
@@ -214,24 +217,19 @@ fn build_swap_instruction_data(
     Ok(data)
 }
 
-pub fn open_whirlpool_position() {
+pub fn open_whirlpool_position<'a, 'b, 'c, 'info>(
+    context: CpiContext<'a, 'b, 'c, 'info, OpenPosition<'info>>
+) -> Result<()> {
     // Implementation for opening a position in the Whirlpool
     // This would involve creating the necessary accounts and initializing them
     // according to the Orca Whirlpool specifications.
     // For brevity, this function is left as a placeholder.
-    const position: Position = Position {
-        // Fill in required fields for position initialization
-        fee_growth_checkpoint_a: 100000, // just some random value for now
-        fee_growth_checkpoint_b: 100000, // just some random value for now
-        tick_lower_index: -1,
-        tick_upper_index: -1,
-        liquidity: 0,
-        whirlpool: pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"), // dummy
-        position_mint: pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"), // dummy
-        fee_owed_a: 0,
-        fee_owed_b: 0,
-        reward_infos: [PositionRewardInfo { growth_inside_checkpoint: 0, amount_owed: 0 }; 3],
+    let bumps: whirlpool_idl::types::OpenPositionBumps = whirlpool_idl::types::OpenPositionBumps {
+        position_bump: 0, // Placeholder
     };
+
+    // Further CPI calls to initialize the position would go here
+    return whirlpool_idl::cpi::open_position(context, bumps, 0, 0);
 }
 
 /// Function to read current price from an Orca Whirlpool using modern API
