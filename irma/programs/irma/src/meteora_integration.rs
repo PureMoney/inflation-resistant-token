@@ -1,16 +1,12 @@
 use crate::MarketMakingMode;
 use crate::position_manager::*;
 use commons::dlmm::accounts::*;
-use commons::dlmm::accounts::PositionV2;
 use commons::dlmm::types::*;
-use commons::dlmm::constants::*;
 use commons::dlmm::events::*;
-use commons::dlmm::*;
 use commons::derive_event_authority_pda;
 use commons::get_matching_positions;
 use commons::*;
 use commons::dlmm::{
-    get_account,
     get_account_data,
     get_multiple_accounts,
     get_epoch_sec,
@@ -18,30 +14,17 @@ use commons::dlmm::{
     parse_swap_event,
     simulate_transaction
 };
-use commons::bin_array::*;
 use crate::pair_config::*;
 use crate::Maint;
-// use crate::utils::*;
-// use crate::token_2022::*;
-// use crate::pda::*;
 use commons::{BASIS_POINT_MAX, DEFAULT_BIN_PER_POSITION, MAX_BIN_PER_ARRAY};
-use commons::CustomError::*;
 use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use anchor_spl::token_interface::Mint;
 use anchor_spl::token_interface::TokenAccount;
 use anchor_lang::prelude::*;
 use anchor_lang::prelude::program::*;
 use anchor_lang::prelude::instruction::Instruction;
-// use anchor_lang::context::CpiContext;
-use anchor_lang::solana_program::*;
 use anchor_lang::system_program;
-use anchor_lang::Bumps;
-use crate::account_info::AccountInfo;
 use anchor_lang::*;
-// use spl_memo;
-// use compute_budget::ComputeBudgetInstruction;
-// use instruction::AccountMeta;
-// use instruction::Instruction;
 use std::collections::HashMap;
 use std::str::FromStr;
 // use std::fmt::Error;
@@ -53,30 +36,41 @@ const dlmm_ID: Pubkey = commons::dlmm::ID;
 
 // Meteora Core (taken from Meteora DLMM SDK and adapted for IRMA)
 // Removed all RPC stuff because this is going to run on-chain.
-// <'a, T: AccountSerialize + AccountDeserialize + Clone + Bumps + Iterator<Item = AccountInfo<'a>> + bytemuck::Pod>
-pub struct Core {
+pub struct Core<'a> {
     // pub context: &'a mut Context<'a, 'a, 'a, 'a, T>, // contains wallet and owner
+    pub context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
     // pub wallet: Signer<'a>, // Option<Keypair>,
     pub owner: Pubkey,
     pub config: Vec<PairConfig>,
     pub state: AllPosition,
 }
 
-// T: AccountSerialize + AccountDeserialize + Clone + Bumps + Iterator<Item = AccountInfo<'a>> + bytemuck::Pod
-impl<'a> Core {
+impl<'a> Core<'a> {
     // For executing DLMM instructions via CPI
     // Derive bump if it does not exist:
     // let (_pda, bump) = Pubkey::find_program_address(
     //     &[b"irma", context.accounts.irma_admin.key().as_ref()],
     //     &crate::ID, // Your program ID
     // );
+    fn get_bytemuck_account<T: bytemuck::Pod>(
+        &self,
+        pubkey: &Pubkey
+    ) -> Result<T> {
+        let account_info = self.context.remaining_accounts.iter()
+            .find(|acc| acc.key == pubkey)
+            .ok_or(CustomError::AccountNotFound)?;
+        
+        let data: T = bytemuck::pod_read_unaligned(&account_info.data.borrow()[8..]);
+        Ok(data)
+    }
+
     fn execute_meteora_instruction(
-        context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
+        &self,
         instructions: Vec<Instruction>,
         sign: bool
     ) -> Result<()> {
 
-        let key = context.accounts.irma_admin.key();
+        let key = self.context.accounts.irma_admin.key();
         for instruction in instructions.iter() {
             if sign {
                 // If PDA signing needed - manually derive bump
@@ -89,48 +83,29 @@ impl<'a> Core {
                     key.as_ref(),
                     &[bump],
                 ];
-                invoke_signed(&instruction, context.remaining_accounts, &[seeds])?;
+                invoke_signed(&instruction, self.context.remaining_accounts, &[seeds])?;
             }
             else {
-                invoke(&instruction, context.remaining_accounts)?;
+                invoke(&instruction, self.context.remaining_accounts)?;
             }
         }
         Ok(())
     }
 
 
-    fn get_account_and_deserialize<T>(
-        &self,
-        context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
-        pubkey: &Pubkey,
-        deserialize_fn: fn(AccountInfo) -> Result<T>,
-    ) -> Result<T> {
-        // Find in remaining accounts
-        let account: AccountInfo = context.remaining_accounts
-            .iter()
-            .find(|a| *a.key == *pubkey)
-            .ok_or(Error::from(CustomError::AccountNotFound))?
-            .clone();
-        let data = deserialize_fn(account)?;
-        Ok(data)
-    }
 
 
-    pub fn refresh_state(&self, context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>) -> Result<()> {
+    pub fn refresh_state(&self) -> Result<()> {
 
         for pair in self.config.iter() {
             let pair_address =
                 Pubkey::from_str(&pair.pair_address).unwrap();
 
-            let lb_pair_state: LbPair = self.get_account_and_deserialize(context, &pair_address, |account: AccountInfo| {
-                    Ok(bytemuck::pod_read_unaligned(account.data.borrow().get(8..).ok_or(
-                        Error::from(CustomError::AccountDataTooSmall)
-                    )?))
-                }).unwrap();
+            let lb_pair_state: LbPair = self.get_bytemuck_account(&pair_address)?;
 
             // get all position with an user
             let mut position_key_with_state = get_matching_positions(
-                context.remaining_accounts,
+                self.context.remaining_accounts,
                 &self.owner, 
                 &pair_address
             ).unwrap();
@@ -202,8 +177,6 @@ impl<'a> Core {
             .map(|(key, _program_id)| *key)
             .collect::<Vec<_>>();
 
-        // let rpc_client = self.rpc_client();
-
         let accounts = get_multiple_accounts(&token_mint_keys)?;
         let mut tokens = HashMap::new();
 
@@ -244,10 +217,9 @@ impl<'a> Core {
     }
 
     pub fn init_user_ata(
-        &self,
-        context: &mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
+        &self
     ) -> Result<()> {
-        if let wallet = context.accounts.irma_admin { // self.wallet.as_ref() {
+        if let wallet = self.context.accounts.irma_admin { // self.wallet.as_ref() {
             // let rpc_client = self.rpc_client();
             for (token_mint, program_id) in self.get_all_token_mints_with_program_id()?.iter() {
                 get_or_create_ata(
@@ -266,7 +238,6 @@ impl<'a> Core {
     // withdraw all positions
     pub fn withdraw(
         &self,
-        context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
         state: &SinglePosition,
         is_simulation: bool
     ) -> Result<()> {
@@ -276,7 +247,7 @@ impl<'a> Core {
 
         // let rpc_client = self.rpc_client();
 
-        let payer = context.accounts.irma_admin.clone();
+        let payer = self.context.accounts.irma_admin.clone();
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
@@ -293,7 +264,7 @@ impl<'a> Core {
         if let Some((slices, remaining_accounts)) =
             get_potential_token_2022_related_ix_data_and_accounts(
                 &lb_pair_state,
-                context.remaining_accounts,
+                self.context.remaining_accounts,
                 ActionType::Liquidity,
             )?
             // .await?
@@ -429,7 +400,7 @@ impl<'a> Core {
                     simulate_transaction(&instructions, /* &rpc_client, */ &[], payer.key())?;
                 println!("{:?}", response);
             } else {
-                let result = Core::execute_meteora_instruction(context, instructions, true)?;
+                let result = self.execute_meteora_instruction(instructions, true)?;
                 msg!("Close position {position} {result}");
             }
         }
@@ -437,10 +408,10 @@ impl<'a> Core {
         Ok(())
     }
 
-    // This is probably not needed.
+
+    // We may need this to overcome AMM behavior, in case off-chain swap is too slow.
     fn swap(
         &self,
-        context: &mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
         state: &SinglePosition,
         amount_in: u64,
         swap_for_y: bool,
@@ -453,29 +424,18 @@ impl<'a> Core {
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
         let lb_pair = state.lb_pair;
 
-        let payer = context.accounts.irma_admin.clone();
+        let payer = self.context.accounts.irma_admin.clone();
 
         let (event_authority, _bump) = derive_event_authority_pda();
         let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
 
-        let account = get_account(&bin_array_bitmap_extension)?;
-
-        let (bin_array_bitmap_extension, bin_array_bitmap_extension_state) =
-            if let std::result::Result::Ok(account) = account {
-                let bin_array_bitmap_extension_state =
-                    bytemuck::pod_read_unaligned(&account.data[8..]);
-                (
-                    bin_array_bitmap_extension,
-                    Some(bin_array_bitmap_extension_state),
-                )
-            } else {
-                (dlmm_ID, None)
-            };
+        let bitmap_extension: BinArrayBitmapExtension = 
+            self.get_bytemuck_account(&bin_array_bitmap_extension)?;
 
         let bin_arrays_account_meta = get_bin_array_pubkeys_for_swap(
             lb_pair,
             &lb_pair_state,
-            bin_array_bitmap_extension_state.as_ref(),
+            Some(&bitmap_extension),
             swap_for_y,
             3,
         )?
@@ -517,7 +477,7 @@ impl<'a> Core {
         if let Some((slices, transfer_hook_remaining_accounts)) =
             get_potential_token_2022_related_ix_data_and_accounts(
                 &lb_pair_state,
-                context.remaining_accounts,
+                self.context.remaining_accounts,
                 ActionType::Liquidity,
             )?
             // .await?
@@ -574,7 +534,7 @@ impl<'a> Core {
             return Ok(None);
         }
 
-        let result = Core::execute_meteora_instruction(context, instructions.to_vec(), true)?;
+        let result = self.execute_meteora_instruction(instructions.to_vec(), true)?;
         msg!("Swap {amount_in} {swap_for_y} {result}");
 
         // TODO should handle if cannot get swap event
@@ -585,14 +545,13 @@ impl<'a> Core {
 
     pub fn deposit(
         &self,
-        context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
         state: &SinglePosition,
         amount_x: u64,
         amount_y: u64,
         active_id: i32,
         is_simulation: bool,
     ) -> Result<()> {
-        let payer = context.accounts.irma_admin.clone();
+        let payer = self.context.accounts.irma_admin.clone();
 
         // let rpc_client = self.rpc_client();
         let lower_bin_id = active_id - (MAX_BIN_PER_ARRAY as i32).checked_div(2).unwrap();
@@ -672,9 +631,9 @@ impl<'a> Core {
 
         // TODO implement add liquidity by strategy imbalance
         let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
-        let bin_array_bitmap_extension = get_account(&bin_array_bitmap_extension)
-            .map(|_| bin_array_bitmap_extension)
-            .unwrap_or(dlmm_ID);
+        // let bin_array_bitmap_extension = get_account(&bin_array_bitmap_extension)
+        //     .map(|_| bin_array_bitmap_extension)
+        //     .unwrap_or(dlmm_ID);
 
         let (bin_array_lower, _bump) = derive_bin_array_pda(lb_pair, lower_bin_array_idx.into());
         let (bin_array_upper, _bump) = derive_bin_array_pda(lb_pair, upper_bin_array_idx.into());
@@ -702,7 +661,7 @@ impl<'a> Core {
         if let Some((slices, transfer_hook_remaining_accounts)) =
             get_potential_token_2022_related_ix_data_and_accounts(
                 &lb_pair_state,
-                context.remaining_accounts,
+                self.context.remaining_accounts,
                 ActionType::Liquidity,
             )?
             // .await?
@@ -778,7 +737,7 @@ impl<'a> Core {
 
             msg!("Deposit {amount_x} {amount_y} {:?}", simulate_tx);
         } else {
-            let result = Core::execute_meteora_instruction(context, instructions, true)?;
+            let result = self.execute_meteora_instruction(instructions, true)?;
             msg!("deposit {amount_x} {amount_y} {result}");
         }
 
@@ -787,7 +746,6 @@ impl<'a> Core {
 
     pub fn get_deposit_amount(
         &self,
-        context: &'a mut Context<'a, 'a, 'a, 'a, Maint<'a>>,
         position: &SinglePosition,
         amount_x: u64,
         amount_y: u64,
@@ -797,7 +755,7 @@ impl<'a> Core {
             )?;
 
         // let rpc_client = self.rpc_client();
-        let payer = context.accounts.irma_admin.clone();
+        let payer = self.context.accounts.irma_admin.clone();
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -839,10 +797,7 @@ impl<'a> Core {
         Ok((amount_x, amount_y))
     }
 
-}
 
-// Non-generic methods that only work with the state
-impl Core {
     pub fn get_all_positions(&self) -> Vec<SinglePosition> {
         let state = &self.state;
         let mut positions = vec![];

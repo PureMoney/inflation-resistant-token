@@ -2,8 +2,6 @@
 #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
-use anchor_lang::context::CpiContext;
-// use anchor_lang::prelude::borsh::{BorshSerialize, BorshDeserialize};
 use std::mem::size_of;
 use std::str::FromStr;
 
@@ -20,15 +18,9 @@ declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
 
 use anchor_lang::AccountDeserialize;
 use anchor_lang::AnchorDeserialize;
-use anchor_lang::InstructionData;
-use anchor_lang::ToAccountMetas;
-use bytemuck::Zeroable;
-use bytemuck::Pod;
 
-use commons::dlmm::types::{Bin, UserRewardInfo};
-// use commons::dlmm::errors::Error;
+use commons::dlmm::types::Bin;
 use crate::error::Error;
-use commons::dlmm::constants::MAX_BIN_PER_ARRAY;
 use commons::dlmm::accounts::*;
 
 // impl Zeroable {
@@ -46,8 +38,6 @@ use commons::dlmm::accounts::*;
 // }
 
 // impl Pod for Bin {}
-
-#[macro_use]
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MarketMakingMode {

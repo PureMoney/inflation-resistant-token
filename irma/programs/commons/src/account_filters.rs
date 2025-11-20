@@ -52,7 +52,7 @@ pub fn get_matching_positions(
 ) -> Result<Vec<(Pubkey, PositionV2)>> {
     let mut matching_positions = Vec::new();
     
-    for (account) in position_accounts.iter() {
+    for account in position_accounts.iter() {
         if position_matches_wallet_and_pair(account, wallet, pair)? {
             // Skip the 8-byte discriminator and read the position data
             let position_data = &account.data.borrow()[8..];
