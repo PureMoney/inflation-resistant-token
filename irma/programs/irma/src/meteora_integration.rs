@@ -2,18 +2,9 @@ use crate::MarketMakingMode;
 use crate::position_manager::*;
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::*;
-use commons::dlmm::events::*;
 use commons::derive_event_authority_pda;
 use commons::get_matching_positions;
 use commons::*;
-use commons::dlmm::{
-    get_account_data,
-    get_multiple_accounts,
-    get_epoch_sec,
-    get_or_create_ata,
-    parse_swap_event,
-    simulate_transaction
-};
 use crate::pair_config::*;
 use crate::Maint;
 use commons::{BASIS_POINT_MAX, DEFAULT_BIN_PER_POSITION, MAX_BIN_PER_ARRAY};
@@ -23,16 +14,31 @@ use anchor_spl::token_interface::TokenAccount;
 use anchor_lang::prelude::*;
 use anchor_lang::prelude::program::*;
 use anchor_lang::prelude::instruction::Instruction;
+use anchor_lang::prelude::instruction::AccountMeta;
+use anchor_lang::solana_program::clock::Clock;
+use anchor_lang::solana_program::sysvar::Sysvar;
 use anchor_lang::system_program;
 use anchor_lang::*;
 use std::collections::HashMap;
 use std::str::FromStr;
-// use std::fmt::Error;
-// use std::sync::Arc;
-// use std::sync::Mutex;
-use Swap as SwapEvent;
 
-const dlmm_ID: Pubkey = commons::dlmm::ID;
+const DLMM_ID: Pubkey = commons::dlmm::ID;
+
+// Enum to represent either type of deserializable account
+#[derive(Debug, Clone)]
+pub enum AccountData<T> {
+    Bytemuck(T),
+    Anchor(T),
+}
+
+impl<T> AccountData<T> {
+    pub fn into_inner(self) -> T {
+        match self {
+            AccountData::Bytemuck(data) => data,
+            AccountData::Anchor(data) => data,
+        }
+    }
+}
 
 // Meteora Core (taken from Meteora DLMM SDK and adapted for IRMA)
 // Removed all RPC stuff because this is going to run on-chain.
@@ -46,6 +52,12 @@ pub struct Core<'a> {
 }
 
 impl<'a> Core<'a> {
+    // Helper function to get current epoch time in seconds (on-chain version)
+    fn get_epoch_sec() -> Result<i64> {
+        let clock = Clock::get()?;
+        Ok(clock.unix_timestamp)
+    }
+
     // For executing DLMM instructions via CPI
     // Derive bump if it does not exist:
     // let (_pda, bump) = Pubkey::find_program_address(
@@ -61,6 +73,42 @@ impl<'a> Core<'a> {
             .ok_or(CustomError::AccountNotFound)?;
         
         let data: T = bytemuck::pod_read_unaligned(&account_info.data.borrow()[8..]);
+        Ok(data)
+    }
+
+    fn get_multiple_bytemuck_accounts<T: bytemuck::Pod>(
+        &self,
+        pubkeys: &Vec<Pubkey>
+    ) -> Result<HashMap<Pubkey, Option<T>>> {
+        let mut data = HashMap::new();
+        for pubkey in pubkeys.iter() {
+            let account_info = self.context.remaining_accounts.iter()
+                .find(|acc| acc.key == pubkey);
+            if let Some(account_info) = account_info {
+                let account_data: T = bytemuck::pod_read_unaligned(&account_info.data.borrow()[8..]);
+                data.insert(*pubkey, Some(account_data));
+            } else {
+                data.insert(*pubkey, None);
+            }
+        }
+        Ok(data)
+    }
+
+    fn get_multiple_anchor_accounts<T: anchor_lang::AccountDeserialize>(
+        &self,
+        pubkeys: &Vec<Pubkey>
+    ) -> Result<HashMap<Pubkey, Option<T>>> {
+        let mut data = HashMap::new();
+        for pubkey in pubkeys.iter() {
+            let account_info = self.context.remaining_accounts.iter()
+                .find(|acc| acc.key == pubkey);
+            if let Some(account_info) = account_info {
+                let account_data = T::try_deserialize(&mut &account_info.data.borrow()[8..])?;
+                data.insert(*pubkey, Some(account_data));
+            } else {
+                data.insert(*pubkey, None);
+            }
+        }
         Ok(data)
     }
 
@@ -95,13 +143,13 @@ impl<'a> Core<'a> {
 
 
 
-    pub fn refresh_state(&self) -> Result<()> {
+    pub fn refresh_state(&mut self) -> Result<()> {
 
         for pair in self.config.iter() {
             let pair_address =
                 Pubkey::from_str(&pair.pair_address).unwrap();
 
-            let lb_pair_state: LbPair = self.get_bytemuck_account(&pair_address)?;
+            // let lb_pair_state: LbPair = self.get_bytemuck_account(&pair_address)?;
 
             // get all position with an user
             let mut position_key_with_state = get_matching_positions(
@@ -114,7 +162,7 @@ impl<'a> Core<'a> {
             let mut positions = vec![];
             let mut min_bin_id = 0;
             let mut max_bin_id = 0;
-            let mut bin_arrays = HashMap::new();
+            let mut bin_arrays = HashMap::<Pubkey, BinArray>::new();
 
             if position_key_with_state.len() > 0 {
                 // sort position by bin id
@@ -144,17 +192,16 @@ impl<'a> Core<'a> {
                     .into_iter()
                     .collect::<Vec<_>>();
 
-                let bin_array_accounts = get_multiple_accounts(&bin_array_keys)?;
+                let bin_arrays_raw: HashMap::<Pubkey, Option<BinArray>> = self.get_multiple_bytemuck_accounts(&bin_array_keys)?;
 
-                for (key, account) in bin_array_keys.iter().zip(bin_array_accounts) {
-                    if let Some(account) = account {
-                        let bin_array_state = bytemuck::pod_read_unaligned(&account.data[8..]);
-                        bin_arrays.insert(*key, bin_array_state);
+                for (key, bin_array_option) in bin_arrays_raw.iter() {
+                    if let Some(bin_array_state) = bin_array_option {
+                        bin_arrays.insert(*key, *bin_array_state);
                     }
                 }
             }
 
-            let mut all_state = &mut self.state; // .lock().unwrap();
+            let all_state = &mut self.state; // .lock().unwrap();
             let state = all_state.all_positions.get_mut(&pair_address).unwrap();
 
             state.lb_pair = pair_address; // Some(lb_pair);
@@ -163,13 +210,13 @@ impl<'a> Core<'a> {
             state.positions = positions;
             state.min_bin_id = min_bin_id;
             state.max_bin_id = max_bin_id;
-            state.last_update_timestamp = get_epoch_sec();
+            state.last_update_timestamp = Self::get_epoch_sec()?.max(0) as u64;
         }
 
         Ok(())
     }
 
-    pub fn fetch_token_info(&self) -> Result<()> {
+    pub fn fetch_token_info(&mut self) -> Result<()> {
         let token_mints_with_program = self.get_all_token_mints_with_program_id()?;
 
         let token_mint_keys = token_mints_with_program
@@ -177,16 +224,15 @@ impl<'a> Core<'a> {
             .map(|(key, _program_id)| *key)
             .collect::<Vec<_>>();
 
-        let accounts = get_multiple_accounts(&token_mint_keys)?;
+        let accounts: HashMap<Pubkey, Option<Mint>> = self.get_multiple_anchor_accounts(&token_mint_keys)?;
         let mut tokens = HashMap::new();
 
-        for ((key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
-            if let Some(account) = account {
-                let mint = Mint::try_deserialize(&mut account.data.as_ref())?;
-                tokens.insert(*key, (mint, *program_id));
+        for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
+            if let (pubkey, Some(mint)) = account {
+                tokens.insert(pubkey, (mint, *program_id));
             }
         }
-        let mut state = &mut self.state; // .lock().unwrap();
+        let state = &mut self.state; // .lock().unwrap();
         state.tokens = tokens;
 
         Ok(())
@@ -216,20 +262,57 @@ impl<'a> Core<'a> {
         position.clone()
     }
 
+    // Helper function to get or create ATA on-chain
+    fn get_or_create_ata(
+        &self,
+        token_mint: Pubkey,
+        token_program: Pubkey,
+        owner: &Pubkey,
+        payer: &Signer,
+    ) -> Result<Pubkey> {
+        let ata_address = get_associated_token_address_with_program_id(
+            owner,
+            &token_mint,
+            &token_program,
+        );
+
+        // Check if ATA already exists in remaining_accounts
+        let ata_exists = self.context.remaining_accounts.iter()
+            .any(|acc| acc.key == &ata_address);
+
+        if !ata_exists {
+            // Create ATA instruction manually
+            let create_ata_ix = Instruction {
+                program_id: anchor_spl::associated_token::ID,
+                accounts: vec![
+                    AccountMeta::new(payer.key(), true),          // payer
+                    AccountMeta::new(ata_address, false),         // associated_token
+                    AccountMeta::new_readonly(*owner, false),     // owner
+                    AccountMeta::new_readonly(token_mint, false), // mint
+                    AccountMeta::new_readonly(system_program::ID, false), // system_program
+                    AccountMeta::new_readonly(token_program, false),      // token_program
+                ],
+                data: vec![], // No data needed for ATA creation
+            };
+
+            // Execute the instruction
+            self.execute_meteora_instruction(vec![create_ata_ix], true)?;
+        }
+
+        Ok(ata_address)
+    }
+
     pub fn init_user_ata(
         &self
     ) -> Result<()> {
-        if let wallet = self.context.accounts.irma_admin { // self.wallet.as_ref() {
-            // let rpc_client = self.rpc_client();
-            for (token_mint, program_id) in self.get_all_token_mints_with_program_id()?.iter() {
-                get_or_create_ata(
-                    // &rpc_client,
-                    *token_mint,
-                    *program_id,
-                    wallet.key(),
-                    wallet,
-                )?;
-            }
+        let wallet = &self.context.accounts.irma_admin;
+        for (token_mint, program_id) in self.get_all_token_mints_with_program_id()?.iter() {
+            self.get_or_create_ata(
+                *token_mint,
+                *program_id,
+                &wallet.key(),
+                wallet,
+            )?;
         }
 
         Ok(())
@@ -238,8 +321,7 @@ impl<'a> Core<'a> {
     // withdraw all positions
     pub fn withdraw(
         &self,
-        state: &SinglePosition,
-        is_simulation: bool
+        state: &SinglePosition
     ) -> Result<()> {
         if state.position_pks.len() == 0 {
             return Ok(());
@@ -295,7 +377,7 @@ impl<'a> Core<'a> {
             let main_accounts = dlmm::client::accounts::RemoveLiquidityByRange2 {
                 position,
                 lb_pair,
-                bin_array_bitmap_extension: Some(dlmm_ID),
+                bin_array_bitmap_extension: Some(DLMM_ID),
                 user_token_x,
                 user_token_y,
                 reserve_x: lb_pair_state.reserve_x,
@@ -307,7 +389,7 @@ impl<'a> Core<'a> {
                 token_y_program,
                 memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
                 event_authority,
-                program: dlmm_ID,
+                program: DLMM_ID,
             }
             .to_account_metas(None);
 
@@ -328,7 +410,7 @@ impl<'a> Core<'a> {
             let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
 
             let remove_all_ix = Instruction {
-                program_id: dlmm_ID,
+                program_id: DLMM_ID,
                 accounts,
                 data,
             };
@@ -340,7 +422,7 @@ impl<'a> Core<'a> {
                 position,
                 sender: payer.key(),
                 event_authority,
-                program: dlmm_ID,
+                program: DLMM_ID,
                 reserve_x: lb_pair_state.reserve_x,
                 reserve_y: lb_pair_state.reserve_y,
                 token_x_mint: lb_pair_state.token_x_mint,
@@ -369,7 +451,7 @@ impl<'a> Core<'a> {
             let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
 
             let claim_fee_ix = Instruction {
-                program_id: dlmm_ID,
+                program_id: DLMM_ID,
                 accounts,
                 data,
             };
@@ -381,42 +463,36 @@ impl<'a> Core<'a> {
                 sender: payer.key(),
                 rent_receiver: payer.key(),
                 event_authority,
-                program: dlmm_ID,
+                program: DLMM_ID,
             }
             .to_account_metas(None);
 
             let data = dlmm::client::args::ClosePosition2 {}.data();
 
             let close_position_ix = Instruction {
-                program_id: dlmm_ID,
+                program_id: DLMM_ID,
                 accounts: accounts.to_vec(),
                 data,
             };
 
             instructions.push(close_position_ix);
 
-            if is_simulation {
-                let response =
-                    simulate_transaction(&instructions, /* &rpc_client, */ &[], payer.key())?;
-                println!("{:?}", response);
-            } else {
-                let result = self.execute_meteora_instruction(instructions, true)?;
-                msg!("Close position {position} {result}");
-            }
+            let _result = self.execute_meteora_instruction(instructions, true)?;
+            msg!("Close position {position} {result}");
         }
 
         Ok(())
     }
 
 
+
     // We may need this to overcome AMM behavior, in case off-chain swap is too slow.
-    fn swap(
+    pub fn swap(
         &self,
         state: &SinglePosition,
         amount_in: u64,
-        swap_for_y: bool,
-        is_simulation: bool,
-    ) -> Result<Option<SwapEvent>> {
+        swap_for_y: bool
+    ) -> Result<()> {
 
         let lb_pair_state = state.lb_pair_state.as_ref().ok_or(
                 Error::from(CustomError::MissingLbPairState)
@@ -501,9 +577,9 @@ impl<'a> Core<'a> {
             user_token_in,
             user_token_out,
             oracle: lb_pair_state.oracle,
-            host_fee_in: Some(dlmm_ID),
+            host_fee_in: Some(DLMM_ID),
             event_authority,
-            program: dlmm_ID,
+            program: DLMM_ID,
             memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
         }
         .to_account_metas(None);
@@ -518,7 +594,7 @@ impl<'a> Core<'a> {
         let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
 
         let swap_ix = Instruction {
-            program_id: dlmm_ID,
+            program_id: DLMM_ID,
             accounts,
             data,
         };
@@ -527,20 +603,10 @@ impl<'a> Core<'a> {
 
         let instructions = [swap_ix];
 
-        if is_simulation {
-            let response =
-                simulate_transaction(&instructions, /* &rpc_client, */ &[], payer.key())?;
-            println!("{:?}", response);
-            return Ok(None);
-        }
+        let _result = self.execute_meteora_instruction(instructions.to_vec(), true)?;
+        msg!("Swap {amount_in} {swap_for_y} {result:?}");
 
-        let result = self.execute_meteora_instruction(instructions.to_vec(), true)?;
-        msg!("Swap {amount_in} {swap_for_y} {result}");
-
-        // TODO should handle if cannot get swap event
-        let swap_event = parse_swap_event( /* &rpc_client, */ result)?;
-
-        Ok(Some(swap_event))
+        Ok(())
     }
 
     pub fn deposit(
@@ -548,8 +614,7 @@ impl<'a> Core<'a> {
         state: &SinglePosition,
         amount_x: u64,
         amount_y: u64,
-        active_id: i32,
-        is_simulation: bool,
+        active_id: i32
     ) -> Result<()> {
         let payer = self.context.accounts.irma_admin.clone();
 
@@ -577,7 +642,7 @@ impl<'a> Core<'a> {
             // Initialize bin array if not exists
             let (bin_array, _bump) = derive_bin_array_pda(lb_pair, idx.into());
 
-            if get_account_data(&bin_array).is_err() {
+            if self.get_bytemuck_account::<BinArray>(&bin_array).is_err() {
                 let accounts = dlmm::client::accounts::InitializeBinArray {
                     bin_array,
                     funder: payer.key(),
@@ -589,7 +654,7 @@ impl<'a> Core<'a> {
                 let data = dlmm::client::args::InitializeBinArray { index: idx.into() }.data();
 
                 let instruction = Instruction {
-                    program_id: dlmm_ID,
+                    program_id: DLMM_ID,
                     accounts: accounts.to_vec(),
                     data,
                 };
@@ -611,7 +676,7 @@ impl<'a> Core<'a> {
             rent: sysvar::rent::ID,
             system_program: system_program::ID,
             event_authority,
-            program: dlmm_ID,
+            program: DLMM_ID,
         }
         .to_account_metas(None);
 
@@ -622,7 +687,7 @@ impl<'a> Core<'a> {
         .data();
 
         let instruction = Instruction {
-            program_id: dlmm_ID,
+            program_id: DLMM_ID,
             accounts: accounts.to_vec(),
             data,
         };
@@ -633,7 +698,7 @@ impl<'a> Core<'a> {
         let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
         // let bin_array_bitmap_extension = get_account(&bin_array_bitmap_extension)
         //     .map(|_| bin_array_bitmap_extension)
-        //     .unwrap_or(dlmm_ID);
+        //     .unwrap_or(DLMM_ID);
 
         let (bin_array_lower, _bump) = derive_bin_array_pda(lb_pair, lower_bin_array_idx.into());
         let (bin_array_upper, _bump) = derive_bin_array_pda(lb_pair, upper_bin_array_idx.into());
@@ -687,7 +752,7 @@ impl<'a> Core<'a> {
             bin_array_bitmap_extension: Some(bin_array_bitmap_extension),
             sender: payer.key(),
             event_authority,
-            program: dlmm_ID,
+            program: DLMM_ID,
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
             token_x_mint: lb_pair_state.token_x_mint,
@@ -719,27 +784,15 @@ impl<'a> Core<'a> {
         let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
 
         let instruction = Instruction {
-            program_id: dlmm_ID,
+            program_id: DLMM_ID,
             accounts,
             data,
         };
 
         instructions.push(instruction);
 
-        if is_simulation {
-            let simulate_tx = simulate_transaction(
-                &instructions,
-                // &rpc_client,
-                &[ /* &position_kp, */ &payer],
-                payer.key(),
-            )
-            ?;
-
-            msg!("Deposit {amount_x} {amount_y} {:?}", simulate_tx);
-        } else {
-            let result = self.execute_meteora_instruction(instructions, true)?;
-            msg!("deposit {amount_x} {amount_y} {result}");
-        }
+        let _result = self.execute_meteora_instruction(instructions, true)?;
+        msg!("deposit {amount_x} {amount_y} {_result}");
 
         Ok(())
     }
@@ -771,15 +824,10 @@ impl<'a> Core<'a> {
             &token_y_program,
         );
 
-        let mut accounts = get_multiple_accounts(&[user_token_x, user_token_y])?;
+        let accounts: HashMap<Pubkey, Option<TokenAccount>> = self.get_multiple_anchor_accounts(&vec![user_token_x, user_token_y])?;
 
-        let user_token_x_account = accounts[0].take().unwrap();
-        let user_token_y_account = accounts[1].take().unwrap();
-
-        let user_token_x_state =
-            TokenAccount::try_deserialize(&mut user_token_x_account.data.as_ref())?;
-        let user_token_y_state =
-            TokenAccount::try_deserialize(&mut user_token_y_account.data.as_ref())?;
+        let user_token_x_state = accounts.get(&user_token_x).unwrap().as_ref().unwrap();
+        let user_token_y_state = accounts.get(&user_token_y).unwrap().as_ref().unwrap();
 
         // compare with current balance
         let amount_x = if amount_x > user_token_x_state.amount {
