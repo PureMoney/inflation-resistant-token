@@ -18,8 +18,8 @@ mod tests {
     use irma::pricing::{StateMap, StableState};
     use irma::IRMA_ID;
     use irma::pricing::MAX_BACKING_COUNT;
-    use irma::Maint;
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
+    use irma::{Init, Common, Maint, InitBumps, CommonBumps, MaintBumps};
     // use irma::State;
 
 
@@ -99,7 +99,7 @@ mod tests {
         let state_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(state_account_info));
         let irma_admin_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(irma_admin_account_info));
         let sys_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(sys_account_info));
-        let mut accounts: Maint<'_> = Maint {
+        let mut accounts: Init<'_> = Init {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
@@ -108,7 +108,7 @@ mod tests {
             program_id,
             &mut accounts,
             &[],
-            InitBumps::new(), // Use default bumps if not needed
+            InitBumps::default(), // Use default bumps if not needed
         );
         let crank_result: std::result::Result<(), Error> = money::initialize(ctx);
         assert!(crank_result.is_ok());
