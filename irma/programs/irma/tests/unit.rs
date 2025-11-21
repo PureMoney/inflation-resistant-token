@@ -2,6 +2,13 @@
 mod tests {
     // Simplified placeholder tests to allow compilation.
     // Full integration tests should be in the tests/ directory using anchor test framework.
+    use std::collections::BTreeMap;
+    use anchor_lang::prelude::*;
+    use irma::accounts::Common;
+    use irma::pricing::{StateMap, StableState};
+    use irma::pricing::MAX_BACKING_COUNT;
+    use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
+    use irma::{IRMA_ID, Init, Maint, MainBumps, InitBumps};
     
     #[test]
     fn test_set_state_directly() -> Result<()> {
@@ -91,7 +98,7 @@ mod tests {
 
         let state_data: &'info mut Vec<u8> = Box::leak(Box::new(state_data_vec));
         let state_key: &'info mut Pubkey = Box::leak(Box::new(state_account));
-        // msg!("StateMap pre-test account data: {:?}", state_data);
+        // println!("StateMap pre-test account data: {:?}", state_data);
         let state_account_info: AccountInfo<'info> = AccountInfo::new(
             state_key,
             false, // is_signer
@@ -102,8 +109,8 @@ mod tests {
             false,
             0,
         );
-        // msg!("StateMap account created: {:?}", state_account_info.key);
-        // msg!("StateMap owner: {:?}", owner);
+        // println!("StateMap account created: {:?}", state_account_info.key);
+        // println!("StateMap owner: {:?}", owner);
         // Use a mock Signer for testing purposes
         let signer_pubkey: &'info mut Pubkey = Box::leak(Box::new(Pubkey::new_unique()));
         let lamportsx: &'info mut u64 = Box::leak(Box::new(0u64));
@@ -160,15 +167,15 @@ mod tests {
         );
         let result: std::result::Result<(), Error> = init_pricing(ctx);
         assert!(result.is_ok());
-        // msg!("StateMap account: {:?}", accounts.state);
+        // println!("StateMap account: {:?}", accounts.state);
         return (accounts.state, accounts.irma_admin, accounts.system_program);
     }
 
     #[test]
     fn test_initialize_anchor<'info>() {
-        msg!("-------------------------------------------------------------------------");
-        msg!("Testing init_pricing IRMA with normal conditions");  
-        msg!("-------------------------------------------------------------------------");
+        println!("-------------------------------------------------------------------------");
+        println!("Testing init_pricing IRMA with normal conditions");  
+        println!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
         let (state_account, irma_admin_account, sys_account) 
                 = initialize_anchor(program_id);
@@ -186,14 +193,14 @@ mod tests {
         );
         let result: std::result::Result<(), Error> = init_pricing(ctx);
         assert!(result.is_ok());
-        msg!("StateMap account initialized successfully: {:?}", accounts.state);
+        println!("StateMap account initialized successfully: {:?}", accounts.state);
    }
 
     #[test]
     fn test_set_mint_price_anchor<'info>() {
-        msg!("-------------------------------------------------------------------------");
-        msg!("Testing set IRMA mint price with normal conditions");  
-        msg!("-------------------------------------------------------------------------");
+        println!("-------------------------------------------------------------------------");
+        println!("Testing set IRMA mint price with normal conditions");  
+        println!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
         let (state_account, irma_admin_account, sys_account) 
                 = initialize_anchor(program_id);
@@ -228,16 +235,16 @@ mod tests {
         );
         result = set_mint_price(ctx, "FDUSD", 1.3);
         assert!(result.is_ok());
-        // msg!("Mint price for USDT set successfully: {:?}", accounts.state.mint_price["USDT" as usize]);
-        // msg!("Mint price for USDC set successfully: {:?}", accounts.state.mint_price[Stablecoins::USDC as usize]);
-        // msg!("Mint price for USDE set successfully: {:?}", accounts.state.mint_price[Stablecoins::FDUSD as usize]);
+        // println!("Mint price for USDT set successfully: {:?}", accounts.state.mint_price["USDT" as usize]);
+        // println!("Mint price for USDC set successfully: {:?}", accounts.state.mint_price[Stablecoins::USDC as usize]);
+        // println!("Mint price for USDE set successfully: {:?}", accounts.state.mint_price[Stablecoins::FDUSD as usize]);
     }
 
     #[test]
     fn test_mint_irma_anchor<'info>() -> Result<()> {
-        msg!("-------------------------------------------------------------------------");
-        msg!("Testing mint IRMA with normal conditions");  
-        msg!("-------------------------------------------------------------------------");
+        println!("-------------------------------------------------------------------------");
+        println!("Testing mint IRMA with normal conditions");  
+        println!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
         // let state_account: Pubkey = Pubkey::find_program_address(&[b"state".as_ref()], program_id).0;
         let (state_account, irma_admin_account, sys_account) 
@@ -248,18 +255,18 @@ mod tests {
             trader: irma_admin_account.clone(),
             system_program: sys_account.clone(),
         };
-        msg!("Pre-mint IRMA state:");
-        msg!("Backing reserves for USDT: {:?}", 
+        println!("Pre-mint IRMA state:");
+        println!("Backing reserves for USDT: {:?}", 
             accounts.state.get_stablecoin("USDT").unwrap().backing_reserves);
-        msg!("Backing reserves for PYUSD: {:?}", 
+        println!("Backing reserves for PYUSD: {:?}", 
             accounts.state.get_stablecoin("PYUSD").unwrap().backing_reserves);
-        msg!("Backing reserves for USDG: {:?}", 
+        println!("Backing reserves for USDG: {:?}", 
             accounts.state.get_stablecoin("USDG").unwrap().backing_reserves);
-        msg!("IRMA in circulation for USDT: {:?}", 
+        println!("IRMA in circulation for USDT: {:?}", 
             accounts.state.get_stablecoin("USDT").unwrap().irma_in_circulation);
-        msg!("IRMA in circulation for PYUSD: {:?}", 
+        println!("IRMA in circulation for PYUSD: {:?}", 
             accounts.state.get_stablecoin("PYUSD").unwrap().irma_in_circulation);
-        msg!("IRMA in circulation for USDG: {:?}", 
+        println!("IRMA in circulation for USDG: {:?}", 
             accounts.state.get_stablecoin("USDG").unwrap().irma_in_circulation);
         let mut ctx: Context<Common> = Context::new(
             program_id,
@@ -270,10 +277,10 @@ mod tests {
         let mut result = mint_irma(ctx, "USDT", 100);
         match result {
             Err(e) => {
-                msg!("Error minting IRMA for USDT: {:?}", e);
+                println!("Error minting IRMA for USDT: {:?}", e);
             },
             Ok(_) => {
-                msg!("Mint IRMA successful for USDT");
+                println!("Mint IRMA successful for USDT");
             }
         }
         ctx = Context::new(
@@ -285,10 +292,10 @@ mod tests {
         result = mint_irma(ctx, "PYUSD", 1000);
         match result {
             Err(e) => {
-                msg!("Error minting IRMA for PYUSD: {:?}", e);
+                println!("Error minting IRMA for PYUSD: {:?}", e);
             },
             Ok(_) => {
-                msg!("Mint IRMA successful for PYUSD");
+                println!("Mint IRMA successful for PYUSD");
             }
         }
         ctx = Context::new(
@@ -300,25 +307,25 @@ mod tests {
         result = mint_irma(ctx, "USDG", 10000);
         match result {
             Err(e) => {
-                msg!("Error minting IRMA for USDG: {:?}", e);
+                println!("Error minting IRMA for USDG: {:?}", e);
             },
             Ok(_) => {
-                msg!("Mint IRMA successful for USDG");
+                println!("Mint IRMA successful for USDG");
             }
         }
-        msg!("-------------------------------------------------------------------------");
-        msg!("Post-mint IRMA state:");
-        msg!("Backing reserves for USDT: {:?}", 
+        println!("-------------------------------------------------------------------------");
+        println!("Post-mint IRMA state:");
+        println!("Backing reserves for USDT: {:?}", 
             accounts.state.get_stablecoin("USDT").unwrap().backing_reserves);
-        msg!("Backing reserves for PYUSD: {:?}", 
+        println!("Backing reserves for PYUSD: {:?}", 
             accounts.state.get_stablecoin("PYUSD").unwrap().backing_reserves);
-        msg!("Backing reserves for USDG: {:?}", 
+        println!("Backing reserves for USDG: {:?}", 
             accounts.state.get_stablecoin("USDG").unwrap().backing_reserves);
-        msg!("IRMA in circulation for USDT: {:?}", 
+        println!("IRMA in circulation for USDT: {:?}", 
             accounts.state.get_stablecoin("USDT").unwrap().irma_in_circulation);
-        msg!("IRMA in circulation for PYUSD: {:?}", 
+        println!("IRMA in circulation for PYUSD: {:?}", 
             accounts.state.get_stablecoin("PYUSD").unwrap().irma_in_circulation);
-        msg!("IRMA in circulation for USDG: {:?}", 
+        println!("IRMA in circulation for USDG: {:?}", 
             accounts.state.get_stablecoin("USDG").unwrap().irma_in_circulation);
         Ok(())
     }
@@ -326,9 +333,9 @@ mod tests {
 
     #[test]
     fn test_redeem_irma_anchor<'info>() -> Result<()> {
-        msg!("-------------------------------------------------------------------------");
-        msg!("Testing redeem IRMA when mint price is less than redemption price");  
-        msg!("-------------------------------------------------------------------------");
+        println!("-------------------------------------------------------------------------");
+        println!("Testing redeem IRMA when mint price is less than redemption price");  
+        println!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
         let (state_account, irma_admin_account, sys_account) 
             = initialize_anchor(program_id);
@@ -344,14 +351,14 @@ mod tests {
                 &[],
                 BTreeMap::<String, u8>::default(),
             );
-            msg!("Pre-redeem IRMA state 1:");
-            msg!("Backing reserves: {}", list_reserves(ctx));
+            println!("Pre-redeem IRMA state 1:");
+            println!("Backing reserves: {}", list_reserves(ctx));
         }
         let reserves = accounts.state.reserves.clone();
         for sc in reserves {
-            msg!("Backing reserves for {}: {:?}", sc.symbol, sc.backing_reserves);
+            println!("Backing reserves for {}: {:?}", sc.symbol, sc.backing_reserves);
             if sc.backing_decimals == 0 {
-                msg!("Skipping non-existent stablecoin: {}", sc.symbol);
+                println!("Skipping non-existent stablecoin: {}", sc.symbol);
                 continue; // skip non-existent stablecoins
             }
             let mut_backing = accounts.state.get_mut_stablecoin(&sc.symbol).unwrap();
@@ -360,9 +367,9 @@ mod tests {
             *reserve = 1000000; // Set a large reserve for testing
             *circulation = 100000; // Set a large IRMA in circulation for testing
         }
-        // msg!("Current prices: {:?}", accounts.state.mint_price);
-        // msg!("Backing reserves: {:?}", accounts.state.backing_reserves);
-        // msg!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
+        // println!("Current prices: {:?}", accounts.state.mint_price);
+        // println!("Backing reserves: {:?}", accounts.state.backing_reserves);
+        // println!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
         let mut ctx: Context<Common> = Context::new(
             program_id,
             &mut accounts,
@@ -372,10 +379,10 @@ mod tests {
         let mut result: std::result::Result<(), Error> = redeem_irma(ctx, "USDC", 10);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for USDC: {:?}", e);
+                println!("Error redeeming IRMA for USDC: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for USDC");
+                println!("Redeem IRMA successful for USDC");
             }
         }
         // assert!(result.is_ok(), "Redeem IRMA failed for USDC");
@@ -388,10 +395,10 @@ mod tests {
         result = redeem_irma(ctx, "USDT", 20);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for USDT: {:?}", e);
+                println!("Error redeeming IRMA for USDT: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for USDT");
+                println!("Redeem IRMA successful for USDT");
             }
         }
         ctx = Context::new(
@@ -403,10 +410,10 @@ mod tests {
         result = redeem_irma(ctx, "PYUSD", 30);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for PYUSD: {:?}", e);
+                println!("Error redeeming IRMA for PYUSD: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for PYUSD");
+                println!("Redeem IRMA successful for PYUSD");
             }
         }
         ctx = Context::new(
@@ -418,10 +425,10 @@ mod tests {
         result = redeem_irma(ctx, "USDG", 40);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for USDG: {:?}", e);
+                println!("Error redeeming IRMA for USDG: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for USDG");
+                println!("Redeem IRMA successful for USDG");
             }
         }
         ctx = Context::new(
@@ -433,10 +440,10 @@ mod tests {
         result = redeem_irma(ctx, "FDUSD", 50);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for FDUSD: {:?}", e);
+                println!("Error redeeming IRMA for FDUSD: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for FDUSD");
+                println!("Redeem IRMA successful for FDUSD");
             }
         }
         ctx = Context::new(
@@ -446,16 +453,16 @@ mod tests {
             BTreeMap::<String, u8>::default(),
         );
 
-        msg!("Mid-state for USDT before further redemption: {:?}", 
+        println!("Mid-state for USDT before further redemption: {:?}", 
             state_account.get_stablecoin("USDT").unwrap().backing_reserves);
         // Test for near maximum redemption
         result = redeem_irma(ctx, "USDT", 10_000);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for USDT: {:?}", e);
+                println!("Error redeeming IRMA for USDT: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for USDT");
+                println!("Redeem IRMA successful for USDT");
             }
         }
         ctx = Context::new(
@@ -467,24 +474,24 @@ mod tests {
         result = redeem_irma(ctx, "USDS", 10);
         match result {
             Err(e) => {
-                msg!("Error redeeming IRMA for USDS: {:?}", e);
+                println!("Error redeeming IRMA for USDS: {:?}", e);
             },
             Ok(_) => {
-                msg!("Redeem IRMA successful for USDS");
+                println!("Redeem IRMA successful for USDS");
             }
         }
-        msg!("-------------------------------------------------------------------------");
-        msg!("Redeem IRMA successful:");
-        msg!("Backing reserves for USDT: {:?}", accounts.state.reserves);
+        println!("-------------------------------------------------------------------------");
+        println!("Redeem IRMA successful:");
+        println!("Backing reserves for USDT: {:?}", accounts.state.reserves);
         Ok(())
     }
 
     /// Test cases for when redemption price is less than mint price
     #[test]
     fn test_redeem_irma_normal<'info>() -> Result<()> {
-        msg!("-------------------------------------------------------------------------");
-        msg!("Testing redeem IRMA with normal conditions, but with large discrepancies in mint prices");  
-        msg!("-------------------------------------------------------------------------");
+        println!("-------------------------------------------------------------------------");
+        println!("Testing redeem IRMA with normal conditions, but with large discrepancies in mint prices");  
+        println!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
         let (state_account, irma_admin_account, sys_account) 
             = initialize_anchor(program_id);
@@ -494,21 +501,21 @@ mod tests {
             system_program: sys_account.clone(),
         };
         {
-            msg!("Pre-redeem IRMA state 2:");
+            println!("Pre-redeem IRMA state 2:");
             let ctx: Context<Common> = Context::new(
                 program_id,
                 &mut accounts,
                 &[],
                 BTreeMap::<String, u8>::default(),
             );
-            msg!("Backing reserves: {}", list_reserves(ctx));
+            println!("Backing reserves: {}", list_reserves(ctx));
             let state: &mut StateMap = &mut accounts.state;
             let reserves = state.reserves.clone();
             let mut i: u64 = 0;
             for sc in reserves {
-                msg!("Backing reserves for {}: {:?}", sc.symbol, sc.backing_reserves);
+                println!("Backing reserves for {}: {:?}", sc.symbol, sc.backing_reserves);
                 if sc.backing_decimals == 0 {
-                    msg!("Skipping non-existent stablecoin: {}", sc.symbol);
+                    println!("Skipping non-existent stablecoin: {}", sc.symbol);
                     continue; // skip non-existent stablecoins
                 }
                 let mut_backing = state.get_mut_stablecoin(&sc.symbol).unwrap();
@@ -527,9 +534,9 @@ mod tests {
             &[],
             BTreeMap::<String, u8>::default(),
         );
-        // msg!("Current prices: {:?}", accounts.state.mint_price);
-        // msg!("Backing reserves: {:?}", accounts.state.backing_reserves);
-        // msg!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
+        // println!("Current prices: {:?}", accounts.state.mint_price);
+        // println!("Backing reserves: {:?}", accounts.state.backing_reserves);
+        // println!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
         let mut count: u64 = 0;
         // Test for near maximum redemption, multiple times, until it fails.
         // What we expect is that these repeated redemptions will equalize the differences between
@@ -545,11 +552,11 @@ mod tests {
             reslt = redeem_irma(ctx, "FDUSD", 100_000_000_000);
             match reslt {
                 Err(e) => {
-                    msg!("Error redeeming IRMA for USDT: {:?}", e);
+                    println!("Error redeeming IRMA for USDT: {:?}", e);
                     break; // Exit loop on error
                 },
                 Ok(_) => {
-                    // msg!("Redeem IRMA successful for USDT");
+                    // println!("Redeem IRMA successful for USDT");
                 }
             }
 
@@ -560,7 +567,7 @@ mod tests {
                     let backing: u64 = sc.backing_reserves;
                     let circulation: u64 = sc.irma_in_circulation;
                     let redemption_price: f64 = backing as f64 / circulation as f64;
-                    msg!("{}, {:.3}, {}, {}, {:.3}", 
+                    println!("{}, {:.3}, {}, {}, {:.3}", 
                         sc.symbol, 
                         sc.mint_price, 
                         backing,
@@ -572,10 +579,10 @@ mod tests {
             count += 1;
         }
 
-        // msg!("-------------------------------------------------------------------------");
-        // msg!("Redeem IRMA successful:");
-        // msg!("Backing reserves: {:?}", accounts.state.backing_reserves);
-        // msg!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
+        // println!("-------------------------------------------------------------------------");
+        // println!("Redeem IRMA successful:");
+        // println!("Backing reserves: {:?}", accounts.state.backing_reserves);
+        // println!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
         Ok(())
     }
 }

@@ -4,15 +4,15 @@ mod tests {
 
     use anchor_lang::prelude::*;
     use anchor_lang::prelude::Pubkey;
-    use anchor_lang::prelude::Clock;
-    use anchor_lang::prelude::Sysvar;
+    // use anchor_lang::prelude::Clock;
+    // use anchor_lang::prelude::Sysvar;
     use anchor_lang::prelude::Signer;
     // use anchor_lang::prelude::Account;
     use anchor_lang::prelude::Program;
     use anchor_lang::context::Context;
-    use anchor_lang::solana_program::sysvar::clock::ID as CLOCK_ID;
+    // use anchor_lang::solana_program::sysvar::clock::ID as CLOCK_ID;
     use anchor_lang::system_program;
-    use anchor_lang::Accounts;
+    // use anchor_lang::Accounts;
 
     use irma::irma as money;
     use irma::pricing::{StateMap, StableState};
@@ -104,13 +104,13 @@ mod tests {
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
         };
-        let ctx: Context<Maint> = Context::new(
+        let ctx: Context<Init> = Context::new(
             program_id,
             &mut accounts,
             &[],
-            BTreeMap::<String, u8>::default(), // Use default bumps if not needed
+            InitBumps::new(), // Use default bumps if not needed
         );
-        let crank_result: std::result::Result<(), Error> = money::crank(ctx);
+        let crank_result: std::result::Result<(), Error> = money::initialize(ctx);
         assert!(crank_result.is_ok());
         msg!("Crank executed successfully");
 

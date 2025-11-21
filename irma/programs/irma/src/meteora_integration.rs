@@ -924,6 +924,7 @@ impl<'a> Core<'a> {
 mod core_test {
     use super::*;
     use std::env;
+    use std::sync::Arc;
 
     #[test]
     fn test_withdraw() {
@@ -941,11 +942,16 @@ mod core_test {
         }];
 
         let core = &Core {
-            provider: Cluster::from_str(&cluster).unwrap(),
+            context: /*Arc::new(*/MeteoraContext {
+                accounts: MeteoraAccounts {
+                    irma_admin: payer.clone(),
+                },
+                remaining_accounts: vec![],
+            }/*)*/,
             owner: payer.key(),
-            wallet: Some(Arc::new(payer)),
+            // wallet: Some(Arc::new(payer)),
             config: config.clone(),
-            state: AllPosition::new(&config),
+            state: AllPosition::new(&config).unwrap(),
         };
 
         core.refresh_state().unwrap();
@@ -953,7 +959,7 @@ mod core_test {
         let state = core.get_position_state(lp_pair);
 
         // withdraw
-        core.withdraw(&state, true).unwrap();
+        core.withdraw(&state).unwrap();
     }
 
     #[test]
@@ -972,18 +978,23 @@ mod core_test {
         }];
 
         let core = &Core {
-            provider: Cluster::from_str(&cluster).unwrap(),
+            context: /*Arc::new(*/MeteoraContext {
+                accounts: MeteoraAccounts {
+                    irma_admin: payer.clone(),
+                },
+                remaining_accounts: vec![],
+            }/*)*/,
             owner: payer.key(),
-            wallet: Some(Arc::new(payer)),
+            // wallet: Some(Arc::new(payer)),
             config: config.clone(),
-            state: AllPosition::new(&config),
+            state: AllPosition::new(&config).unwrap(),
         };
 
         core.refresh_state().unwrap();
 
         let state = core.get_position_state(lp_pair);
 
-        core.swap(&state, 1000000, true, true).unwrap();
+        core.swap(&state, 1000000, true).unwrap();
     }
 }
 

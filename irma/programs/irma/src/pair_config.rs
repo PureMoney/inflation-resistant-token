@@ -55,6 +55,6 @@ mod config_test {
         owned_string.push_str(borrowed_string);
 
         let config = get_config().unwrap();
-        msg!("{:?}", config);
+        println!("{:?}", config);
     }
 }

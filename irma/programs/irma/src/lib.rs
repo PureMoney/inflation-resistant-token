@@ -23,21 +23,7 @@ use commons::dlmm::types::Bin;
 use crate::error::Error;
 use commons::dlmm::accounts::*;
 
-// impl Zeroable {
-//     fn zeroed() -> Self {
-//         Self {
-//             liquidity: 0,
-//             fee_growth_inside_x: 0,
-//             fee_growth_inside_y: 0,
-//             reward_growth_inside_x: 0,
-//             reward_growth_inside_y: 0,
-//             reward_owed_x: 0,
-//             reward_owed_y: 0,
-//         }
-//     }
-// }
-
-// impl Pod for Bin {}
+pub const IRMA_ID: Pubkey = pubkey!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MarketMakingMode {
