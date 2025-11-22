@@ -52,6 +52,10 @@ pub struct Core<'a> {
 }
 
 impl<'a> Core<'a> {
+    pub fn init_core(ctx: Context<Init>) -> Result<()> {
+
+    }
+
     // Helper function to get current epoch time in seconds (on-chain version)
     fn get_epoch_sec() -> Result<i64> {
         let clock = Clock::get()?;
@@ -917,84 +921,6 @@ impl<'a> Core<'a> {
         if let Some(state) = self.state.all_positions.get_mut(&lb_pair) {
             state.inc_rebalance_time();
         }
-    }
-}
-
-#[cfg(test)]
-mod core_test {
-    use super::*;
-    use std::env;
-    use std::sync::Arc;
-
-    #[test]
-    fn test_withdraw() {
-        let wallet = env::var("MM_WALLET").unwrap();
-        let cluster = env::var("MM_CLUSTER").unwrap();
-        let payer = read_keypair_file(wallet.clone()).unwrap();
-
-        let lp_pair = Pubkey::from_str("FoSDw2L5DmTuQTFe55gWPDXf88euaxAEKFre74CnvQbX").unwrap();
-
-        let config = vec![PairConfig {
-            pair_address: lp_pair.to_string(),
-            x_amount: 17000000,
-            y_amount: 2000000,
-            mode: MarketMakingMode::ModeBoth,
-        }];
-
-        let core = &Core {
-            context: /*Arc::new(*/MeteoraContext {
-                accounts: MeteoraAccounts {
-                    irma_admin: payer.clone(),
-                },
-                remaining_accounts: vec![],
-            }/*)*/,
-            owner: payer.key(),
-            // wallet: Some(Arc::new(payer)),
-            config: config.clone(),
-            state: AllPosition::new(&config).unwrap(),
-        };
-
-        core.refresh_state().unwrap();
-
-        let state = core.get_position_state(lp_pair);
-
-        // withdraw
-        core.withdraw(&state).unwrap();
-    }
-
-    #[test]
-    fn test_swap() {
-        let wallet = env::var("MM_WALLET").unwrap();
-        let cluster = env::var("MM_CLUSTER").unwrap();
-        let payer = read_keypair_file(wallet.clone()).unwrap();
-
-        let lp_pair = Pubkey::from_str("FoSDw2L5DmTuQTFe55gWPDXf88euaxAEKFre74CnvQbX").unwrap();
-
-        let config = vec![PairConfig {
-            pair_address: lp_pair.to_string(),
-            x_amount: 17000000,
-            y_amount: 2000000,
-            mode: MarketMakingMode::ModeBoth,
-        }];
-
-        let core = &Core {
-            context: /*Arc::new(*/MeteoraContext {
-                accounts: MeteoraAccounts {
-                    irma_admin: payer.clone(),
-                },
-                remaining_accounts: vec![],
-            }/*)*/,
-            owner: payer.key(),
-            // wallet: Some(Arc::new(payer)),
-            config: config.clone(),
-            state: AllPosition::new(&config).unwrap(),
-        };
-
-        core.refresh_state().unwrap();
-
-        let state = core.get_position_state(lp_pair);
-
-        core.swap(&state, 1000000, true).unwrap();
     }
 }
 

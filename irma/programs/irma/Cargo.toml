@@ -24,6 +24,7 @@ idl-build = ["anchor-lang/idl-build"]
 # Core Solana program dependencies
 anchor-lang = { workspace = true }
 anchor-spl = { workspace = true }
+anyhow = { workspace = true }
 
 # Math and utility libraries for on-chain use
 fixed = { workspace = true }

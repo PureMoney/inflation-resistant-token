@@ -23,22 +23,6 @@ pub fn create_clock(slot: u64, unix_timestamp: i64) -> Clock {
     }
 }
 
-/// Given an Account, get its AccountInfo for on-chain logic
-pub fn get_account_info<'a, T>(
-    account: &Account<'a, T>,
-) -> &AccountInfo<'a> {
-    // AccountInfo::new(
-    //     &account.key,
-    //     account.is_signer,
-    //     account.is_writable,
-    //     account.lamports,
-    //     account.data,
-    //     &account.owner,
-    //     false, // executable
-    //     0,     // rent_epoch
-    // )
-    account.to_account_info()
-}
 
 /// Utility to verify on-chain program logic without RPC calls
 pub fn verify_program_state<T: anchor_lang::AccountDeserialize>(
@@ -207,7 +191,7 @@ pub fn calculate_rent_exemption(data_len: usize) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
+mod utils_tests {
     use super::*;
     
     #[test]
@@ -283,7 +267,7 @@ mod tests {
             owner,
         };
         
-        let account_info = get_account_info(&account);
+        let account_info = account.to_account_info();
         
         assert_eq!(*account_info.key, key);
         assert_eq!(account_info.is_signer, true);

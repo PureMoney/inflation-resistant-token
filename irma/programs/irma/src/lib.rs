@@ -243,7 +243,7 @@ pub mod bin_array_manager;
 pub mod meteora_integration;
 pub mod pricing;
 pub mod position_manager;
-// pub mod utils;
+pub mod utils;
 // pub mod u64x64_math;
 // pub mod bin;
 // pub mod position;
