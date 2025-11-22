@@ -67,13 +67,13 @@ pub struct Init<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct Common<'info> {
-    #[account(mut)]
-    pub state: Account<'info, StateMap>,
-    pub trader: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
+// #[derive(Accounts)]
+// pub struct Common<'info> {
+//     #[account(mut)]
+//     pub state: Account<'info, StateMap>,
+//     pub trader: Signer<'info>,
+//     pub system_program: Program<'info, System>,
+// }
 
 #[derive(Accounts)]
 pub struct Maint<'info> {
@@ -254,7 +254,7 @@ pub mod utils;
 
 #[program]
 pub mod irma {
-    use super::*; // This will now correctly bring Init, Maint, Common, etc. into scope
+    use super::*; // This will now correctly bring Init, Maint, etc. into scope
 
     pub fn initialize(ctx: Context<Init>) -> Result<()> {
         pricing::init_pricing(ctx)
@@ -273,23 +273,30 @@ pub mod irma {
         pricing::disable_reserve(ctx, &symbol)
     }
 
-    pub fn get_redemption_price(ctx: Context<Common>, quote_token: String) -> Result<f64> {
+    pub fn get_redemption_price(ctx: Context<Maint>, quote_token: String) -> Result<f64> {
         pricing::get_redemption_price(ctx, &quote_token)
     }
 
-    pub fn get_prices(ctx: Context<Common>, quote_token: String) -> Result<(f64, f64)> {
+    pub fn get_prices(ctx: Context<Maint>, quote_token: String) -> Result<(f64, f64)> {
         pricing::get_prices(ctx, &quote_token)
     }
 
+    // NOTE: In the two functions below, the Common accounts struct previously allowed the trader herself
+    // to access IRMA. However, now we are changing it so that only the irma_admin (the program
+    // maintainer) can call these functions to inform the pricing module of trade events. In other words,
+    // the trader should be set to irma_admin in the Common context when calling these functions.
+    // To avoid confusion, I have renamed the 'trader' field in Common to 'irma_admin' and replaced
+    // all instances of 'Common' with "Maint".
+
     /// Let pricing know about a sale trade event
     /// Note that IRMA is what we are selling (minting).
-    pub fn sale_trade_event(ctx: Context<Common>, bought_token: String, bought_amount: u64) -> Result<()> {
+    pub fn sale_trade_event(ctx: Context<Maint>, bought_token: String, bought_amount: u64) -> Result<()> {
         return pricing::mint_irma(ctx, &bought_token, bought_amount);
     }
 
     /// Let pricing know about a buy-back trade event
     /// Note that IRMA is what we are buying (burning).
-    pub fn buy_trade_event(ctx: Context<Common>, sold_token: String, bought_amount: u64) -> Result<()> {
+    pub fn buy_trade_event(ctx: Context<Maint>, sold_token: String, bought_amount: u64) -> Result<()> {
         return pricing::redeem_irma(ctx, &sold_token, bought_amount);
     }
 }

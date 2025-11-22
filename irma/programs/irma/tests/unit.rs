@@ -18,7 +18,7 @@ mod tests {
     use irma::pricing::{StateMap, StableState};
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
     use irma::pricing::MAX_BACKING_COUNT;
-    use irma::{Init, Common, Maint, InitBumps, CommonBumps, MaintBumps};
+    use irma::{Init, Maint, InitBumps, MaintBumps};
 
     
     fn allocate_state() -> StateMap {
@@ -229,33 +229,33 @@ mod tests {
         let (state_account, irma_admin_account, sys_account) 
                 = initialize_anchor(program_id);
         // Bind to variables to extend their lifetime
-        let mut accounts: Common<'_> = Common {
+        let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
-            trader: irma_admin_account.clone(),
+            irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
         };
-        let mut ctx: Context<Common> = Context::new(
+        let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         let mut result: std::result::Result<(), Error> = set_mint_price(ctx, "USDT", 1.5);
         assert!(result.is_ok());
         // Re-create ctx for the next call if needed
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = set_mint_price(ctx, "USDC", 1.8);
         assert!(result.is_ok());
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = set_mint_price(ctx, "FDUSD", 1.3);
         assert!(result.is_ok());
@@ -274,9 +274,9 @@ mod tests {
         let (state_account, irma_admin_account, sys_account) 
                 = initialize_anchor(program_id);
         // Bind to variables to extend their lifetime
-        let mut accounts: Common<'_> = Common {
+        let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
-            trader: irma_admin_account.clone(),
+            irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
         };
         msg!("Pre-mint IRMA state:");
@@ -292,11 +292,11 @@ mod tests {
             accounts.state.get_stablecoin("PYUSD").unwrap().irma_in_circulation);
         msg!("IRMA in circulation for USDG: {:?}", 
             accounts.state.get_stablecoin("USDG").unwrap().irma_in_circulation);
-        let mut ctx: Context<Common> = Context::new(
+        let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         let mut result = mint_irma(ctx, "USDT", 100);
         match result {
@@ -307,11 +307,11 @@ mod tests {
                 msg!("Mint IRMA successful for USDT");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = mint_irma(ctx, "PYUSD", 1000);
         match result {
@@ -322,11 +322,11 @@ mod tests {
                 msg!("Mint IRMA successful for PYUSD");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = mint_irma(ctx, "USDG", 10000);
         match result {
@@ -363,17 +363,17 @@ mod tests {
         let program_id: &'info Pubkey = &IRMA_ID;
         let (state_account, irma_admin_account, sys_account) 
             = initialize_anchor(program_id);
-        let mut accounts: Common<'_> = Common {
+        let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
-            trader: irma_admin_account.clone(),
+            irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
         };
         {
-            let ctx: Context<Common> = Context::new(
+            let ctx: Context<Maint> = Context::new(
                 program_id,
                 &mut accounts,
                 &[],
-                CommonBumps::default(),
+                MaintBumps::default(),
             );
             msg!("Pre-redeem IRMA state 1:");
             msg!("Backing reserves: {}", list_reserves(ctx));
@@ -394,11 +394,11 @@ mod tests {
         // msg!("Current prices: {:?}", accounts.state.mint_price);
         // msg!("Backing reserves: {:?}", accounts.state.backing_reserves);
         // msg!("IRMA in circulation: {:?}", accounts.state.irma_in_circulation);
-        let mut ctx: Context<Common> = Context::new(
+        let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         let mut result: std::result::Result<(), Error> = redeem_irma(ctx, "USDC", 10);
         match result {
@@ -410,11 +410,11 @@ mod tests {
             }
         }
         // assert!(result.is_ok(), "Redeem IRMA failed for USDC");
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = redeem_irma(ctx, "USDT", 20);
         match result {
@@ -425,11 +425,11 @@ mod tests {
                 msg!("Redeem IRMA successful for USDT");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = redeem_irma(ctx, "PYUSD", 30);
         match result {
@@ -440,11 +440,11 @@ mod tests {
                 msg!("Redeem IRMA successful for PYUSD");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = redeem_irma(ctx, "USDG", 40);
         match result {
@@ -455,11 +455,11 @@ mod tests {
                 msg!("Redeem IRMA successful for USDG");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = redeem_irma(ctx, "FDUSD", 50);
         match result {
@@ -470,11 +470,11 @@ mod tests {
                 msg!("Redeem IRMA successful for FDUSD");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
 
         msg!("Mid-state for USDT before further redemption: {:?}", 
@@ -489,11 +489,11 @@ mod tests {
                 msg!("Redeem IRMA successful for USDT");
             }
         }
-        ctx = Context::<Common>::new(
+        ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         result = redeem_irma(ctx, "USDS", 10);
         match result {
@@ -519,18 +519,18 @@ mod tests {
         let program_id: &'info Pubkey = &IRMA_ID;
         let (state_account, irma_admin_account, sys_account) 
             = initialize_anchor(program_id);
-        let mut accounts: Common<'_> = Common {
+        let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
-            trader: irma_admin_account.clone(),
+            irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
         };
         {
             msg!("Pre-redeem IRMA state 2:");
-            let ctx: Context<Common> = Context::new(
+            let ctx: Context<Maint> = Context::new(
                 program_id,
                 &mut accounts,
                 &[],
-                CommonBumps::default(),
+                MaintBumps::default(),
             );
             msg!("Backing reserves: {}", list_reserves(ctx));
             let state: &mut StateMap = &mut accounts.state;
@@ -552,11 +552,11 @@ mod tests {
                 i += 1;
             }
         }
-        let mut ctx: Context<Common> = Context::new(
+        let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             &[],
-            CommonBumps::default(),
+            MaintBumps::default(),
         );
         // msg!("Current prices: {:?}", accounts.state.mint_price);
         // msg!("Backing reserves: {:?}", accounts.state.backing_reserves);
@@ -567,11 +567,11 @@ mod tests {
         // mint prices and redemptions prices for all stablecoins.
         let mut reslt = redeem_irma(ctx, "FDUSD", 100_000_000_000);
         while reslt.is_ok() {
-            ctx = Context::<Common>::new(
+            ctx = Context::<Maint>::new(
                 program_id,
                 &mut accounts,
                 &[],
-                CommonBumps::default(),
+                MaintBumps::default(),
             );
             reslt = redeem_irma(ctx, "FDUSD", 100_000_000_000);
             match reslt {

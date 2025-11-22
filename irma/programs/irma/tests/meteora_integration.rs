@@ -8,7 +8,7 @@ mod core_test {
     use irma::pair_config::PairConfig;
     use irma::position_manager::{AllPosition};
     use irma::meteora_integration::Core;
-    use irma::{MarketMakingMode, Init, Maint, Common, InitBumps, CommonBumps, MaintBumps};
+    use irma::{MarketMakingMode, Init, Maint, InitBumps, CommonBumps, MaintBumps};
 
     fn prep_accounts<'info>(owner: &'info Pubkey, state_account: Pubkey) -> (AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>) {
         // Create a buffer for StateMap and wrap it in AccountInfo

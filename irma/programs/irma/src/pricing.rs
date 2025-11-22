@@ -6,7 +6,7 @@ use std::string::String;
 use std::option::Option;
 // use anchor_lang_idl_spec::IdlType::Option as IdlOption;
 // use anchor_lang_idl_spec::IdlType::Pubkey as IdlPubkey;
-use crate::{Init, Maint, Common};
+use crate::{Init, Maint};
 use anchor_lang::*;
 // use anchor_lang::system_program::ID;
 use anchor_lang::prelude::*;
@@ -104,7 +104,7 @@ fn validate_params(state_map: &StateMap, quote_token: &str) -> Result<()> {
 /// Set mint price for a given quote token based on inflation data.
 /// This should be called for every backing stablecoin supported, only once per day
 /// because Truflation updates the inflation data only once per day.
-pub fn set_mint_price(ctx: Context<Common>, quote_token: &str, mint_price: f64) -> Result<()> {
+pub fn set_mint_price(ctx: Context<Maint>, quote_token: &str, mint_price: f64) -> Result<()> {
     let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
     require!(mint_price > 0.0, CustomError::InvalidAmount);
@@ -117,7 +117,7 @@ pub fn set_mint_price(ctx: Context<Common>, quote_token: &str, mint_price: f64) 
 /// Mint IRMA tokens for a given amount of quote token.
 /// Input amount is  in quote token's smallest unit (e.g. 1 USDT = 10^6, 1 USDC = 10^6, etc.)
 /// The mint price is the price of IRMA in terms of the quote token, which is set by the Truflation oracle.
-pub fn mint_irma(ctx: Context<Common>, quote_token: &str, amount: u64) -> Result<()> {
+pub fn mint_irma(ctx: Context<Maint>, quote_token: &str, amount: u64) -> Result<()> {
     let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
 
@@ -137,7 +137,7 @@ pub fn mint_irma(ctx: Context<Common>, quote_token: &str, amount: u64) -> Result
 /// RedeemIRMA - user surrenders IRMA in irma_amount, expecting to get back quote_token according to redemption price.
 /// FIXME: If resulting redemption price increases by more than 0.0000001, then actual redemption price 
 /// should be updated immediately.
-pub fn redeem_irma(ctx: Context<Common>, quote_token: &str, irma_amount: u64) -> Result<()> {
+pub fn redeem_irma(ctx: Context<Maint>, quote_token: &str, irma_amount: u64) -> Result<()> {
     let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
 
@@ -157,13 +157,13 @@ pub fn redeem_irma(ctx: Context<Common>, quote_token: &str, irma_amount: u64) ->
     Ok(())
 }
 
-pub fn list_reserves(ctx: Context<Common>) -> String {
+pub fn list_reserves(ctx: Context<Maint>) -> String {
     let state_map = &mut ctx.accounts.state;
     let sorted_list = state_map.list_reserves();
     sorted_list.join(", ")
 }
 
-pub fn get_reserve_info(ctx: Context<Common>, quote_token: &str) -> Result<StableState> {
+pub fn get_reserve_info(ctx: Context<Maint>, quote_token: &str) -> Result<StableState> {
     let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
     let stablecoin = state_map.get_stablecoin(quote_token).unwrap();
@@ -172,7 +172,7 @@ pub fn get_reserve_info(ctx: Context<Common>, quote_token: &str) -> Result<Stabl
 
 /// Get the current redemption price for a given quote token.
 /// Redemption price = total backing reserves / total IRMA in circulation
-pub fn get_redemption_price(ctx: Context<Common>, quote_token: &str) -> Result<f64> {
+pub fn get_redemption_price(ctx: Context<Maint>, quote_token: &str) -> Result<f64> {
     let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
     
@@ -189,7 +189,7 @@ pub fn get_redemption_price(ctx: Context<Common>, quote_token: &str) -> Result<f
 }
 
 /// Get both mint and redemption prices for a given quote token.
-pub fn get_prices(ctx: Context<Common>, quote_token: &str) -> Result<(f64, f64)> {
+pub fn get_prices(ctx: Context<Maint>, quote_token: &str) -> Result<(f64, f64)> {
     let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
     

@@ -1,5 +1,6 @@
 use crate::MarketMakingMode;
 use crate::position_manager::*;
+use crate::Init;
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::*;
 use commons::derive_event_authority_pda;
@@ -53,7 +54,7 @@ pub struct Core<'a> {
 
 impl<'a> Core<'a> {
     pub fn init_core(ctx: Context<Init>) -> Result<()> {
-
+        Ok(())
     }
 
     // Helper function to get current epoch time in seconds (on-chain version)
