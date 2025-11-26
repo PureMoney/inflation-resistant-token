@@ -17,9 +17,12 @@ pub fn position_matches_wallet_and_pair(
     let position_data = &position_account.data.borrow()[8..];
     
     // Read the position struct using bytemuck
-    let position: PositionV2 = *bytemuck::try_from_bytes(
-        &position_data[..std::mem::size_of::<PositionV2>()]
-    ).map_err(|_| ProgramError::InvalidAccountData)?;
+    let position = bytemuck::pod_read_unaligned::<PositionV2>(
+        &position_data
+    ); // .map_err(|_| ProgramError::InvalidAccountData)?;
+
+    msg!("    Checking position: lb_pair {:?}, owner {:?}", position.lb_pair, position.owner);
+    msg!("    Against pair {:?}, wallet {:?}", pair, wallet);
 
     // Check if both lb_pair and owner match
     Ok(position.lb_pair == *pair && position.owner == *wallet)
@@ -53,12 +56,14 @@ pub fn get_matching_positions(
     let mut matching_positions = Vec::new();
     
     for account in position_accounts.iter() {
+        let discriminator = &account.data.borrow()[0..8];
+        msg!("Discriminator: {:?}", discriminator);
         if position_matches_wallet_and_pair(account, wallet, pair)? {
             // Skip the 8-byte discriminator and read the position data
             let position_data = &account.data.borrow()[8..];
-            let position: PositionV2 = *bytemuck::try_from_bytes(
-                &position_data[..std::mem::size_of::<PositionV2>()]
-            ).map_err(|_| ProgramError::InvalidAccountData)?;
+            let position = bytemuck::pod_read_unaligned::<PositionV2>(
+                &position_data
+            ); // .map_err(|_| ProgramError::InvalidAccountData)?;
             
             matching_positions.push((account.key(), position));
         }

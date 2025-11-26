@@ -19,7 +19,7 @@ mod tests {
     use irma::IRMA_ID;
     use irma::pricing::MAX_BACKING_COUNT;
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
-    use irma::{Init, Maint, InitBumps, CommonBumps, MaintBumps};
+    use irma::{Init, Maint, InitBumps, MaintBumps};
     // use irma::State;
 
 

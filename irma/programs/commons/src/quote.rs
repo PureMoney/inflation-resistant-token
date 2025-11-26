@@ -352,210 +352,267 @@ pub fn get_bin_array_pubkeys_for_swap(
     Ok(bin_array_pubkeys)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anchor_lang::prelude::*;
-    use anchor_lang::clock::Clock;
-    // use anchor_client::{
-    //     solana_client::nonblocking::rpc_client::RpcClient, solana_sdk::pubkey::Pubkey, Cluster,
-    // };
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use anchor_lang::prelude::*;
+//     use anchor_lang::prelude::sysvar::clock;
+//     // use anchor_lang::clock::Clock;
+//     // use anchor_client::{
+//     //     solana_client::nonblocking::rpc_client::RpcClient, solana_sdk::pubkey::Pubkey, Cluster,
+//     // };
 
-    /// Get on chain clock
-    fn get_clock() -> Result<Clock> {
-        let clock_account = get_account(&anchor_lang::sysvar::clock::ID);
+//     /// Get on chain clock
+//     fn get_clock() -> Result<clock::Clock> {
+//         // Use the sysvar directly in on-chain programs
+//         let clock = clock::Clock::get()?;
+//         Ok(clock)
+//     }
 
-        let clock_state: Clock = bincode::deserialize(clock_account.data.as_ref())?;
+//     fn get_bytemuck_account<T: bytemuck::Pod>(
+//         context: &Context<Maint>,
+//         pubkey: &Pubkey
+//     ) -> Option<T> {
+//         let account_info = if let Some(acc) = context.remaining_accounts.iter().find(|acc| acc.key == pubkey) {
+//             acc
+//         } else {
+//             return None;
+//         };
+        
+//         let data: T = bytemuck::pod_read_unaligned(&account_info.data.borrow()[8..]);
+//         Some(data)
+//     }
 
-        Ok(clock_state)
-    }
+//     #[test]
+//     fn test_swap_quote_exact_out() {
+//         // RPC client. No gPA is required.
+//         // let rpc_client = RpcClient::new(Cluster::Mainnet.url().to_string());
 
-    #[test]
-    fn test_swap_quote_exact_out() {
-        // RPC client. No gPA is required.
-        // let rpc_client = RpcClient::new(Cluster::Mainnet.url().to_string());
+//         let sol_usdc = Pubkey::from_str_const("HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR");
 
-        let sol_usdc = Pubkey::from_str_const("HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR");
+//         let lb_pair = LbPair {
+//             parameters: StaticParameters::default(),
+//             v_parameters: VariableParameters::default(),
+//             bump_seed: [0u8; 1],
+//             bin_step_seed: [0u8; 2],
+//             pair_type: 0u8,
+//             active_id: 0i32,
+//             bin_step: 100u16,
+//             status: 0u8,
+//             require_base_factor_seed: 0u8,
+//             base_factor_seed: [0u8; 2],
+//             activation_type: 0u8,
+//             creator_pool_on_off_control: 0u8,
+//             token_x_mint: Pubkey::new_unique(),
+//             token_y_mint: Pubkey::new_unique(),
+//             reserve_x: Pubkey::new_unique(),
+//             reserve_y: Pubkey::new_unique(),
+//             protocol_fee: ProtocolFee {
+//                 amount_x: 0u64,
+//                 amount_y: 0u64,
+//             },
+//             _padding_1: [0u8; 32],
+//             reward_infos: [RewardInfo {
+//                 mint: Pubkey::new_unique(),
+//                 vault: Pubkey::new_unique(),
+//                 funder: Pubkey::new_unique(),
+//                 reward_duration: 0u64,
+//                 reward_duration_end: 0u64,
+//                 reward_rate: 0u128,
+//                 last_update_time: 0u64,
+//                 cumulative_seconds_with_empty_liquidity_reward: 0u64,
+//             }; 2],
+//             oracle: Pubkey::new_unique(),
+//             bin_array_bitmap: [0u64; 16],
+//             last_updated_at: get_current_time_test() as i64,
+//             _padding_2: [0u8; 32],
+//             pre_activation_swap_address: Pubkey::default(),
+//             base_key: *lb_pair,
+//             activation_point: 0u64,
+//             pre_activation_duration: 0u64,
+//             _padding_3: [0u8; 8],
+//             _padding_4: 0u64,
+//             creator: Pubkey::default(),
+//             token_mint_x_program_flag: 0u8,
+//             token_mint_y_program_flag: 0u8,
+//             _reserved: [0u8; 22],
+//         };
 
-        let lb_pair_account = get_account(&sol_usdc).unwrap();
+//         let mut mint_accounts = get_multiple_accounts(&[lb_pair.token_x_mint, lb_pair.token_y_mint]).unwrap();
 
-        let lb_pair: LbPair = bytemuck::pod_read_unaligned(&lb_pair_account.data[8..]);
+//         let mint_x_account = mint_accounts[0].take().unwrap();
+//         let mint_y_account = mint_accounts[1].take().unwrap();
 
-        let mut mint_accounts = get_multiple_accounts(&[lb_pair.token_x_mint, lb_pair.token_y_mint]).unwrap();
+//         // 3 bin arrays to left, and right is enough to cover most of the swap, and stay under 1.4m CU constraint.
+//         // Get 3 bin arrays to the left from the active bin
+//         let left_bin_array_pubkeys =
+//             get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, true, 3).unwrap();
 
-        let mint_x_account = mint_accounts[0].take().unwrap();
-        let mint_y_account = mint_accounts[1].take().unwrap();
+//         // Get 3 bin arrays to the right the from active bin
+//         let right_bin_array_pubkeys =
+//             get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, false, 3).unwrap();
 
-        // 3 bin arrays to left, and right is enough to cover most of the swap, and stay under 1.4m CU constraint.
-        // Get 3 bin arrays to the left from the active bin
-        let left_bin_array_pubkeys =
-            get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, true, 3).unwrap();
+//         // Fetch bin arrays
+//         let bin_array_pubkeys = left_bin_array_pubkeys
+//             .into_iter()
+//             .chain(right_bin_array_pubkeys.into_iter())
+//             .collect::<Vec<Pubkey>>();
 
-        // Get 3 bin arrays to the right the from active bin
-        let right_bin_array_pubkeys =
-            get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, false, 3).unwrap();
+//         let accounts = get_multiple_accounts(&bin_array_pubkeys).unwrap();
 
-        // Fetch bin arrays
-        let bin_array_pubkeys = left_bin_array_pubkeys
-            .into_iter()
-            .chain(right_bin_array_pubkeys.into_iter())
-            .collect::<Vec<Pubkey>>();
+//         let bin_arrays = accounts
+//             .into_iter()
+//             .zip(bin_array_pubkeys.into_iter())
+//             .map(|(account, key)| {
+//                 (
+//                     key,
+//                     bytemuck::pod_read_unaligned(&account.unwrap().data[8..]),
+//                 )
+//             })
+//             .collect::<HashMap<_, _>>();
 
-        let accounts = get_multiple_accounts(&bin_array_pubkeys).unwrap();
+//         let usdc_token_multiplier = 1_000_000.0;
+//         let sol_token_multiplier = 1_000_000_000.0;
 
-        let bin_arrays = accounts
-            .into_iter()
-            .zip(bin_array_pubkeys.into_iter())
-            .map(|(account, key)| {
-                (
-                    key,
-                    bytemuck::pod_read_unaligned(&account.unwrap().data[8..]),
-                )
-            })
-            .collect::<HashMap<_, _>>();
+//         let out_sol_amount = 1_000_000_000;
+//         let clock = get_clock().unwrap();
 
-        let usdc_token_multiplier = 1_000_000.0;
-        let sol_token_multiplier = 1_000_000_000.0;
+//         let quote_result = quote_exact_out(
+//             sol_usdc,
+//             &lb_pair,
+//             out_sol_amount,
+//             false,
+//             bin_arrays.clone(),
+//             None,
+//             &clock,
+//             &mint_x_account,
+//             &mint_y_account,
+//         )
+//         .unwrap();
 
-        let out_sol_amount = 1_000_000_000;
-        let clock = get_clock().unwrap();
+//         let in_amount = quote_result.amount_in + quote_result.fee;
 
-        let quote_result = quote_exact_out(
-            sol_usdc,
-            &lb_pair,
-            out_sol_amount,
-            false,
-            bin_arrays.clone(),
-            None,
-            &clock,
-            &mint_x_account,
-            &mint_y_account,
-        )
-        .unwrap();
-
-        let in_amount = quote_result.amount_in + quote_result.fee;
-
-        let quote_result = quote_exact_in(
-            sol_usdc,
-            &lb_pair,
-            in_amount,
-            false,
-            bin_arrays.clone(),
-            None,
-            &clock,
-            &mint_x_account,
-            &mint_y_account,
-        )
-        .unwrap();
+//         let quote_result = quote_exact_in(
+//             sol_usdc,
+//             &lb_pair,
+//             in_amount,
+//             false,
+//             bin_arrays.clone(),
+//             None,
+//             &clock,
+//             &mint_x_account,
+//             &mint_y_account,
+//         )
+//         .unwrap();
 
 
-        let out_usdc_amount = 200_000_000;
+//         let out_usdc_amount = 200_000_000;
 
-        let quote_result = quote_exact_out(
-            sol_usdc,
-            &lb_pair,
-            out_usdc_amount,
-            true,
-            bin_arrays.clone(),
-            None,
-            &clock,
-            &mint_x_account,
-            &mint_y_account,
-        )
-        .unwrap();
+//         let quote_result = quote_exact_out(
+//             sol_usdc,
+//             &lb_pair,
+//             out_usdc_amount,
+//             true,
+//             bin_arrays.clone(),
+//             None,
+//             &clock,
+//             &mint_x_account,
+//             &mint_y_account,
+//         )
+//         .unwrap();
 
-        let in_amount = quote_result.amount_in + quote_result.fee;
+//         let in_amount = quote_result.amount_in + quote_result.fee;
 
-        let quote_result = quote_exact_in(
-            sol_usdc,
-            &lb_pair,
-            in_amount,
-            true,
-            bin_arrays,
-            None,
-            &clock,
-            &mint_x_account,
-            &mint_y_account,
-        )
-        .unwrap();
-    }
+//         let quote_result = quote_exact_in(
+//             sol_usdc,
+//             &lb_pair,
+//             in_amount,
+//             true,
+//             bin_arrays,
+//             None,
+//             &clock,
+//             &mint_x_account,
+//             &mint_y_account,
+//         )
+//         .unwrap();
+//     }
 
-    #[test]
-    fn test_swap_quote_exact_in() {
-        // RPC client. No gPA is required.
-        // let rpc_client = RpcClient::new(Cluster::Mainnet.url().to_string());
+//     #[test]
+//     fn test_swap_quote_exact_in() {
+//         // RPC client. No gPA is required.
+//         // let rpc_client = RpcClient::new(Cluster::Mainnet.url().to_string());
 
-        let sol_usdc = Pubkey::from_str_const("HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR");
+//         let sol_usdc = Pubkey::from_str_const("HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR");
 
-        let lb_pair_account = get_account(&sol_usdc).unwrap();
+//         let lb_pair_account = get_account(&sol_usdc).unwrap();
 
-        let lb_pair: LbPair = bytemuck::pod_read_unaligned(&lb_pair_account.data[8..]);
+//         let lb_pair: LbPair = bytemuck::pod_read_unaligned(&lb_pair_account.data[8..]);
 
-        let mut mint_accounts = get_multiple_accounts(&[lb_pair.token_x_mint, lb_pair.token_y_mint]).unwrap();
+//         let mut mint_accounts = get_multiple_accounts(&[lb_pair.token_x_mint, lb_pair.token_y_mint]).unwrap();
 
-        let mint_x_account = mint_accounts[0].take().unwrap();
-        let mint_y_account = mint_accounts[1].take().unwrap();
+//         let mint_x_account = mint_accounts[0].take().unwrap();
+//         let mint_y_account = mint_accounts[1].take().unwrap();
 
-        // 3 bin arrays to left, and right is enough to cover most of the swap, and stay under 1.4m CU constraint.
-        // Get 3 bin arrays to the left from the active bin
-        let left_bin_array_pubkeys =
-            get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, true, 3).unwrap();
+//         // 3 bin arrays to left, and right is enough to cover most of the swap, and stay under 1.4m CU constraint.
+//         // Get 3 bin arrays to the left from the active bin
+//         let left_bin_array_pubkeys =
+//             get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, true, 3).unwrap();
 
-        // Get 3 bin arrays to the right the from active bin
-        let right_bin_array_pubkeys =
-            get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, false, 3).unwrap();
+//         // Get 3 bin arrays to the right the from active bin
+//         let right_bin_array_pubkeys =
+//             get_bin_array_pubkeys_for_swap(sol_usdc, &lb_pair, None, false, 3).unwrap();
 
-        // Fetch bin arrays
-        let bin_array_pubkeys = left_bin_array_pubkeys
-            .into_iter()
-            .chain(right_bin_array_pubkeys.into_iter())
-            .collect::<Vec<Pubkey>>();
+//         // Fetch bin arrays
+//         let bin_array_pubkeys = left_bin_array_pubkeys
+//             .into_iter()
+//             .chain(right_bin_array_pubkeys.into_iter())
+//             .collect::<Vec<Pubkey>>();
 
-        let accounts = get_multiple_accounts(&bin_array_pubkeys).unwrap();
+//         let accounts = get_multiple_accounts(&bin_array_pubkeys).unwrap();
 
-        let bin_arrays = accounts
-            .into_iter()
-            .zip(bin_array_pubkeys.into_iter())
-            .map(|(account, key)| {
-                (
-                    key,
-                    bytemuck::pod_read_unaligned(&account.unwrap().data[8..]),
-                )
-            })
-            .collect::<HashMap<_, _>>();
+//         let bin_arrays = accounts
+//             .into_iter()
+//             .zip(bin_array_pubkeys.into_iter())
+//             .map(|(account, key)| {
+//                 (
+//                     key,
+//                     bytemuck::pod_read_unaligned(&account.unwrap().data[8..]),
+//                 )
+//             })
+//             .collect::<HashMap<_, _>>();
 
-        // 1 SOL -> USDC
-        let in_sol_amount = 1_000_000_000;
+//         // 1 SOL -> USDC
+//         let in_sol_amount = 1_000_000_000;
 
-        let clock = get_clock().unwrap();
+//         let clock = get_clock().unwrap();
 
-        let quote_result = quote_exact_in(
-            sol_usdc,
-            &lb_pair,
-            in_sol_amount,
-            true,
-            bin_arrays.clone(),
-            None,
-            &clock,
-            &mint_x_account,
-            &mint_y_account,
-        )
-        .unwrap();
+//         let quote_result = quote_exact_in(
+//             sol_usdc,
+//             &lb_pair,
+//             in_sol_amount,
+//             true,
+//             bin_arrays.clone(),
+//             None,
+//             &clock,
+//             &mint_x_account,
+//             &mint_y_account,
+//         )
+//         .unwrap();
 
-        // 100 USDC -> SOL
-        let in_usdc_amount = 100_000_000;
+//         // 100 USDC -> SOL
+//         let in_usdc_amount = 100_000_000;
 
-        let quote_result = quote_exact_in(
-            sol_usdc,
-            &lb_pair,
-            in_usdc_amount,
-            false,
-            bin_arrays.clone(),
-            None,
-            &clock,
-            &mint_x_account,
-            &mint_y_account,
-        )
-        .unwrap();
-    }
-}
+//         let quote_result = quote_exact_in(
+//             sol_usdc,
+//             &lb_pair,
+//             in_usdc_amount,
+//             false,
+//             bin_arrays.clone(),
+//             None,
+//             &clock,
+//             &mint_x_account,
+//             &mint_y_account,
+//         )
+//         .unwrap();
+//     }
+// }

@@ -78,11 +78,14 @@ impl SinglePosition {
         let price = PositionRaw::get_price_from_id(lb_pair_state.active_id, lb_pair_state.bin_step)?;
         let out_amount = Bin::get_amount_out(amount_in, price, swap_for_y)?;
 
-        let min_out_amount = out_amount
-            .checked_mul(BASIC_POINT_MAX - SLIPPAGE_RATE)
-            .unwrap()
-            .checked_div(BASIC_POINT_MAX)
-            .unwrap();
+        let min_out_amount =
+            match out_amount.checked_mul(BASIC_POINT_MAX - SLIPPAGE_RATE) {
+                Some(val) => val.checked_div(BASIC_POINT_MAX).unwrap(),
+                None => out_amount.checked_div(BASIC_POINT_MAX).unwrap().checked_mul(BASIC_POINT_MAX - SLIPPAGE_RATE).unwrap(),
+            };
+
+        msg!("    min_out_amount {}", min_out_amount);
+
         Ok(min_out_amount)
     }
 

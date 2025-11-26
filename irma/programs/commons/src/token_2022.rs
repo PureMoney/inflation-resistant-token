@@ -46,7 +46,11 @@ pub fn get_potential_token_2022_related_ix_data_and_accounts(
 
     for (mint, accounts_type) in potential_token_2022_mints {
         // Find the corresponding AccountInfo for this mint
-        let mint_account = remaining_accounts.iter().find(|acc| acc.key() == mint).unwrap();
+        let mint_account = if let Some(mint_accnt) = remaining_accounts.iter().find(|acc| acc.key() == mint) {
+            mint_accnt
+        } else {
+            continue; // Skip if mint account not found
+        };
         remaining_accounts.iter().for_each(|acc| if acc.key() != mint { no_mint_accounts.push(acc.clone()); });
         let extra_account_metas =
             get_extra_account_metas_for_transfer_hook(mint, mint_account.clone(), &no_mint_accounts);
@@ -64,6 +68,7 @@ pub fn get_potential_token_2022_related_ix_data_and_accounts(
     if !slices.is_empty() {
         Ok(Some((slices, accounts)))
     } else {
+        msg!("    No Token 2022 related accounts found.");
         Ok(None)
     }
 }

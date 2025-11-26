@@ -77,13 +77,15 @@ impl Core {
     fn get_bytemuck_account<T: bytemuck::Pod>(
         context: &Context<Maint>,
         pubkey: &Pubkey
-    ) -> Result<T> {
-        let account_info = context.remaining_accounts.iter()
-            .find(|acc| acc.key == pubkey)
-            .ok_or(CustomError::AccountNotFound)?;
+    ) -> Option<T> {
+        let account_info = if let Some(acc) = context.remaining_accounts.iter().find(|acc| acc.key == pubkey) {
+            acc
+        } else {
+            return None;
+        };
         
         let data: T = bytemuck::pod_read_unaligned(&account_info.data.borrow()[8..]);
-        Ok(data)
+        Some(data)
     }
 
     fn get_multiple_bytemuck_accounts<T: bytemuck::Pod>(
@@ -215,10 +217,10 @@ impl Core {
                 }
             }
 
-            let all_state = &mut self.state; // .lock().unwrap();
+            let all_state = &mut self.state;
             let state = all_state.all_positions.get_mut(&pair_address).unwrap();
 
-            state.lb_pair = pair_address; // Some(lb_pair);
+            state.lb_pair = pair_address;
             state.bin_arrays = bin_arrays;
             state.position_pks = position_pks;
             state.positions = positions;
@@ -275,6 +277,12 @@ impl Core {
         let state = &self.state;
         let position = state.all_positions.get(&lp_pair).unwrap();
         position.clone()
+    }
+
+    pub fn get_mut_state(&mut self, lp_pair: Pubkey) -> &mut SinglePosition {
+        let state = &mut self.state;
+        let position = state.all_positions.get_mut(&lp_pair).unwrap();
+        position
     }
 
     // Helper function to get or create ATA on-chain
@@ -515,16 +523,26 @@ impl Core {
         let Some(lb_pair_state) = state.lb_pair_state else {
             return Err(Error::from(CustomError::MissingLbPairState));
         };
+
+        msg!("==> Swapping on pair: {}", state.lb_pair);
+
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
         let lb_pair = state.lb_pair;
 
         let payer = context.accounts.irma_admin.clone();
 
         let (event_authority, _bump) = derive_event_authority_pda();
+
+        msg!("    event authority: {}", event_authority);
+
         let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
 
-        let bitmap_extension: BinArrayBitmapExtension = 
-            Core::get_bytemuck_account(context, &bin_array_bitmap_extension)?;
+        let bitmap_extension = match Core::get_bytemuck_account(context, &bin_array_bitmap_extension) {
+            Some(bitmap_extension) => bitmap_extension,
+            None => BinArrayBitmapExtension::default(),
+        };
+
+        // msg!("    bin array bitmap extension: {}", bitmap_extension);
 
         let bin_arrays_account_meta = get_bin_array_pubkeys_for_swap(
             lb_pair,
@@ -536,6 +554,8 @@ impl Core {
         .into_iter()
         .map(|key| AccountMeta::new(key, false))
         .collect::<Vec<_>>();
+
+        msg!("    bin arrays account meta: {}", bin_arrays_account_meta.len());
 
         let (user_token_in, user_token_out) = if swap_for_y {
             (
@@ -568,6 +588,8 @@ impl Core {
         let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
         let mut remaining_accounts = vec![];
 
+        msg!("    Preparing Token 2022 related accounts...");
+
         if let Some((slices, transfer_hook_remaining_accounts)) =
             get_potential_token_2022_related_ix_data_and_accounts(
                 &lb_pair_state,
@@ -578,6 +600,8 @@ impl Core {
             remaining_accounts_info.slices = slices;
             remaining_accounts.extend(transfer_hook_remaining_accounts);
         }
+
+        msg!("    transfer hook remaining accounts: {}", remaining_accounts.len());
 
         remaining_accounts.extend(bin_arrays_account_meta);
 
@@ -609,6 +633,8 @@ impl Core {
         .data();
 
         let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
+
+        msg!("    total accounts for swap: {}", accounts.len());
 
         let swap_ix = Instruction {
             program_id: DLMM_ID,
@@ -660,7 +686,7 @@ impl Core {
             // Initialize bin array if not exists
             let (bin_array, _bump) = derive_bin_array_pda(lb_pair, idx.into());
 
-            if Core::get_bytemuck_account::<BinArray>(context, &bin_array).is_err() {
+            if Core::get_bytemuck_account::<BinArray>(context, &bin_array).is_none() {
                 let accounts = dlmm::client::accounts::InitializeBinArray {
                     bin_array,
                     funder: payer.key(),
@@ -712,7 +738,7 @@ impl Core {
 
         instructions.push(instruction);
 
-        // TODO implement add liquidity by strategy imbalance
+        // TODO implement bitmap extension fetching
         let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
         // let bin_array_bitmap_extension = get_account(&bin_array_bitmap_extension)
         //     .map(|_| bin_array_bitmap_extension)

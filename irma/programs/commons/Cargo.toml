@@ -6,6 +6,7 @@ description = "Common libraries for DLMM"
 authors = ["tian <tian@racoons.dev>"]
 
 [features]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
