@@ -1,5 +1,5 @@
 // use anchor_lang::prelude::*;
-use crate::{Pubkey, AccountInfo, Clock, msg};
+use anchor_lang::prelude::{Pubkey, AccountInfo, Clock, msg};
 use anyhow::anyhow;
 
 pub struct Account<'info, T> {

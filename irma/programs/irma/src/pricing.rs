@@ -1,20 +1,14 @@
 #![allow(unexpected_cfgs)]
-// #![feature(trivial_bounds)]
-// #[cfg(feature = "idl-build")]
+
 use std::string::String;
-// se std::vec::Vec;
 use std::option::Option;
-// use anchor_lang_idl_spec::IdlType::Option as IdlOption;
-// use anchor_lang_idl_spec::IdlType::Pubkey as IdlPubkey;
-use crate::{Init, Maint};
-use anchor_lang::*;
-// use anchor_lang::system_program::ID;
-use anchor_lang::prelude::*;
-use Vec;
 use std::collections::BTreeMap;
+use std::mem::size_of;
+
+use anchor_lang::prelude::*;
 use static_assertions::const_assert_eq;
-use core::mem::size_of;
-// use anchor_lang::solana_program::pubkey;
+
+use crate::{Init, Maint};
 
 
 // The number of stablecoins that are initially supported by the IRMA program.
@@ -30,7 +24,7 @@ pub const MAX_BACKING_COUNT: usize = 10; // 85;
 /// IRMA module
 /// FIXME: the decimals are all assumed to be zero, which is not true for all stablecoins.
 
-pub fn init_pricing(ctx: Context<Init>) -> Result<()> {
+pub fn init_pricing(ctx: &mut Context<Init>) -> Result<()> {
     msg!("Greetings from: {:?}", ctx.program_id);
     let state = &ctx.accounts.state;
     if state.reserves.len() > 0 {
@@ -39,7 +33,7 @@ pub fn init_pricing(ctx: Context<Init>) -> Result<()> {
     }
     *ctx.accounts.state = StateMap::new();
     let state = &mut ctx.accounts.state;
-    state.bump = 13u8; // InitializeBumps::bump(&ctx.bumps).unwrap_or(0);
+    state.bump = 13u8; // InitializeBumps::bump(ctx.bumps).unwrap_or(0);
     msg!("State initialized with bump: {}", state.bump);
 
     state.init_reserves()?;
@@ -52,7 +46,7 @@ pub fn init_pricing(ctx: Context<Init>) -> Result<()> {
 pub fn add_reserve(
         ctx: Context<Maint>, 
         symbol: &str, 
-        mint_address: prelude::Pubkey,
+        mint_address: Pubkey,
         backing_decimals: u8) -> Result<()> 
 {
     let state = &mut ctx.accounts.state;
@@ -281,11 +275,11 @@ pub struct Maint<'info> {
 */
 impl StableState {
 
-    pub fn new(symbol: &str, mint_address: prelude::Pubkey, backing_decimals: u64) -> Result<Self> {
+    pub fn new(symbol: &str, mint_address: Pubkey, backing_decimals: u64) -> Result<Self> {
         // msg!("StableState size: {}", size_of::<StableState>());
         // const len: usize = symbol.to_bytes().len();
         require!(symbol.len() <= 8 && symbol.len() > 0, CustomError::InvalidBackingSymbol);
-        require!(mint_address != prelude::Pubkey::default(), CustomError::InvalidBackingAddress);
+        require!(mint_address != Pubkey::default(), CustomError::InvalidBackingAddress);
         require!(backing_decimals > 0, CustomError::InvalidBacking);
         Ok(StableState {
             symbol: symbol.to_string(), // symbol of the stablecoin, e.g. "USDT"
@@ -370,7 +364,7 @@ impl StateMap {
         Ok(self.reserves.get_mut(i).unwrap())
     }
 
-    pub fn get_stablecoin_symbol(&self, mint_address: prelude::Pubkey) -> Option<String> {
+    pub fn get_stablecoin_symbol(&self, mint_address: Pubkey) -> Option<String> {
         for stablecoin in &self.reserves {
             if stablecoin.mint_address == mint_address {
                 return Some(stablecoin.symbol.clone());

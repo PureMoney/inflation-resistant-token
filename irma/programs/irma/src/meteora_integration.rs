@@ -1,30 +1,32 @@
-// use crate::MarketMakingMode;
-use crate::position_manager::*;
-// use crate::Init;
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::*;
-use commons::derive_event_authority_pda;
-use commons::get_matching_positions;
-use commons::*;
+use commons::{
+    derive_event_authority_pda,
+    get_matching_positions,
+    BASIS_POINT_MAX, 
+    DEFAULT_BIN_PER_POSITION, 
+    MAX_BIN_PER_ARRAY,
+    *,
+};
+
+use crate::position_manager::*;
 use crate::pair_config::*;
-// use crate::Maint;
+use crate::ID;
 use crate::{MarketMakingMode, Init, Maint, InitBumps, MaintBumps, StateMap};
-use crate::pricing::init_pricing;
-use commons::{BASIS_POINT_MAX, DEFAULT_BIN_PER_POSITION, MAX_BIN_PER_ARRAY};
-use anchor_spl::associated_token::get_associated_token_address_with_program_id;
-use anchor_spl::token_interface::Mint;
-use anchor_spl::token_interface::TokenAccount;
-use anchor_lang::prelude::*;
-use anchor_lang::prelude::program::*;
-use anchor_lang::prelude::instruction::Instruction;
-use anchor_lang::prelude::instruction::AccountMeta;
-use anchor_lang::solana_program::clock::Clock;
-use anchor_lang::solana_program::sysvar::Sysvar;
-use anchor_lang::system_program;
-use anchor_lang::*;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use anchor_lang::prelude::*;
+use anchor_lang::prelude::instruction::Instruction;
+use anchor_lang::solana_program::{
+    clock::Clock,
+    program::{invoke, invoke_signed},
+    sysvar::Sysvar,
+    // compute_budget::ComputeBudgetInstruction
+};
+use anchor_lang::InstructionData;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
+use anchor_spl::token_interface::{Mint, TokenAccount};
 const DLMM_ID: Pubkey = commons::dlmm::ID;
 
 // Enum to represent either type of deserializable account
@@ -45,6 +47,8 @@ impl<T> AccountData<T> {
 
 // Meteora Core (taken from Meteora DLMM SDK and adapted for IRMA)
 // Removed all RPC stuff because this is going to run on-chain.
+#[account]
+#[derive(Debug)]
 pub struct Core {
     pub owner: Pubkey,
     pub config: Vec<PairConfig>,
@@ -52,14 +56,36 @@ pub struct Core {
 }
 
 impl Core {
-    pub fn new(ctx: Context<Init>, owner: Pubkey, config: Vec<PairConfig>, state: AllPosition) -> Self {
-        init_pricing(ctx);
+    /// Create a new instance of Core
+    /// params: 
+    /// ctx: Context<Init>, 
+    /// owner: Pubkey, 
+    /// config_keys: Vec<Pubkey> == the token pair config account pubkeys, 
+    /// state_key: Pubkey == the position state account pubkey
+    pub fn create_core(owner: Pubkey, config: Vec<Pubkey>) -> Result<Core> {
+        // Core initialization logic here
+
+        // we will eventually have six trading pairs (one each for popular stablecoins)
+        // for now, let's just initialize with one pair
+        let usdc_pair_config1 = PairConfig {
+            pair_address: config[0].to_string(),
+            x_amount: 1000,
+            y_amount: 2000,
+            mode: MarketMakingMode::ModeBoth,
+        };
         
-        Core {
+        let usdc_pair_config2 = PairConfig {
+            pair_address: config[0].to_string(),
+            x_amount: 1000,
+            y_amount: 2000,
+            mode: MarketMakingMode::ModeBoth,
+        };
+        
+        Ok(Core {
             owner,
-            config,
-            state,
-        }
+            config: vec![usdc_pair_config1],
+            state: AllPosition::new(&vec![usdc_pair_config2]).unwrap(),
+        })
     }
 
     // Helper function to get current epoch time in seconds (on-chain version)
@@ -135,7 +161,7 @@ impl Core {
                 // If PDA signing needed - manually derive bump
                 let (_pda, bump) = Pubkey::find_program_address(
                     &[b"irma", key.as_ref()],
-                    &crate::ID,
+                    &ID,
                 );
                 let seeds = &[
                     b"irma",
@@ -171,10 +197,11 @@ impl Core {
             ).unwrap();
 
             let mut position_pks = vec![];
-            let mut positions = vec![];
+            // Note: We'll fetch positions and bin_arrays dynamically when needed
+            // let mut positions = vec![];
             let mut min_bin_id = 0;
             let mut max_bin_id = 0;
-            let mut bin_arrays = HashMap::<Pubkey, BinArray>::new();
+            // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
             msg!("    Found {} positions", position_key_with_state.len());
             if position_key_with_state.len() > 0 {
@@ -194,7 +221,8 @@ impl Core {
 
                 for (key, state) in position_key_with_state.iter() {
                     position_pks.push(*key);
-                    positions.push(state.to_owned());
+                    // Don't store the position data - fetch dynamically when needed
+                    // positions.push(state.to_owned());
                 }
 
                 let bin_array_keys = position_key_with_state
@@ -205,25 +233,27 @@ impl Core {
                     .into_iter()
                     .collect::<Vec<_>>();
 
-                let bin_arrays_raw: HashMap::<Pubkey, Option<BinArray>> 
-                                = Core::get_multiple_bytemuck_accounts(context, &bin_array_keys)?;
+                // Note: We'll fetch bin arrays dynamically when needed, not store them
+                // let bin_arrays_raw: HashMap::<Pubkey, Option<BinArray>> 
+                //                 = Core::get_multiple_bytemuck_accounts(context, &bin_array_keys)?;
 
-                msg!("    Found {} bin arrays", bin_arrays_raw.len());
+                // msg!("    Found {} bin arrays", bin_arrays_raw.len());
 
-                for (key, bin_array_option) in bin_arrays_raw.iter() {
-                    if let Some(bin_array_state) = bin_array_option {
-                        bin_arrays.insert(*key, *bin_array_state);
-                    }
-                }
+                // for (key, bin_array_option) in bin_arrays_raw.iter() {
+                //     if let Some(bin_array_state) = bin_array_option {
+                //         bin_arrays_vec.push((*key, *bin_array_state));
+                //     }
+                // }
             }
 
             let all_state = &mut self.state;
-            let state = all_state.all_positions.get_mut(&pair_address).unwrap();
+            let state = all_state.get_position_mut(&pair_address).unwrap();
 
             state.lb_pair = pair_address;
-            state.bin_arrays = bin_arrays;
+            // Don't store non-serializable types - they will be fetched dynamically
+            // state.bin_arrays = bin_arrays_vec;
             state.position_pks = position_pks;
-            state.positions = positions;
+            // state.positions = positions;
             state.min_bin_id = min_bin_id;
             state.max_bin_id = max_bin_id;
             // TODO: skip for now
@@ -233,8 +263,47 @@ impl Core {
         Ok(())
     }
 
+    /// Fetch LbPair state dynamically when needed
+    pub fn fetch_lb_pair_state(&self, context: &Context<Maint>, lb_pair: Pubkey) -> Result<LbPair> {
+        let accounts: HashMap<Pubkey, Option<LbPair>> = 
+            Core::get_multiple_bytemuck_accounts(context, &vec![lb_pair])?;
+        
+        accounts.get(&lb_pair)
+            .and_then(|opt| opt.as_ref())
+            .copied()
+            .ok_or(error!(CustomError::MissingLbPairState))
+    }
+
+    /// Fetch positions dynamically when needed
+    pub fn fetch_positions(&self, context: &Context<Maint>, position_pks: &[Pubkey]) -> Result<Vec<PositionV2>> {
+        let accounts: HashMap<Pubkey, Option<PositionV2>> = 
+            Core::get_multiple_bytemuck_accounts(context, &position_pks.to_vec())?;
+            
+        let mut positions = Vec::new();
+        for pk in position_pks {
+            if let Some(Some(position)) = accounts.get(pk) {
+                positions.push(*position);
+            }
+        }
+        Ok(positions)
+    }
+
+    /// Fetch bin arrays dynamically when needed
+    pub fn fetch_bin_arrays(&self, context: &Context<Maint>, bin_array_keys: &[Pubkey]) -> Result<Vec<(Pubkey, BinArray)>> {
+        let accounts: HashMap<Pubkey, Option<BinArray>> = 
+            Core::get_multiple_bytemuck_accounts(context, &bin_array_keys.to_vec())?;
+            
+        let mut bin_arrays = Vec::new();
+        for key in bin_array_keys {
+            if let Some(Some(bin_array)) = accounts.get(key) {
+                bin_arrays.push((*key, *bin_array));
+            }
+        }
+        Ok(bin_arrays)
+    }
+
     pub fn fetch_token_info(&mut self, context: &Context<Maint>) -> Result<()> {
-        let token_mints_with_program = self.get_all_token_mints_with_program_id()?;
+        let token_mints_with_program = self.get_all_token_mints_with_program_id(context)?;
 
         let token_mint_keys = token_mints_with_program
             .iter()
@@ -242,11 +311,12 @@ impl Core {
             .collect::<Vec<_>>();
 
         let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts(context, &token_mint_keys)?;
-        let mut tokens = HashMap::new();
+        let mut tokens = Vec::<(Pubkey, MintWithProgramId)>::new();
 
         for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
             if let (pubkey, Some(mint)) = account {
-                tokens.insert(pubkey, (mint, *program_id));
+                let mint_info = MintInfo::from(&mint);
+                tokens.push((pubkey, (mint_info, *program_id)));
             }
         }
         let state = &mut self.state; // .lock().unwrap();
@@ -255,14 +325,14 @@ impl Core {
         Ok(())
     }
 
-    fn get_all_token_mints_with_program_id(&self) -> Result<Vec<(Pubkey, Pubkey)>> {
+    fn get_all_token_mints_with_program_id(&self, context: &Context<Maint>) -> Result<Vec<(Pubkey, Pubkey)>> {
         let state = &self.state;
         let mut token_mints_with_program = vec![];
 
         for (_, position) in state.all_positions.iter() {
-            let lb_pair_state = &position.lb_pair_state.as_ref().ok_or(
-                Error::from(CustomError::MissingLbPairState)
-            )?;
+            let lb_pair_state = self.fetch_lb_pair_state(context, position.lb_pair)?; //.as_ref().ok_or(
+            //     error!(CustomError::MissingLbPairState)
+            // )?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -275,13 +345,13 @@ impl Core {
 
     pub fn get_position_state(&self, lp_pair: Pubkey) -> SinglePosition {
         let state = &self.state;
-        let position = state.all_positions.get(&lp_pair).unwrap();
+        let position = state.get_position(&lp_pair).unwrap();
         position.clone()
     }
 
     pub fn get_mut_state(&mut self, lp_pair: Pubkey) -> &mut SinglePosition {
         let state = &mut self.state;
-        let position = state.all_positions.get_mut(&lp_pair).unwrap();
+        let position = state.get_position_mut(&lp_pair).unwrap();
         position
     }
 
@@ -330,7 +400,7 @@ impl Core {
         &self, context: &Context<Maint>,
     ) -> Result<()> {
         let wallet = &context.accounts.irma_admin;
-        for (token_mint, program_id) in self.get_all_token_mints_with_program_id()?.iter() {
+        for (token_mint, program_id) in self.get_all_token_mints_with_program_id(context)?.iter() {
             self.get_or_create_ata(
                 context,
                 *token_mint,
@@ -360,9 +430,9 @@ impl Core {
         let (event_authority, _bump) = derive_event_authority_pda();
 
         let lb_pair = state.lb_pair;
-        let lb_pair_state = state.lb_pair_state.as_ref().ok_or(
-                Error::from(CustomError::MissingLbPairState)
-            )?;
+        let lb_pair_state = self.fetch_lb_pair_state(context, lb_pair)?; // .as_ref().ok_or(
+            //     error!(CustomError::MissingLbPairState)
+            // )?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -381,7 +451,10 @@ impl Core {
         }
 
         for (i, &position) in state.position_pks.iter().enumerate() {
-            let position_state = &state.positions[i];
+            let vec_positions = self.fetch_positions(context, &[position])?;
+            let position_state = vec_positions
+                .get(0)
+                .ok_or(error!(CustomError::PositionNotFound))?;
 
             let bin_arrays_account_meta = position_state.get_bin_array_accounts_meta_coverage()?;
 
@@ -520,9 +593,7 @@ impl Core {
         swap_for_y: bool
     ) -> Result<()> {
 
-        let Some(lb_pair_state) = state.lb_pair_state else {
-            return Err(Error::from(CustomError::MissingLbPairState));
-        };
+        let lb_pair_state = self.fetch_lb_pair_state(context, state.lb_pair)?;
 
         msg!("==> Swapping on pair: {}", state.lb_pair);
 
@@ -627,7 +698,7 @@ impl Core {
 
         let data = dlmm::client::args::Swap2 {
             amount_in,
-            min_amount_out: state.get_min_out_amount_with_slippage_rate(amount_in, swap_for_y)?,
+            min_amount_out: state.get_min_out_amount_with_slippage_rate(amount_in, swap_for_y, &lb_pair_state)?,
             remaining_accounts_info,
         }
         .data();
@@ -680,7 +751,7 @@ impl Core {
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
-        let mut instructions = vec![];
+        let mut instructions = vec![/* ComputeBudgetInstruction::set_compute_unit_limit(1_400_000) */];
 
         for idx in lower_bin_array_idx..=upper_bin_array_idx {
             // Initialize bin array if not exists
@@ -707,7 +778,7 @@ impl Core {
             }
         }
 
-        // fake it for now
+        // fake it for now; note position is a pubkey
         let position = *state.position_pks.first().ok_or(
                 Error::from(CustomError::PositionNotFound)
             )?;
@@ -717,7 +788,7 @@ impl Core {
             payer: payer.key(),
             position,
             owner: payer.key(),
-            rent: sysvar::rent::ID,
+            rent: rent::ID,
             system_program: system_program::ID,
             event_authority,
             program: DLMM_ID,
@@ -747,9 +818,7 @@ impl Core {
         let (bin_array_lower, _bump) = derive_bin_array_pda(lb_pair, lower_bin_array_idx.into());
         let (bin_array_upper, _bump) = derive_bin_array_pda(lb_pair, upper_bin_array_idx.into());
 
-        let lb_pair_state = state.lb_pair_state.as_ref().ok_or(
-                Error::from(CustomError::MissingLbPairState)
-            )?;
+        let lb_pair_state = self.fetch_lb_pair_state(context, lb_pair)?;
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
         let user_token_x = get_associated_token_address_with_program_id(
@@ -784,14 +853,14 @@ impl Core {
                 .map(|k| AccountMeta::new(k, false)),
         );
 
-        // fake it for now
-        let position = *state.position_pks.first().ok_or(
-                Error::from(CustomError::PositionNotFound)
-            )?;
+        // fake it for now - position should not have changed
+        // let position = *state.position_pks.first().ok_or(
+        //         Error::from(CustomError::PositionNotFound)
+        //     )?;
 
         let main_accounts = dlmm::client::accounts::AddLiquidityByStrategy2 {
             lb_pair,
-            position,
+            position, // pubkey for position
             bin_array_bitmap_extension: Some(bin_array_bitmap_extension),
             sender: payer.key(),
             event_authority,
@@ -847,9 +916,7 @@ impl Core {
         amount_x: u64,
         amount_y: u64,
     ) -> Result<(u64, u64)> {
-        let lb_pair_state = position.lb_pair_state.as_ref().ok_or(
-                Error::from(CustomError::MissingLbPairState)
-            )?;
+        let lb_pair_state = self.fetch_lb_pair_state(context, position.lb_pair)?;
 
         // let rpc_client = self.rpc_client();
         let payer = context.accounts.irma_admin.clone();
@@ -900,7 +967,7 @@ impl Core {
         positions
     }
 
-    pub fn get_all_tokens(&self) -> HashMap<Pubkey, MintWithProgramId> {
+    pub fn get_all_tokens(&self) -> Vec<(Pubkey, MintWithProgramId)> {
         let state = &self.state;
         state.tokens.clone()
     }
@@ -913,9 +980,7 @@ impl Core {
         for position in all_positions.iter() {
             let pair_config = get_pair_config(&self.config, position.lb_pair);
             // check whether out of price range
-            let lb_pair = &position.lb_pair_state.as_ref().ok_or(
-                Error::from(CustomError::MissingLbPairState)
-            )?;
+            let lb_pair = self.fetch_lb_pair_state(context, position.lb_pair)?;
             if pair_config.mode == MarketMakingMode::ModeRight
                 && lb_pair.active_id > position.max_bin_id
             {
@@ -952,7 +1017,10 @@ impl Core {
         let pair_config = get_pair_config(&self.config, state.lb_pair);
         // validate that y amount is zero
         msg!("shift right {}", state.lb_pair);
-        let position = state.get_positions()?;
+        
+        // Fetch dynamic data for position calculation
+        let (positions_v2, bin_arrays, lb_pair_state) = self.fetch_position_data(context, state)?;
+        let position = state.get_positions(&positions_v2, &bin_arrays, &lb_pair_state)?;
         if position.amount_x != 0 {
             return Err(Error::from(CustomError::AmountXNotZero));
         }
@@ -967,9 +1035,10 @@ impl Core {
             .checked_div(2)
             .unwrap();
 
-        let Some(lb_pair_state) = &state.lb_pair_state else {
-            return Err(Error::from(CustomError::MissingLbPairState));
-        };
+        // Don't need this, already fetched above
+        // let Some(lb_pair_state) = &state.lb_pair_state else {
+        //     return Err(Error::from(CustomError::MissingLbPairState));
+        // };
 
         let (amount_x, amount_y) = if amount_y_for_buy != 0 {
             msg!("swap {}", state.lb_pair);
@@ -1007,7 +1076,10 @@ impl Core {
         let pair_config = get_pair_config(&self.config, state.lb_pair);
         msg!("shift left {}", state.lb_pair);
         // validate that y amount is zero
-        let position = state.get_positions()?;
+        
+        // Fetch dynamic data for position calculation
+        let (positions_v2, bin_arrays, lb_pair_state) = self.fetch_position_data(context, state)?;
+        let position = state.get_positions(&positions_v2, &bin_arrays, &lb_pair_state)?;
         if position.amount_y != 0 {
             return Err(Error::from(CustomError::AmountYNotZero));
         }
@@ -1021,9 +1093,10 @@ impl Core {
             .checked_div(2)
             .unwrap();
 
-        let Some(lb_pair_state) = &state.lb_pair_state else {
-            return Err(Error::from(CustomError::MissingLbPairState));
-        };
+        // Don't need this, already fetched above
+        // let Some(lb_pair_state) = &state.lb_pair_state else {
+        //     return Err(Error::from(CustomError::MissingLbPairState));
+        // };
 
         let (amount_x, amount_y) = if amount_x_for_sell != 0 {
                 msg!("swap {}", state.lb_pair);
@@ -1056,23 +1129,49 @@ impl Core {
     }
 
     pub fn inc_rebalance_time(&mut self, lb_pair: Pubkey) {
-        if let Some(state) = self.state.all_positions.get_mut(&lb_pair) {
+        if let Some(state) = self.state.get_position_mut(&lb_pair) {
             state.inc_rebalance_time();
         }
     }
 
-    pub fn get_positions(&self) -> Result<Vec<PositionInfo>> {
+    /// Helper function to fetch all data needed for position calculations
+    fn fetch_position_data(&self, context: &Context<Maint>, state: &SinglePosition) -> Result<(Vec<PositionV2>, Vec<(Pubkey, BinArray)>, LbPair)> {
+        // Fetch lb pair state
+        let lb_pair_state = self.fetch_lb_pair_state(context, state.lb_pair)?;
+        
+        // Fetch positions
+        let positions_v2 = self.fetch_positions(context, &state.position_pks)?;
+        
+        // Get bin array keys from the positions
+        let mut all_bin_array_keys = Vec::new();
+        for pos_v2 in &positions_v2 {
+            let bin_array_keys = pos_v2.get_bin_array_keys_coverage()?;
+            all_bin_array_keys.extend(bin_array_keys);
+        }
+        all_bin_array_keys.sort();
+        all_bin_array_keys.dedup();
+        
+        // Fetch bin arrays
+        let bin_arrays = self.fetch_bin_arrays(context, &all_bin_array_keys)?;
+        
+        Ok((positions_v2, bin_arrays, lb_pair_state))
+    }
+
+    pub fn get_positions(&self, context: &Context<Maint>) -> Result<Vec<PositionInfo>> {
         let all_positions = self.get_all_positions();
         let tokens = self.get_all_tokens();
 
         let mut position_infos = vec![];
         for position in all_positions.iter() {
-            let lb_pair_state = &position.lb_pair_state.ok_or(
-                Error::from(CustomError::MissingLbPairState)
-            )?;
+            // Fetch dynamic data using helper
+            let (positions_v2, bin_arrays, lb_pair_state) = self.fetch_position_data(context, position)?;
+            
+            // Get decimals from token info
             let x_decimals = get_decimals(lb_pair_state.token_x_mint, &tokens);
             let y_decimals = get_decimals(lb_pair_state.token_y_mint, &tokens);
-            let position_raw = position.get_positions()?;
+            
+            // Now call get_positions with the fetched data
+            let position_raw = position.get_positions(&positions_v2, &bin_arrays, &lb_pair_state)?;
             position_infos.push(position_raw.to_position_info(x_decimals, y_decimals)?);
         }
         return Ok(position_infos);

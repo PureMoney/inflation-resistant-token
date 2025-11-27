@@ -5,8 +5,14 @@ edition = "2021"
 description = "Common libraries for DLMM"
 authors = ["tian <tian@racoons.dev>"]
 
+[lib]
+crate-type = ["lib"]
+
 [features]
-idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+default = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+no-idl = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

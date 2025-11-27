@@ -1,7 +1,8 @@
 [workspace]
 members = [
-    "programs/*",
-    "programs/commons/tests/on_chain"
+    "programs/irma",
+    "commons",
+    "commons/tests/on_chain"
 ]
 resolver = "2"
 
@@ -12,7 +13,7 @@ fixed = { git = "https://github.com/blockworks-foundation/fixed.git", branch = "
 anchor-lang = "0.32.1"
 anchor-spl = "0.32.1"
 anchor-client = "0.32.1"
-borsh = "1.5.7"
+borsh = "0.10.3"  # Use compatible version with Anchor 0.32.1
 
 # solana-sdk = "2.1.0"
 spl-associated-token-account = "6.0.0"
@@ -34,7 +35,7 @@ num-traits = "0.2.16"
 
 anyhow = "1.0.71"
 
-commons = { path = "./programs/commons" }
+commons = { path = "./commons" }
 
 [profile.release]
 overflow-checks = true

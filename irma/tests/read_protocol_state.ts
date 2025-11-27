@@ -31,20 +31,67 @@ async function readProtocolState() {
   const provider = new AnchorProvider(connection, null as any, { commitment: "confirmed" });
   const program = new Program(idl, provider);
 
-  // Find protocol state PDA
-  const [protocolState] = PublicKey.findProgramAddressSync(
+  // Find protocol state PDA - try different seed combinations
+  let protocolState: PublicKey | null = null;
+  let accountInfo: any = null;
+  
+  // Try different possible PDA seeds
+  const possibleSeeds = [
     [Buffer.from("protocol_state")],
-    PROGRAM_ID
-  );
-
-  console.log("📍 Protocol State PDA:");
-  console.log(`   ${protocolState.toBase58()}\n`);
+    [Buffer.from("state")],
+    [Buffer.from("irma")],
+    [Buffer.from("state_map")],
+  ];
+  
+  console.log("📍 Searching for Protocol State PDA...");
+  
+  for (const seeds of possibleSeeds) {
+    const [pda] = PublicKey.findProgramAddressSync(seeds, PROGRAM_ID);
+    const info = await connection.getAccountInfo(pda);
+    
+    console.log(`Checking PDA with seeds [${seeds.map(s => s.toString())}]: ${pda.toBase58()}`);
+    
+    if (info) {
+      protocolState = pda;
+      accountInfo = info;
+      console.log(`✅ Found account at: ${pda.toBase58()}\n`);
+      break;
+    } else {
+      console.log(`❌ No account found at: ${pda.toBase58()}`);
+    }
+  }
+  
+  if (!accountInfo) {
+    console.log("\n❌ Protocol state account not found at any PDA address.");
+    console.log("💡 The protocol might not be initialized yet.");
+    console.log("💡 Try running the initialization instruction first.");
+    return;
+  }
 
   try {
     // Fetch account info without signing anything
     console.log("🔍 Fetching protocol state data...\n");
     
-    const state = (program.account as any).protocolState.fetch(protocolState);
+    // Debug: Check what accounts are available
+    console.log("Available account types:", Object.keys(program.account));
+    
+    console.log("✅ Found protocol state account:");
+    console.log(`  Data Size: ${accountInfo.data.length} bytes`);
+    console.log(`  Owner: ${accountInfo.owner.toBase58()}`);
+    console.log(`  Executable: ${accountInfo.executable}`);
+    console.log(`  Lamports (SOL): ${accountInfo.lamports / 1e9} SOL\n`);
+    
+    // Try to decode using program account types
+    let state;
+    try {
+      // Use stateMap since that's what we found in the IDL
+      console.log("Attempting to decode using stateMap...");
+      state = await (program.account as any).stateMap.fetch(protocolState);
+    } catch (decodeError) {
+      console.log("❌ Error decoding account data:", decodeError);
+      console.log("Raw account data length:", accountInfo.data.length);
+      return;
+    }
 
     const mintPrice = Number(state.mintPrice) / 1_000_000_000;
     const redemptionPrice = Number(state.redemptionPrice) / 1_000_000_000;
@@ -79,14 +126,16 @@ async function readProtocolState() {
     console.log(`  Current timestamp: ${now}`);
     console.log(`  Last update timestamp: ${Number(state.lastPriceUpdate)}\n`);
 
-    // Get account size
-    const accountInfo = connection.getAccountInfo(protocolState);
-    if (accountInfo) {
-      console.log("💾 Account Information:");
-      console.log(`  Data Size: ${accountInfo.data.length} bytes`);
-      console.log(`  Owner: ${accountInfo.owner.toBase58()}`);
-      console.log(`  Executable: ${accountInfo.executable}`);
-      console.log(`  Lamports (SOL): ${accountInfo.lamports / 1e9} SOL\n`);
+    // Get account size (we already have the data, but double-check)
+    if (protocolState) {
+      const accountData = await connection.getAccountInfo(protocolState);
+      if (accountData) {
+        console.log("💾 Account Information:");
+        console.log(`  Data Size: ${accountData.data.length} bytes`);
+        console.log(`  Owner: ${accountData.owner.toBase58()}`);
+        console.log(`  Executable: ${accountData.executable}`);
+        console.log(`  Lamports (SOL): ${accountData.lamports / 1e9} SOL\n`);
+      }
     }
 
     console.log("✅ Successfully read protocol state!");

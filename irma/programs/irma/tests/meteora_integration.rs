@@ -279,6 +279,7 @@ mod core_test {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
+            core: Account::try_from(state_account_static).unwrap(), // Placeholder
         };
         let ctx: Context<Init> = Context::new(
             program_id,
@@ -286,7 +287,7 @@ mod core_test {
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
-        let result: std::result::Result<(), Error> = init_pricing(ctx);
+        let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
         assert!(result.is_ok());
         // msg!("StateMap account: {:?}", accounts.state);
         return (accounts.state, accounts.irma_admin, accounts.system_program, position_account_info, lb_pair_account_info);
@@ -307,22 +308,8 @@ mod core_test {
             mode: MarketMakingMode::ModeBoth,
         }];
 
-        let core = &mut Core::new(
-            Context {
-                program_id: &irma::IRMA_ID,
-                accounts: &mut irma::Init {
-                    state: state_account.clone(),
-                    irma_admin: irma_admin_account.clone(),
-                    system_program: sys_account.clone(),
-                },
-                remaining_accounts: &[],
-                bumps: InitBumps {
-                    ..Default::default()
-                },
-            },
+        let core = &mut Core::create_core(
             irma_admin_account.key(),
-            // wallet: Some(Arc::new(payer)),
-            config.clone(),
             AllPosition::new(&config).unwrap(),
         );
 
@@ -330,6 +317,7 @@ mod core_test {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            core: state_account.clone(), // Placeholder
         };
 
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
@@ -371,22 +359,8 @@ mod core_test {
             mode: MarketMakingMode::ModeBoth,
         }];
 
-        let core = &mut Core::new(
-            Context {
-                program_id: &irma::IRMA_ID,
-                accounts: &mut irma::Init {
-                    state: state_account.clone(),
-                    irma_admin: irma_admin_account.clone(),
-                    system_program: sys_account.clone(),
-                },
-                remaining_accounts: &[],
-                bumps: InitBumps {
-                    ..Default::default()
-                },
-            },
+        let core = &mut Core::create_core(
             irma_admin_account.key(), // owner
-            // wallet: Some(Arc::new(payer)),
-            config.clone(),
             AllPosition::new(&config).unwrap(),
         );
 
@@ -394,6 +368,7 @@ mod core_test {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            core: core.clone(),
         };
 
         let remaining_accounts: &[AccountInfo] = &[position_account_info];

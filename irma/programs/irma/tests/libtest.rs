@@ -103,6 +103,7 @@ mod tests {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
+            core: Account::try_from(state_account_static).unwrap(), // Placeholder
         };
         let ctx: Context<Init> = Context::new(
             program_id,
@@ -110,7 +111,10 @@ mod tests {
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
-        let crank_result: std::result::Result<(), Error> = money::initialize(ctx);
+        let crank_result: std::result::Result<(), Error> = money::initialize(ctx,
+            "OwnerPubkeyString".to_string(),
+            vec![]
+        );
         assert!(crank_result.is_ok());
         msg!("Crank executed successfully");
 

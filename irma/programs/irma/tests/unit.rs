@@ -182,6 +182,7 @@ mod tests {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
+            core: Account::try_from(state_account_static).unwrap(), // Placeholder
         };
         let ctx: Context<Init> = Context::new(
             program_id,
@@ -189,7 +190,7 @@ mod tests {
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
-        let result: std::result::Result<(), Error> = init_pricing(ctx);
+        let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
         assert!(result.is_ok());
         // msg!("StateMap account: {:?}", accounts.state);
         return (accounts.state, accounts.irma_admin, accounts.system_program);
@@ -208,6 +209,7 @@ mod tests {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            core: state_account.clone(), // Placeholder
         };
         let ctx: Context<Init> = Context::new(
             program_id,
@@ -215,7 +217,7 @@ mod tests {
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
-        let result: std::result::Result<(), Error> = init_pricing(ctx);
+        let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
         assert!(result.is_ok());
         msg!("StateMap account initialized successfully: {:?}", accounts.state);
    }

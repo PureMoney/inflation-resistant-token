@@ -5,8 +5,6 @@ use anchor_lang::prelude::*;
 use std::mem::size_of;
 use std::str::FromStr;
 
-// use crate::borsh::{BorshSerialize, BorshDeserialize};
-
 // Import the state structs from your modules, as they are used in the account definitions.
 use pricing::{StateMap, StableState};
 
@@ -16,16 +14,14 @@ use pricing::{StateMap, StableState};
 // Declare your program's ID
 declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
 
-use anchor_lang::AccountDeserialize;
-use anchor_lang::AnchorDeserialize;
+use anchor_lang::context::Context;
 
 use commons::dlmm::types::Bin;
-use crate::error::Error;
 use commons::dlmm::accounts::*;
 
-pub const IRMA_ID: Pubkey = pubkey!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
+pub const IRMA_ID: Pubkey = crate::ID;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, AnchorDeserialize, AnchorSerialize)]
 pub enum MarketMakingMode {
     ModeRight,
     ModeLeft,
@@ -64,16 +60,11 @@ pub struct Init<'info> {
     pub state: Account<'info, StateMap>,
     #[account(mut)]
     pub irma_admin: Signer<'info>,
+    #[account(mut)]
+    pub core: Account<'info, Core>,
     pub system_program: Program<'info, System>,
+    // pub bumps: InitBumps,
 }
-
-// #[derive(Accounts)]
-// pub struct Common<'info> {
-//     #[account(mut)]
-//     pub state: Account<'info, StateMap>,
-//     pub trader: Signer<'info>,
-//     pub system_program: Program<'info, System>,
-// }
 
 #[derive(Accounts)]
 pub struct Maint<'info> {
@@ -81,160 +72,9 @@ pub struct Maint<'info> {
     pub state: Account<'info, StateMap>,
     pub irma_admin: Signer<'info>,
     pub system_program: Program<'info, System>,
+    // pub bumps: MaintBumps,
 }
 
-/*
-#[derive(Accounts)]
-pub struct CreateOrcaPool<'info> {
-    #[account(init, payer = admin, space = 8 + 256)]
-    pub pool_state: Account<'info, OrcaPoolState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct UpdatePoolState<'info> {
-    #[account(mut)]
-    pub pool_state: Account<'info, OrcaPoolState>,
-    #[account(mut)]
-    pub updater: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct GetPoolInfo<'info> {
-    pub pool_state: Account<'info, OrcaPoolState>,
-}
-
-#[derive(Accounts)]
-pub struct SimulateSwap<'info> {
-    pub pool_state: Account<'info, OrcaPoolState>,
-    #[account(mut)]
-    pub trader: Signer<'info>,
-}
-*/
-
-// ====================================================================
-// Token Operations Contexts
-// ====================================================================
-
-// #[derive(Accounts)]
-// pub struct MintIrma<'info> {
-//     #[account(
-//         seeds = [b"protocol_state"],
-//         bump = protocol_state.bump,
-//     )]
-//     pub protocol_state: Account<'info, ProtocolState>,
-    
-//     /// CHECK: Verified as SPL Token Mint via constraint
-//     #[account(
-//         mut,
-//         constraint = irma_mint.key() == protocol_state.token_a_mint,
-//     )]
-//     pub irma_mint: UncheckedAccount<'info>,
-    
-//     /// CHECK: Verified as SPL Token Mint via constraint
-//     #[account(
-//         constraint = usdc_mint.key() == protocol_state.token_b_mint,
-//     )]
-//     pub usdc_mint: UncheckedAccount<'info>,
-    
-//     /// CHECK: User's USDC token account
-//     #[account(mut)]
-//     pub user_usdc: UncheckedAccount<'info>,
-    
-//     /// CHECK: User's IRMA token account
-//     #[account(mut)]
-//     pub user_irma: UncheckedAccount<'info>,
-    
-//     /// CHECK: Protocol's USDC vault
-//     #[account(mut)]
-//     pub protocol_usdc_vault: UncheckedAccount<'info>,
-    
-//     #[account(mut)]
-//     pub user: Signer<'info>,
-    
-//     /// CHECK: This is a PDA used as mint authority
-//     #[account(
-//         seeds = [b"mint_authority"],
-//         bump,
-//     )]
-//     pub mint_authority: UncheckedAccount<'info>,
-    
-//     /// CHECK: SPL Token program
-//     pub token_program: UncheckedAccount<'info>,
-// }
-
-// #[derive(Accounts)]
-// pub struct RedeemIrma<'info> {
-//     #[account(
-//         seeds = [b"protocol_state"],
-//         bump = protocol_state.bump,
-//     )]
-//     pub protocol_state: Account<'info, ProtocolState>,
-    
-//     /// CHECK: Verified as SPL Token Mint via constraint
-//     #[account(
-//         mut,
-//         constraint = irma_mint.key() == protocol_state.token_a_mint,
-//     )]
-//     pub irma_mint: UncheckedAccount<'info>,
-    
-//     /// CHECK: Verified as SPL Token Mint via constraint
-//     #[account(
-//         constraint = usdc_mint.key() == protocol_state.token_b_mint,
-//     )]
-//     pub usdc_mint: UncheckedAccount<'info>,
-    
-//     /// CHECK: User's IRMA token account
-//     #[account(mut)]
-//     pub user_irma: UncheckedAccount<'info>,
-    
-//     /// CHECK: User's USDC token account
-//     #[account(mut)]
-//     pub user_usdc: UncheckedAccount<'info>,
-    
-//     /// CHECK: Protocol's USDC vault
-//     #[account(mut)]
-//     pub protocol_usdc_vault: UncheckedAccount<'info>,
-    
-//     #[account(mut)]
-//     pub user: Signer<'info>,
-    
-//     /// CHECK: This is a PDA used as vault authority
-//     #[account(
-//         seeds = [b"vault_authority"],
-//         bump,
-//     )]
-//     pub vault_authority: UncheckedAccount<'info>,
-    
-//     /// CHECK: SPL Token program
-//     pub token_program: UncheckedAccount<'info>,
-// }
-
-// #[derive(Accounts)]
-// pub struct RemoveFreezeAuthority<'info> {
-//     /// CHECK: The IRMA mint
-//     #[account(mut)]
-//     pub irma_mint: UncheckedAccount<'info>,
-    
-//     /// CHECK: The PDA that is currently the freeze authority
-//     #[account(
-//         seeds = [b"mint_authority"],
-//         bump,
-//     )]
-//     pub freeze_authority: UncheckedAccount<'info>,
-    
-//     /// The authority that can invoke the freeze authority removal
-//     pub authority: Signer<'info>,
-    
-//     /// CHECK: SPL Token program (or Token2022)
-//     pub token_program: UncheckedAccount<'info>,
-// }
-
-// ====================================================================
-// END: ACCOUNT STRUCT DEFINITIONS
-// ====================================================================
 
 // Declare your modules
 pub mod pair_config;
@@ -244,20 +84,37 @@ pub mod meteora_integration;
 pub mod pricing;
 pub mod position_manager;
 pub mod utils;
-// pub mod u64x64_math;
-// pub mod bin;
-// pub mod position;
-// pub mod math;
-// pub mod u128x128_math;
-// pub mod pda;
-// pub mod token_2022;
+
+// ====================================================================
+// START: DEFINE ALL CPI API
+// ====================================================================
+use crate::meteora_integration::Core;
 
 #[program]
 pub mod irma {
     use super::*; // This will now correctly bring Init, Maint, etc. into scope
 
-    pub fn initialize(ctx: Context<Init>) -> Result<()> {
-        pricing::init_pricing(ctx)
+    pub fn initialize(
+        mut ctx: Context<Init>,
+        owner: String,
+        config_keys: Vec<String>
+    ) -> Result<()> {
+        let owner_pk = Pubkey::from_str(&owner).unwrap(); // map_err(|_| Error::InvalidPubkey)?;
+        let config_pks: Vec<Pubkey> = config_keys.iter()
+            .map(|key| Pubkey::from_str(key).unwrap()) // map_err(|_| Error::InvalidPubkey)
+            .collect();
+
+        // Initialize the pricing system first
+        pricing::init_pricing(&mut ctx)?;
+        
+        // TODO: Initialize Core separately if needed
+        // For now, just do basic initialization
+        msg!("IRMA protocol initialized with owner: {}", owner_pk);
+        msg!("Config keys count: {}", config_pks.len());
+
+        let core = Core::create_core(owner_pk, config_pks)?;
+        ctx.accounts.core.set_inner(core);
+        Ok(())
     }
 
     pub fn add_reserve(ctx: Context<Maint>, symbol: String, mint_address: Pubkey, decimals: u8) -> Result<()> {

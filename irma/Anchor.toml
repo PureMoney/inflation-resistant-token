@@ -11,7 +11,7 @@ skip-lint = false
 rustflags = ["--cfg", "getrandom_custom"]
 
 [programs.devnet]
-irma = "BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda"
+irma = "DhMQR2rJgXMR742Y7yBTm2yi8cWi3ZH8KfFEFG6SnKbA"
 
 [programs.localnet]
 irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"

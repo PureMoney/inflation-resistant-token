@@ -1,8 +1,8 @@
+use anchor_lang::prelude::*;
 use crate::MarketMakingMode;
-use crate::error::Error;
-use anchor_lang::prelude::Pubkey;
 
-#[derive(Debug, Clone, Default)]
+#[account]
+#[derive(Debug)]
 pub struct PairConfig {
     pub pair_address: String,
     pub x_amount: u64,
@@ -25,10 +25,15 @@ pub fn get_pair_config(config: &Vec<PairConfig>, pair_addr: Pubkey) -> PairConfi
             return pair_config.clone();
         }
     }
-    return PairConfig::default();
+    return PairConfig {
+        pair_address: pair_addr.to_string(),
+        x_amount: 0,
+        y_amount: 0,
+        mode: MarketMakingMode::ModeView,
+    };
 }
 
-pub fn get_config() -> Result<Vec<PairConfig>, Error> {
+pub fn get_config() -> Result<Vec<PairConfig>> {
     let config: Vec<PairConfig> = vec![
         PairConfig {
             pair_address: "DLmm".to_string(),

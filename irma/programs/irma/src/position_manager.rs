@@ -7,54 +7,95 @@
 #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
-use anchor_lang::prelude::borsh::{BorshSerialize, BorshDeserialize};
 use anchor_spl::token_interface::Mint;
-use crate::bin_array_manager::BinArrayManager;
 use rust_decimal::{prelude::FromPrimitive, prelude::ToPrimitive, Decimal, MathematicalOps};
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::pair_config::PairConfig;
-use crate::Error;
+use crate::bin_array_manager::BinArrayManager;
+
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::Bin;
-use commons::dlmm::accounts::{LbPair, PositionV2};
 use commons::u64x64_math::pow;
 use commons::bin::*;
 use commons::position::*;
-use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET};
-use commons::CustomError;
+use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET, CustomError};
 
-pub type MintWithProgramId = (Mint, Pubkey);
+// Serializable version of Mint info
+#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
+pub struct MintInfo {
+    pub mint_authority: Option<Pubkey>,
+    pub supply: u64,
+    pub decimals: u8,
+    pub is_initialized: bool,
+    pub freeze_authority: Option<Pubkey>,
+}
+
+impl From<&Mint> for MintInfo {
+    fn from(mint: &Mint) -> Self {
+        MintInfo {
+            mint_authority: mint.mint_authority.into(),
+            supply: mint.supply,
+            decimals: mint.decimals,
+            is_initialized: mint.is_initialized,
+            freeze_authority: mint.freeze_authority.into(),
+        }
+    }
+}
+
+pub type MintWithProgramId = (MintInfo, Pubkey);
 
 // Code below is from state.rs in Meteora SDK, adapted for our use case.
 
+#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
 pub struct AllPosition {
-    pub all_positions: HashMap<Pubkey, SinglePosition>, // hashmap of pool pubkey and a position
-    pub tokens: HashMap<Pubkey, MintWithProgramId>,     // cached token info
+    pub all_positions: Vec<(Pubkey, SinglePosition)>, // Vec instead of HashMap for serialization
+    pub tokens: Vec<(Pubkey, MintWithProgramId)>,     // Vec instead of HashMap for serialization
 }
 
 impl AllPosition {
     pub fn new(config: &Vec<PairConfig>) -> Result<Self> {
-        let mut all_positions = HashMap::new();
+        let mut all_positions = Vec::new();
         for pair in config.iter() {
             let pool_pk = Pubkey::from_str(&pair.pair_address).unwrap();
-            all_positions.insert(pool_pk, SinglePosition::new(pool_pk));
+            all_positions.push((pool_pk, SinglePosition::new(pool_pk)));
         }
         Ok(AllPosition {
             all_positions,
-            tokens: HashMap::new(),
+            tokens: Vec::new(),
         })
+    }
+    
+    // Helper methods to work with Vec like HashMap
+    pub fn get_position(&self, pubkey: &Pubkey) -> Option<&SinglePosition> {
+        self.all_positions.iter()
+            .find(|(key, _)| key == pubkey)
+            .map(|(_, position)| position)
+    }
+    
+    pub fn get_position_mut(&mut self, pubkey: &Pubkey) -> Option<&mut SinglePosition> {
+        self.all_positions.iter_mut()
+            .find(|(key, _)| key == pubkey)
+            .map(|(_, position)| position)
+    }
+    
+    // Helper methods for tokens
+    pub fn get_token(&self, pubkey: &Pubkey) -> Option<&MintWithProgramId> {
+        self.tokens.iter()
+            .find(|(key, _)| key == pubkey)
+            .map(|(_, token)| token)
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, AnchorSerialize, AnchorDeserialize)]
 pub struct SinglePosition {
     pub lb_pair: Pubkey,
-    pub lb_pair_state: Option<LbPair>,
-    pub bin_arrays: HashMap<Pubkey, BinArray>, // only store relevant bin arrays
-    pub positions: Vec<PositionV2>,
-    pub position_pks: Vec<Pubkey>,
+    // Remove non-serializable types - these will be fetched dynamically
+    // pub lb_pair_state: Option<LbPair>,
+    // pub bin_arrays: Vec<(Pubkey, BinArray)>,
+    // pub positions: Vec<PositionV2>,
+    
+    pub position_pks: Vec<Pubkey>,  // Keep pubkeys to fetch positions dynamically
     pub rebalance_time: u64,
     pub min_bin_id: i32,
     pub max_bin_id: i32,
@@ -73,8 +114,8 @@ impl SinglePosition {
         &self,
         amount_in: u64,
         swap_for_y: bool,
+        lb_pair_state: &LbPair,  // Pass as parameter instead of storing
     ) -> Result<u64> {
-        let lb_pair_state = self.lb_pair_state.unwrap(); // as_ref().ok_or(Error::from(CustomError::LbPairStateNotFound))?;
         let price = PositionRaw::get_price_from_id(lb_pair_state.active_id, lb_pair_state.bin_step)?;
         let out_amount = Bin::get_amount_out(amount_in, price, swap_for_y)?;
 
@@ -89,8 +130,14 @@ impl SinglePosition {
         Ok(min_out_amount)
     }
 
-    pub fn get_positions(&self) -> Result<PositionRaw> {
-        if self.positions.len() == 0 {
+    /// Calculate total position amounts and fees across all positions
+    pub fn get_positions(
+        &self, 
+        positions: &[PositionV2],           // Pass as parameter
+        bin_arrays: &[(Pubkey, BinArray)],  // Pass as parameter
+        lb_pair_state: &LbPair,             // Pass as parameter
+    ) -> Result<PositionRaw> {
+        if positions.len() == 0 {
             return Ok(PositionRaw::default());
         }
 
@@ -100,20 +147,20 @@ impl SinglePosition {
         let mut fee_x = 0u64;
         let mut fee_y = 0u64;
 
-        for position in self.positions.iter() {
+        for position in positions.iter() {
             let bin_array_keys = position.get_bin_array_keys_coverage()?;
-            let mut bin_arrays = vec![];
+            let mut bin_arrays_for_position = vec![];
 
             for key in bin_array_keys {
-                let bin_array_state = self
-                    .bin_arrays
-                    .get(&key)
-                    .ok_or(Error::from(CustomError::CannotGetBinArray))?;
-                bin_arrays.push(*bin_array_state);
+                let bin_array_state = bin_arrays.iter()
+                    .find(|(array_key, _)| array_key == &key)
+                    .map(|(_, array)| array)
+                    .ok_or(error!(CustomError::CannotGetBinArray))?;
+                bin_arrays_for_position.push(*bin_array_state);
             }
 
             let bin_array_manager = BinArrayManager {
-                bin_arrays: &bin_arrays,
+                bin_arrays: &bin_arrays_for_position,
             };
 
             for (i, liquidity_share) in position.liquidity_shares.iter().enumerate() {
@@ -140,10 +187,8 @@ impl SinglePosition {
                 .checked_add(fee_y_pending).unwrap();
         }
 
-        let lb_pair_state = self.lb_pair_state.unwrap();
-
         Ok(PositionRaw {
-            position_len: self.positions.len(),
+            position_len: positions.len(),
             bin_step: lb_pair_state.bin_step,
             rebalance_time: self.rebalance_time,
             min_bin_id: self.min_bin_id,
@@ -158,7 +203,7 @@ impl SinglePosition {
     }
 }
 
-#[derive(Default, PartialEq, Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Default, PartialEq, Debug, Clone)]
 pub struct PositionRaw {
     pub position_len: usize,
     pub rebalance_time: u64,
@@ -247,7 +292,7 @@ impl PositionRaw {
     }
 }
 
-#[derive(Default, PartialEq, Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Default, PartialEq, Debug, Clone)]
 pub struct PositionInfo {
     pub position_len: usize,
     pub rebalance_time: u64,
@@ -266,9 +311,6 @@ impl SinglePosition {
         SinglePosition {
             lb_pair,
             rebalance_time: 0,
-            lb_pair_state: None,
-            bin_arrays: HashMap::new(),
-            positions: vec![],
             position_pks: vec![],
             min_bin_id: 0,
             max_bin_id: 0,
@@ -277,7 +319,10 @@ impl SinglePosition {
     }
 }
 
-pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &HashMap<Pubkey, MintWithProgramId>) -> u8 {
-    let token = all_tokens.get(&token_mint_pk).unwrap();
+pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &[(Pubkey, MintWithProgramId)]) -> u8 {
+    let token = all_tokens.iter()
+        .find(|(key, _)| key == &token_mint_pk)
+        .map(|(_, mint_info)| mint_info)
+        .unwrap();
     return token.0.decimals;
 }
