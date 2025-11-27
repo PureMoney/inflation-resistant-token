@@ -19,6 +19,7 @@ mod tests {
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
     use irma::pricing::MAX_BACKING_COUNT;
     use irma::{Init, Maint, InitBumps, MaintBumps};
+    use irma::meteora_integration::Core;
 
     
     fn allocate_state() -> StateMap {
@@ -110,7 +111,8 @@ mod tests {
         Ok(())
     }
 
-    fn prep_accounts<'info>(owner: &'info Pubkey, state_account: Pubkey) -> (AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>) {
+    fn prep_accounts<'info>(owner: &'info Pubkey, state_account: Pubkey) -> 
+    (AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>) {
         // Create a buffer for StateMap and wrap it in AccountInfo
         let lamports: &mut u64 = Box::leak(Box::new(100000u64));
         let mut state: StateMap = allocate_state();
@@ -129,6 +131,22 @@ mod tests {
             true,  // is_writable
             lamports,
             state_data,
+            owner,
+            false,
+            0,
+        );
+        let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
+        let mut core_state: Core = Core::create_core(*owner, vec![]).unwrap();
+        let mut core_data_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of::<Core>());
+        core_state.try_serialize(&mut core_data_vec).unwrap();
+        let core_data: &'info mut Vec<u8> = Box::leak(Box::new(core_data_vec));
+        let core_key: &'info mut Pubkey = Box::leak(Box::new(Pubkey::new_unique()));
+        let core_account_info: AccountInfo<'info> = AccountInfo::new(
+            core_key,
+            false, // is_signer
+            true,  // is_writable
+            lamportsc,
+            core_data,
             owner,
             false,
             0,
@@ -164,27 +182,29 @@ mod tests {
             true,
             0,
         );
-        (state_account_info, signer_account_info, sys_account_info)
+        (state_account_info, signer_account_info, sys_account_info, core_account_info)
     }
 
-    fn initialize_anchor<'info>(program_id: &'info Pubkey) -> (Account<'info, StateMap>, Signer<'info>, Program<'info, anchor_lang::system_program::System>) {
+    fn initialize_anchor<'info>(program_id: &'info Pubkey) -> 
+    (Account<'info, StateMap>, Signer<'info>, Program<'info, anchor_lang::system_program::System>, Account<'info, Core>) {
         //                 state_account_info: &'info AccountInfo<'info>) {
         //                 sys_account_info: &AccountInfo<'info>) {
         // let program_id: &'info Pubkey = Box::leak(Box::new(Pubkey::new_from_array(irma::ID.to_bytes())));
         let state_account: Pubkey = Pubkey::find_program_address(&[b"state".as_ref()], program_id).0;
-        let (state_account_info, irma_admin_account_info, sys_account_info) 
+        let (state_account_info, irma_admin_account_info, sys_account_info, core_account_info) 
                  = prep_accounts(program_id, state_account);
         // Bind to variables to extend their lifetime
         let state_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(state_account_info));
         let irma_admin_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(irma_admin_account_info));
         let sys_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(sys_account_info));
+        let core_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(core_account_info));
         let mut accounts: Init<'_> = Init {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
-            core: Account::try_from(state_account_static).unwrap(), // Placeholder
+            core: Account::try_from(core_account_static).unwrap(),
         };
-        let ctx: Context<Init> = Context::new(
+        let mut ctx: Context<Init> = Context::new(
             program_id,
             &mut accounts,
             &[],
@@ -193,7 +213,7 @@ mod tests {
         let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
         assert!(result.is_ok());
         // msg!("StateMap account: {:?}", accounts.state);
-        return (accounts.state, accounts.irma_admin, accounts.system_program);
+        return (accounts.state, accounts.irma_admin, accounts.system_program, accounts.core);
     }
 
     #[test]
@@ -202,16 +222,16 @@ mod tests {
         msg!("Testing init_pricing IRMA with normal conditions");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
-        let (state_account, irma_admin_account, sys_account) 
+        let (state_account, irma_admin_account, sys_account, core_account) 
                 = initialize_anchor(program_id);
         // Bind to variables to extend their lifetime
         let mut accounts: Init<'_> = Init {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
-            core: state_account.clone(), // Placeholder
+            core: core_account.clone(),
         };
-        let ctx: Context<Init> = Context::new(
+        let mut ctx: Context<Init> = Context::new(
             program_id,
             &mut accounts,
             &[],
@@ -228,13 +248,14 @@ mod tests {
         msg!("Testing set IRMA mint price with normal conditions");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
-        let (state_account, irma_admin_account, sys_account) 
+        let (state_account, irma_admin_account, sys_account, core_account) 
                 = initialize_anchor(program_id);
         // Bind to variables to extend their lifetime
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            // core: core_account.clone(),
         };
         let mut ctx: Context<Maint> = Context::new(
             program_id,
@@ -273,13 +294,14 @@ mod tests {
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
         // let state_account: Pubkey = Pubkey::find_program_address(&[b"state".as_ref()], program_id).0;
-        let (state_account, irma_admin_account, sys_account) 
+        let (state_account, irma_admin_account, sys_account, core_account) 
                 = initialize_anchor(program_id);
         // Bind to variables to extend their lifetime
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            // core: core_account.clone(),
         };
         msg!("Pre-mint IRMA state:");
         msg!("Backing reserves for USDT: {:?}", 
@@ -363,12 +385,13 @@ mod tests {
         msg!("Testing redeem IRMA when mint price is less than redemption price");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
-        let (state_account, irma_admin_account, sys_account) 
+        let (state_account, irma_admin_account, sys_account, core_account) 
             = initialize_anchor(program_id);
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            // core: core_account.clone(),
         };
         {
             let ctx: Context<Maint> = Context::new(
@@ -519,12 +542,13 @@ mod tests {
         msg!("Testing redeem IRMA with normal conditions, but with large discrepancies in mint prices");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
-        let (state_account, irma_admin_account, sys_account) 
+        let (state_account, irma_admin_account, sys_account, core_account) 
             = initialize_anchor(program_id);
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
+            // core: core_account.clone(),
         };
         {
             msg!("Pre-redeem IRMA state 2:");

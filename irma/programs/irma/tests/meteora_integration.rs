@@ -98,7 +98,14 @@ mod core_test {
             owner: &'info Pubkey, // program owner, not user owner
             state_account: Pubkey,
             lb_pair: &'info Pubkey
-        ) -> (AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>) {
+        ) -> (
+            AccountInfo<'info>,
+            AccountInfo<'info>,
+            AccountInfo<'info>,
+            AccountInfo<'info>,
+            AccountInfo<'info>,
+            AccountInfo<'info>,
+        ) {
         // Create a buffer for StateMap and wrap it in AccountInfo
         let lamports: &mut u64 = Box::leak(Box::new(100000u64));
         let mut state: StateMap = allocate_state();
@@ -117,6 +124,23 @@ mod core_test {
             true,  // is_writable
             lamports,
             state_data,
+            owner,
+            false,
+            0,
+        );
+
+        let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
+        let mut core_state: Core = Core::create_core(*owner, vec![]).unwrap();
+        let mut core_data_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of::<Core>());
+        core_state.try_serialize(&mut core_data_vec).unwrap();
+        let core_data: &'info mut Vec<u8> = Box::leak(Box::new(core_data_vec));
+        let core_key: &'info mut Pubkey = Box::leak(Box::new(Pubkey::new_unique()));
+        let core_account_info: AccountInfo<'info> = AccountInfo::new(
+            core_key,
+            false, // is_signer
+            true,  // is_writable
+            lamportsc,
+            core_data,
             owner,
             false,
             0,
@@ -254,7 +278,12 @@ mod core_test {
             true,
             0,
         );
-        (state_account_info, signer_account_info, sys_account_info, position_account_info, lb_pair_account_info)
+        (state_account_info,
+            signer_account_info,
+            sys_account_info,
+            position_account_info,
+            lb_pair_account_info,
+            core_account_info)
     }
 
     fn initialize_anchor<'info>(
@@ -264,24 +293,31 @@ mod core_test {
             Signer<'info>, 
             Program<'info, anchor_lang::system_program::System>,
             AccountInfo<'info>,
-            AccountInfo<'info>) {
+            AccountInfo<'info>,
+            Account<'info, Core>) {
         //                 state_account_info: &'info AccountInfo<'info>) {
         //                 sys_account_info: &AccountInfo<'info>) {
         // let program_id: &'info Pubkey = Box::leak(Box::new(Pubkey::new_from_array(irma::ID.to_bytes())));
         let state_account: Pubkey = Pubkey::find_program_address(&[b"state".as_ref()], program_id).0;
-        let (state_account_info, irma_admin_account_info, sys_account_info, position_account_info, lb_pair_account_info) 
+        let (state_account_info, 
+            irma_admin_account_info,
+            sys_account_info,
+            position_account_info,
+            lb_pair_account_info,
+            core_account_info)
                  = prep_accounts(program_id, state_account, lb_pair);
         // Bind to variables to extend their lifetime
         let state_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(state_account_info));
         let irma_admin_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(irma_admin_account_info));
         let sys_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(sys_account_info));
+        let core_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(core_account_info));
         let mut accounts: Init<'_> = Init {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
-            core: Account::try_from(state_account_static).unwrap(), // Placeholder
+            core: Account::try_from(core_account_static).unwrap(),
         };
-        let ctx: Context<Init> = Context::new(
+        let mut ctx: Context<Init> = Context::new(
             program_id,
             &mut accounts,
             &[],
@@ -290,7 +326,12 @@ mod core_test {
         let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
         assert!(result.is_ok());
         // msg!("StateMap account: {:?}", accounts.state);
-        return (accounts.state, accounts.irma_admin, accounts.system_program, position_account_info, lb_pair_account_info);
+        return (accounts.state,
+            accounts.irma_admin,
+            accounts.system_program,
+            position_account_info,
+            lb_pair_account_info,
+            accounts.core);
     }
 
     #[test]
@@ -298,7 +339,12 @@ mod core_test {
         let program_id: &Pubkey = &IRMA_ID;
 
         let lb_pair = Pubkey::from_str_const("FoSDw2L5DmTuQTFe55gWPDXf88euaxAEKFre74CnvQbX");
-        let (state_account, irma_admin_account, sys_account, position_account_info, lb_pair_account_info) 
+        let (state_account,
+            irma_admin_account,
+            sys_account,
+            position_account_info,
+            lb_pair_account_info,
+            core_account_info)
                 = initialize_anchor(program_id, &lb_pair);
 
         let config = vec![PairConfig {
@@ -308,16 +354,18 @@ mod core_test {
             mode: MarketMakingMode::ModeBoth,
         }];
 
+        let all_positions = AllPosition::new(&config).unwrap().all_positions;
+        let all_positions = all_positions.into_iter().map(|(pk, _)| pk).collect::<Vec<_>>();
         let core = &mut Core::create_core(
             irma_admin_account.key(),
-            AllPosition::new(&config).unwrap(),
-        );
+            all_positions,
+        ).unwrap();
 
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
-            core: state_account.clone(), // Placeholder
+            // core: core_account_info.clone(), // Placeholder
         };
 
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
@@ -333,10 +381,10 @@ mod core_test {
         let state = {
             let mut_state = core.get_mut_state(lb_pair);
             let lb_pair_data = &lb_pair_account_info.data.borrow()[8..];
-            let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
-                &lb_pair_data
-            );
-            mut_state.lb_pair_state = Some(lb_pair_state);
+            // let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
+            //     &lb_pair_data
+            // );
+            // mut_state.lb_pair_state = Some(lb_pair_state);
             mut_state.clone() // Clone the state to end the mutable borrow
         };
 
@@ -349,7 +397,12 @@ mod core_test {
         let program_id: &Pubkey = &IRMA_ID;
 
         let lb_pair = Pubkey::from_str_const("FoSDw2L5DmTuQTFe55gWPDXf88euaxAEKFre74CnvQbX");
-        let (state_account, irma_admin_account, sys_account, position_account_info, lb_pair_account_info) 
+        let (state_account,
+            irma_admin_account,
+            sys_account,
+            position_account_info,
+            lb_pair_account_info,
+            core_account)
                 = initialize_anchor(program_id, &lb_pair);
 
         let config = vec![PairConfig {
@@ -359,16 +412,18 @@ mod core_test {
             mode: MarketMakingMode::ModeBoth,
         }];
 
+        let all_positions = AllPosition::new(&config).unwrap().all_positions;
+        let all_positions = all_positions.into_iter().map(|(pk, _)| pk).collect::<Vec<_>>();
         let core = &mut Core::create_core(
             irma_admin_account.key(), // owner
-            AllPosition::new(&config).unwrap(),
-        );
+            all_positions,
+        ).unwrap();
 
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
-            core: core.clone(),
+            // core: core.clone(),
         };
 
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
@@ -384,10 +439,10 @@ mod core_test {
         let state = {
             let mut_state = core.get_mut_state(lb_pair);
             let lb_pair_data = &lb_pair_account_info.data.borrow()[8..];
-            let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
-                &lb_pair_data
-            );
-            mut_state.lb_pair_state = Some(lb_pair_state);
+            // let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
+            //     &lb_pair_data
+            // );
+            // mut_state.lb_pair_state = Some(lb_pair_state);
             mut_state.clone() // Clone the state to end the mutable borrow
         };
 
