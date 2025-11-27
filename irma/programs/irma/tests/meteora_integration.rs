@@ -145,7 +145,7 @@ mod core_test {
             false,
             0,
         );
-
+        
         // msg!("StateMap account created: {:?}", state_account_info.key);
         // msg!("StateMap owner: {:?}", owner);
         // Use a mock Signer for testing purposes
