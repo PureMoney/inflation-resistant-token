@@ -22,7 +22,8 @@ use commons::position::*;
 use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET, CustomError};
 
 // Serializable version of Mint info
-#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
+#[account]
+#[derive(Debug)]
 pub struct MintInfo {
     pub mint_authority: Option<Pubkey>,
     pub supply: u64,
@@ -43,14 +44,34 @@ impl From<&Mint> for MintInfo {
     }
 }
 
-pub type MintWithProgramId = (MintInfo, Pubkey);
+#[account]
+#[derive(Debug)]
+pub struct MintWithProgramId {
+    pub mint_info: MintInfo,
+    pub program_id: Pubkey,
+}
+
+#[account]
+#[derive(Debug)]
+pub struct PositionEntry {
+    pub pubkey: Pubkey,
+    pub position: SinglePosition,
+}
+
+#[account]
+#[derive(Debug)]
+pub struct TokenEntry {
+    pub pubkey: Pubkey,
+    pub mint_with_program: MintWithProgramId,
+}
 
 // Code below is from state.rs in Meteora SDK, adapted for our use case.
 
-#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
+#[account]
+#[derive(Debug)]
 pub struct AllPosition {
-    pub all_positions: Vec<(Pubkey, SinglePosition)>, // Vec instead of HashMap for serialization
-    pub tokens: Vec<(Pubkey, MintWithProgramId)>,     // Vec instead of HashMap for serialization
+    pub all_positions: Vec<PositionEntry>,  // Use struct instead of tuple
+    pub tokens: Vec<TokenEntry>,            // Use struct instead of tuple
 }
 
 impl AllPosition {
@@ -58,7 +79,11 @@ impl AllPosition {
         let mut all_positions = Vec::new();
         for pair in config.iter() {
             let pool_pk = Pubkey::from_str(&pair.pair_address).unwrap();
-            all_positions.push((pool_pk, SinglePosition::new(pool_pk)));
+            let position_entry = PositionEntry {
+                pubkey: pool_pk,
+                position: SinglePosition::new(pool_pk),
+            };
+            all_positions.push(position_entry);
         }
         Ok(AllPosition {
             all_positions,
@@ -69,25 +94,26 @@ impl AllPosition {
     // Helper methods to work with Vec like HashMap
     pub fn get_position(&self, pubkey: &Pubkey) -> Option<&SinglePosition> {
         self.all_positions.iter()
-            .find(|(key, _)| key == pubkey)
-            .map(|(_, position)| position)
+            .find(|entry| &entry.pubkey == pubkey)
+            .map(|entry| &entry.position)
     }
     
     pub fn get_position_mut(&mut self, pubkey: &Pubkey) -> Option<&mut SinglePosition> {
         self.all_positions.iter_mut()
-            .find(|(key, _)| key == pubkey)
-            .map(|(_, position)| position)
+            .find(|entry| &entry.pubkey == pubkey)
+            .map(|entry| &mut entry.position)
     }
     
     // Helper methods for tokens
     pub fn get_token(&self, pubkey: &Pubkey) -> Option<&MintWithProgramId> {
         self.tokens.iter()
-            .find(|(key, _)| key == pubkey)
-            .map(|(_, token)| token)
+            .find(|entry| &entry.pubkey == pubkey)
+            .map(|entry| &entry.mint_with_program)
     }
 }
 
-#[derive(Default, Debug, Clone, AnchorSerialize, AnchorDeserialize)]
+#[account]
+#[derive(Default, Debug)]
 pub struct SinglePosition {
     pub lb_pair: Pubkey,
     // Remove non-serializable types - these will be fetched dynamically
@@ -319,10 +345,9 @@ impl SinglePosition {
     }
 }
 
-pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &[(Pubkey, MintWithProgramId)]) -> u8 {
+pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &[TokenEntry]) -> u8 {
     let token = all_tokens.iter()
-        .find(|(key, _)| key == &token_mint_pk)
-        .map(|(_, mint_info)| mint_info)
+        .find(|entry| entry.pubkey == token_mint_pk)
         .unwrap();
-    return token.0.decimals;
+    return token.mint_with_program.mint_info.decimals;
 }

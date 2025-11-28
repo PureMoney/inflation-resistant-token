@@ -52,7 +52,7 @@ impl<T> AccountData<T> {
 pub struct Core {
     pub owner: Pubkey,
     pub config: Vec<PairConfig>,
-    pub state: AllPosition,
+    pub position_data: AllPosition,  // Renamed from "state" to avoid IDL conflicts
 }
 
 impl Core {
@@ -84,7 +84,7 @@ impl Core {
         Ok(Core {
             owner,
             config: vec![usdc_pair_config1],
-            state: AllPosition::new(&vec![usdc_pair_config2]).unwrap(),
+            position_data: AllPosition::new(&vec![usdc_pair_config2]).unwrap(),
         })
     }
 
@@ -246,7 +246,7 @@ impl Core {
                 // }
             }
 
-            let all_state = &mut self.state;
+            let all_state = &mut self.position_data;
             let state = all_state.get_position_mut(&pair_address).unwrap();
 
             state.lb_pair = pair_address;
@@ -311,28 +311,34 @@ impl Core {
             .collect::<Vec<_>>();
 
         let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts(context, &token_mint_keys)?;
-        let mut tokens = Vec::<(Pubkey, MintWithProgramId)>::new();
+        let mut tokens = Vec::<TokenEntry>::new();
 
         for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
             if let (pubkey, Some(mint)) = account {
                 let mint_info = MintInfo::from(&mint);
-                tokens.push((pubkey, (mint_info, *program_id)));
+                let mint_with_program = MintWithProgramId {
+                    mint_info,
+                    program_id: *program_id,
+                };
+                let token_entry = TokenEntry {
+                    pubkey,
+                    mint_with_program,
+                };
+                tokens.push(token_entry);
             }
         }
-        let state = &mut self.state; // .lock().unwrap();
+        let state = &mut self.position_data; // .lock().unwrap();
         state.tokens = tokens;
 
         Ok(())
     }
 
     fn get_all_token_mints_with_program_id(&self, context: &Context<Maint>) -> Result<Vec<(Pubkey, Pubkey)>> {
-        let state = &self.state;
+        let state = &self.position_data;
         let mut token_mints_with_program = vec![];
 
-        for (_, position) in state.all_positions.iter() {
-            let lb_pair_state = self.fetch_lb_pair_state(context, position.lb_pair)?; //.as_ref().ok_or(
-            //     error!(CustomError::MissingLbPairState)
-            // )?;
+        for position_entry in state.all_positions.iter() {
+            let lb_pair_state = self.fetch_lb_pair_state(context, position_entry.position.lb_pair)?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -344,13 +350,13 @@ impl Core {
     }
 
     pub fn get_position_state(&self, lp_pair: Pubkey) -> SinglePosition {
-        let state = &self.state;
+        let state = &self.position_data;
         let position = state.get_position(&lp_pair).unwrap();
         position.clone()
     }
 
     pub fn get_mut_state(&mut self, lp_pair: Pubkey) -> &mut SinglePosition {
-        let state = &mut self.state;
+        let state = &mut self.position_data;
         let position = state.get_position_mut(&lp_pair).unwrap();
         position
     }
@@ -959,16 +965,16 @@ impl Core {
 
 
     pub fn get_all_positions(&self) -> Vec<SinglePosition> {
-        let state = &self.state;
+        let state = &self.position_data;
         let mut positions = vec![];
-        for (_, position) in &state.all_positions {
-            positions.push(position.clone());
+        for position_entry in &state.all_positions {
+            positions.push(position_entry.position.clone());
         }
         positions
     }
 
-    pub fn get_all_tokens(&self) -> Vec<(Pubkey, MintWithProgramId)> {
-        let state = &self.state;
+    pub fn get_all_tokens(&self) -> Vec<TokenEntry> {
+        let state = &self.position_data;
         state.tokens.clone()
     }
 
@@ -1129,7 +1135,7 @@ impl Core {
     }
 
     pub fn inc_rebalance_time(&mut self, lb_pair: Pubkey) {
-        if let Some(state) = self.state.get_position_mut(&lb_pair) {
+        if let Some(state) = self.position_data.get_position_mut(&lb_pair) {
             state.inc_rebalance_time();
         }
     }

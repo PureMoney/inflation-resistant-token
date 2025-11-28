@@ -5,19 +5,32 @@ use anchor_lang::prelude::*;
 use std::mem::size_of;
 use std::str::FromStr;
 
+// Module declarations
+pub mod pricing;
+pub mod position_manager;
+pub mod meteora_integration;
+pub mod pair_config;
+pub mod bin_array_manager;
+pub mod utils;
+
 // Import the state structs from your modules, as they are used in the account definitions.
-use pricing::{StateMap, StableState};
+use pricing::{StateMap, StableState, CustomError};
 
 // declare_program!(dlmm);
 // use commons::dlmm::borsh::*;
 
 // Declare your program's ID
-declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
+// declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
+declare_id!("DhMQR2rJgXMR742Y7yBTm2yi8cWi3ZH8KfFEFG6SnKbA");
 
 use anchor_lang::context::Context;
 
 use commons::dlmm::types::Bin;
 use commons::dlmm::accounts::*;
+
+// Re-export types for IDL generation
+pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, PositionEntry, TokenEntry};
+pub use meteora_integration::Core;
 
 pub const IRMA_ID: Pubkey = crate::ID;
 
@@ -75,20 +88,27 @@ pub struct Maint<'info> {
     // pub bumps: MaintBumps,
 }
 
+/// Context to force Core and related types into IDL
+#[derive(Accounts)]
+pub struct GetCoreData<'info> {
+    #[account(mut)]
+    pub core: Account<'info, meteora_integration::Core>,
+    pub signer: Signer<'info>,
+}
 
-// Declare your modules
-pub mod pair_config;
-// pub mod bin_array;
-pub mod bin_array_manager;
-pub mod meteora_integration;
-pub mod pricing;
-pub mod position_manager;
-pub mod utils;
+
+// Declare your modules (NOTE: already declared above)
+// pub mod pair_config;
+// pub mod bin_array_manager;
+// pub mod meteora_integration;
+// pub mod pricing;
+// pub mod position_manager;
+// pub mod utils;
 
 // ====================================================================
 // START: DEFINE ALL CPI API
 // ====================================================================
-use crate::meteora_integration::Core;
+// use crate::meteora_integration::Core;
 
 #[program]
 pub mod irma {
@@ -159,5 +179,49 @@ pub mod irma {
     /// Note that IRMA is what we are buying (burning).
     pub fn buy_trade_event(ctx: Context<Maint>, sold_token: String, bought_amount: u64) -> Result<()> {
         return pricing::redeem_irma(ctx, &sold_token, bought_amount);
+    }
+
+    /// Helper instruction to ensure Core type is included in IDL
+    /// Returns the Core account data for debugging
+    pub fn get_core_data(ctx: Context<GetCoreData>) -> Result<()> {
+        // Simple read operation to include Core type in IDL
+        let _core = &ctx.accounts.core;
+        Ok(())
+    }
+
+    /// Helper instruction to force AllPosition type into IDL
+    pub fn get_position_info(ctx: Context<Maint>) -> Result<position_manager::AllPosition> {
+        // This forces AllPosition to be included in IDL as a return type
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force SinglePosition type into IDL  
+    pub fn get_single_position(ctx: Context<Maint>) -> Result<position_manager::SinglePosition> {
+        // This forces SinglePosition to be included in IDL as a return type
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force MintInfo type into IDL
+    pub fn get_mint_info(ctx: Context<Maint>) -> Result<position_manager::MintInfo> {
+        // This forces MintInfo to be included in IDL as a return type  
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force MintWithProgramId type into IDL
+    pub fn get_mint_with_program_id(ctx: Context<Maint>) -> Result<position_manager::MintWithProgramId> {
+        // This forces MintWithProgramId to be included in IDL as a return type  
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force PositionEntry type into IDL
+    pub fn get_position_entry(ctx: Context<Maint>) -> Result<position_manager::PositionEntry> {
+        // This forces PositionEntry to be included in IDL as a return type  
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force TokenEntry type into IDL
+    pub fn get_token_entry(ctx: Context<Maint>) -> Result<position_manager::TokenEntry> {
+        // This forces TokenEntry to be included in IDL as a return type  
+        Err(error!(CustomError::InvalidAmount))
     }
 }

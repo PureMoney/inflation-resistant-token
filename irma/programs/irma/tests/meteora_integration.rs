@@ -355,7 +355,7 @@ mod core_test {
         }];
 
         let all_positions = AllPosition::new(&config).unwrap().all_positions;
-        let all_positions = all_positions.into_iter().map(|(pk, _)| pk).collect::<Vec<_>>();
+        let all_positions = all_positions.into_iter().map(|pe| pe.pubkey).collect::<Vec<_>>();
         let core = &mut Core::create_core(
             irma_admin_account.key(),
             all_positions,
@@ -413,7 +413,7 @@ mod core_test {
         }];
 
         let all_positions = AllPosition::new(&config).unwrap().all_positions;
-        let all_positions = all_positions.into_iter().map(|(pk, _)| pk).collect::<Vec<_>>();
+        let all_positions = all_positions.into_iter().map(|pe| pe.pubkey).collect::<Vec<_>>();
         let core = &mut Core::create_core(
             irma_admin_account.key(), // owner
             all_positions,

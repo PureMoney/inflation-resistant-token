@@ -11,13 +11,13 @@ skip-lint = false
 rustflags = ["--cfg", "getrandom_custom"]
 
 [programs.devnet]
-irma = "DhMQR2rJgXMR742Y7yBTm2yi8cWi3ZH8KfFEFG6SnKbA"
+irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
 
 [programs.localnet]
-irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
 
 [programs.mainnet]
-irma = "FReBisHtV3Lh1eXSxmg52vuBXetUypD36YYMft7WBvvC"
+irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
 
 [registry]
 url = "https://api.apr.dev"
