@@ -21,7 +21,7 @@ use pricing::{StateMap, StableState, CustomError};
 
 // Declare your program's ID
 // declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
-declare_id!("DhMQR2rJgXMR742Y7yBTm2yi8cWi3ZH8KfFEFG6SnKbA");
+declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 
 use anchor_lang::context::Context;
 
@@ -73,7 +73,15 @@ pub struct Init<'info> {
     pub state: Account<'info, StateMap>,
     #[account(mut)]
     pub irma_admin: Signer<'info>,
-    #[account(mut)]
+    // Space calculation for Core:
+    // 8 bytes for discriminator
+    // 32 bytes for owner (Pubkey)
+    // 4 bytes for config Vec length + (max 10 configs * ~200 bytes each) = 2004 bytes
+    // AllPosition struct:
+    //   - 4 bytes for all_positions Vec length + (max 10 positions * ~300 bytes each) = 3004 bytes  
+    //   - 4 bytes for tokens Vec length + (max 20 tokens * ~200 bytes each) = 4004 bytes
+    // Total: 8 + 32 + 2004 + 3004 + 4004 + buffer = ~10000 bytes
+    #[account(init, space=8 + 10000, payer=irma_admin, seeds=[b"core".as_ref()], bump)]
     pub core: Account<'info, Core>,
     pub system_program: Program<'info, System>,
     // pub bumps: InitBumps,
