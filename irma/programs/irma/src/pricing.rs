@@ -194,22 +194,8 @@ pub fn get_prices(ctx: Context<Maint>, quote_token: &str) -> Result<(f64, f64)> 
     Ok((mint_price, redemption_price))
 }
 
-// #[account]
-// #[derive(InitSpace)]
-// #[derive(Debug)]
-// pub struct State {
-//     #[max_len(BACKING_COUNT)]
-//     pub mint_price: Vec<f64>,
-//     #[max_len(BACKING_COUNT)]
-//     pub backing_reserves: Vec<u64>,
-//     #[max_len(BACKING_COUNT)]
-//     pub backing_decimals: Vec<u8>,
-//     #[max_len(BACKING_COUNT)]
-//     pub irma_in_circulation: Vec<u64>,
-//     pub bump: u8,
-// }
-
-/// Alternative implementation that allows for easy addition of new stablecoins
+/// This is the stablecoin struct with the specs for each reserve stablecoin.
+/// Pricing.rs maintains a Vec of these structs in the StateMap account.
 /// Each stablecoin struct uses 80 bytes.
 // #[account]
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Debug)]
@@ -220,12 +206,13 @@ pub struct StableState {
     pub mint_price: f64, // mint price of IRMA in terms of the backing stablecoin
     pub backing_reserves: u64, // backing reserves is in whole numbers (no decimals)
     pub irma_in_circulation: u64, // in whole numbers (no decimals)
+    pub dlmm_lb_pair: Pubkey, // DLMM liquidity backing pair address
     pub active: bool, // whether the stablecoin is active or not
     pub extra: [u8; 7], // padding to make the size of the struct 25 * EnumCount + 8
 }
 
 const_assert_eq!(
-    size_of::<StableState>(), 96
+    size_of::<StableState>(), 96 + 32
 );
 
 #[account]
@@ -237,13 +224,15 @@ pub struct StateMap {
 }
 
 /// Immutable data for IRMA itself.
+/// (Had to remove 'const' to allow Pubkey type and mutable string)
 pub const IRMA: StableState = StableState {
-    symbol: String::new(), // "IRMA".to_string(), <-- can't use to_string() in a const?
+    symbol: String::new(), // should be "IRMA".to_string(), but doesn't work in const context
     mint_address: pubkey!("irmacFBRx7148dQ6qq1zpzUPq57Jr8V4vi5eXDxsDe1"), // IRMA mint address on Solana
     backing_decimals: 6,
     mint_price: 1.0,
     backing_reserves: 0u64,
     irma_in_circulation: 1u64,
+    dlmm_lb_pair: pubkey!("11111111111111111111111111111111"), // unused for IRMA because it is the other side of every pair
     active: false, // IRMA cannot be a reserve backing of itself
     extra: [0; 7], // padding
 };
@@ -288,6 +277,7 @@ impl StableState {
             mint_price: 1.0, // default mint price is 1.0
             backing_reserves: 0,
             irma_in_circulation: 1,
+            dlmm_lb_pair: Pubkey::default(), // to be set later, outside of pricing.rs
             active: true,
             extra: [0; 7], // for future use
         })
@@ -657,5 +647,9 @@ pub enum CustomError {
     InvalidBackingAddress,
     #[msg("Symbol not found.")]
     SymbolNotFound,
+    #[msg("Lb pair state not found")]
+    LbPairStateNotFound,
+    #[msg("Ordering of stablecoins does not match LbPair order in remaining_accounts.")]
+    LbPairOrderingMismatch,
 }
 

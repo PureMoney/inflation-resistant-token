@@ -26,6 +26,7 @@ declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 use anchor_lang::context::Context;
 
 use commons::dlmm::types::Bin;
+use commons::LbPair;
 use commons::dlmm::accounts::*;
 
 // Re-export types for IDL generation
@@ -122,6 +123,9 @@ pub struct GetCoreData<'info> {
 pub mod irma {
     use super::*; // This will now correctly bring Init, Maint, etc. into scope
 
+    /// Initialize the IRMA protocol
+    /// The context accounts will be initialized by pricing to conttain reserves in alphabetical order.
+    /// The remaining_accounts should contain the LbPair accounts in the same order as the reserves.
     pub fn initialize(
         mut ctx: Context<Init>,
         owner: String,
@@ -134,7 +138,22 @@ pub mod irma {
 
         // Initialize the pricing system first
         pricing::init_pricing(&mut ctx)?;
-        
+
+        // LB_Pairs, one for each reserve stablecoin, should have been created; we set these here.
+        // NOTE: the order of reserve stablecoins must match the order of the provided LbPair accounts.
+        for (i, stablecoin) in ctx.accounts.state.reserves.iter_mut().enumerate() {
+            if let Some(lb_pair_account) = ctx.remaining_accounts.get(i) {
+                // Store the LbPair account's pubkey directly
+                // TODO: Add validation that this is actually an LbPair account
+                stablecoin.dlmm_lb_pair = lb_pair_account.key();
+                msg!("Set LbPair {} for stablecoin {} at index {}", 
+                     lb_pair_account.key(), stablecoin.symbol, i);
+            } else {
+                msg!("Error: No LbPair account provided for stablecoin {} at index {}", stablecoin.symbol, i);
+                return Err(error!(CustomError::LbPairStateNotFound));
+            }
+        }
+
         // TODO: Initialize Core separately if needed
         // For now, just do basic initialization
         msg!("IRMA protocol initialized with owner: {}", owner_pk);

@@ -98,33 +98,71 @@ async function initializeProtocol() {
 
   try {
     // Check if already initialized
-    let existingCore, existingState;
-    try {
-      existingCore = await (program.account as any).core.fetch(corePda);
-      console.log("ℹ️ Protocol already initialized!");
-      console.log("📊 Existing core:", existingCore);
-      existingState = await (program.account as any).stateMap.fetch(statePda);
-      console.log("📊 Existing state:", existingState);
-      return { state: existingState, core: existingCore };
-    } catch (error: unknown) {
-      // Safely handle unknown errors without assuming they have a `message` property
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-          ? error
-          : JSON.stringify(error);
-      if (!existingCore) {
-        console.log("📝 Core not found, error:", errMsg, ", proceeding with initialization...");
+    let existingCore;
+      try {
+        existingCore = await (program.account as any).core.fetch(corePda);
+        console.log("ℹ️ Protocol already initialized!");
+        console.log("📊 Existing core:", existingCore);
+        try {
+          const pricesResult = await program.methods
+            .getPrices("USDC")
+            .accounts({
+              state: statePda,
+              irmaAdmin: payer,
+              systemProgram: SystemProgram.programId,
+            })
+            .simulate();
+          
+          // Look for the "Program return" line in the raw logs
+          const returnLine = pricesResult.raw.find((line: string) => 
+            line.includes("Program return:"));
+          
+          if (returnLine) {
+            // Extract the base64 data from the return line
+            // Format: "Program return: <PROGRAM_ID> <BASE64_DATA>"
+            const base64Data = returnLine.split(' ').pop();
+            if (base64Data) {
+              // Decode the base64 data
+              const decodedData = Buffer.from(base64Data, 'base64');
+              console.log("📊 Decoded data length:", decodedData.length, "bytes");
+              console.log("📊 Raw bytes:", Array.from(decodedData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+              
+              // Read two f64 values (8 bytes each, little-endian)
+              if (decodedData.length >= 16) {
+                const mintPrice = decodedData.readDoubleLE(0);
+                const redemptionPrice = decodedData.readDoubleLE(8);
+                console.log("📊 Get prices for USDC - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
+              } else {
+                console.log("❌ Insufficient data length. Expected 16 bytes, got", decodedData.length);
+              }
+            }
+          } else {
+            console.log("❌ No program return data found in logs");
+            console.log("📊 Raw logs:", pricesResult.raw);
+          }
+          
+        } catch (error) {
+          console.log("❌ Error simulating get_prices:", error);
+        }
+        return { core: existingCore };
+      } catch (error: unknown) {
+        // Safely handle unknown errors without assuming they have a `message` property
+        const errMsg =
+          error instanceof Error
+            ? error.message
+            : typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+        if (existingCore == null)
+          console.log("📝 Error:", errMsg, ", proceeding with initialization...");
+        else {
+          console.log("📝 Error:", errMsg);
+          return { core: existingCore };
+        }
       }
-      else if (!existingState) {
-        console.log("📝 State not found, error:", errMsg);
-        return { state: null, core: existingCore };
-      }
-    }
-
-    // Initialize the protocol
-    console.log("🔄 Calling initialize instruction...");
+  
+      // Initialize the protocol
+      console.log("🔄 Calling initialize instruction...");
     
     const owner = payer.toBase58();
     const configKeys = [

@@ -3,6 +3,8 @@ use anyhow::*;
 
 declare_program!(dlmm);
 
+pub use dlmm::accounts::LbPair;
+
 pub mod constants;
 pub use constants::*;
 
