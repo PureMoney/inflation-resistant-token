@@ -109,7 +109,7 @@ mod core_test {
         // Create a buffer for StateMap and wrap it in AccountInfo
         let lamports: &mut u64 = Box::leak(Box::new(100000u64));
         let mut state: StateMap = allocate_state();
-        let _ = state.init_reserves(); // Add initial stablecoins to the state
+        // let _ = state.init_reserves(); // Add initial stablecoins to the state
 
         // Prepare the account data with the correct discriminator
         let mut state_data_vec: Vec<u8> = Vec::with_capacity(120*MAX_BACKING_COUNT);
@@ -129,8 +129,23 @@ mod core_test {
             0,
         );
 
+        let config = vec![PairConfig {
+            pair_address: lb_pair.to_string(),
+            x_amount: 17000000,
+            y_amount: 2000000,
+            mode: MarketMakingMode::ModeBoth,
+        }];
+
+        let signer_pubkey: &'info mut Pubkey 
+            = Box::leak(Box::new(Pubkey::from_str_const("68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP")));
+
         let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
-        let mut core_state: Core = Core::create_core(*owner, vec![]).unwrap();
+        let all_positions = AllPosition::new(&config).unwrap().all_positions;
+        let all_positions = all_positions.into_iter().map(|pe| pe.pubkey).collect::<Vec<_>>();
+        let core_state = &mut Core::create_core(
+            *signer_pubkey, // owner
+            all_positions,
+        ).unwrap();
         let mut core_data_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of::<Core>());
         core_state.try_serialize(&mut core_data_vec).unwrap();
         let core_data: &'info mut Vec<u8> = Box::leak(Box::new(core_data_vec));
@@ -149,8 +164,6 @@ mod core_test {
         // msg!("StateMap account created: {:?}", state_account_info.key);
         // msg!("StateMap owner: {:?}", owner);
         // Use a mock Signer for testing purposes
-        let signer_pubkey: &'info mut Pubkey 
-            = Box::leak(Box::new(Pubkey::from_str_const("68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP")));
         let lamportsx: &'info mut u64 = Box::leak(Box::new(0u64));
         let data: &'info mut Vec<u8> = Box::leak(Box::new(vec![]));
         let owner: &'info mut Pubkey = Box::leak(Box::new(Pubkey::default()));
@@ -344,30 +357,19 @@ mod core_test {
             sys_account,
             position_account_info,
             lb_pair_account_info,
-            core_account_info)
+            core_account)
                 = initialize_anchor(program_id, &lb_pair);
-
-        let config = vec![PairConfig {
-            pair_address: lb_pair.to_string(),
-            x_amount: 17000000,
-            y_amount: 2000000,
-            mode: MarketMakingMode::ModeBoth,
-        }];
-
-        let all_positions = AllPosition::new(&config).unwrap().all_positions;
-        let all_positions = all_positions.into_iter().map(|pe| pe.pubkey).collect::<Vec<_>>();
-        let core = &mut Core::create_core(
-            irma_admin_account.key(),
-            all_positions,
-        ).unwrap();
 
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
+            core: core_account.clone(),
             system_program: sys_account.clone(),
-            // core: core_account_info.clone(), // Placeholder
         };
 
+        // Clone core before creating the mutable context
+        let mut core = accounts.core.clone();
+        
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
         let ctx: Context<Maint> = Context::new(
             program_id,
@@ -405,27 +407,16 @@ mod core_test {
             core_account)
                 = initialize_anchor(program_id, &lb_pair);
 
-        let config = vec![PairConfig {
-            pair_address: lb_pair.to_string(),
-            x_amount: 17000000,
-            y_amount: 2000000,
-            mode: MarketMakingMode::ModeBoth,
-        }];
-
-        let all_positions = AllPosition::new(&config).unwrap().all_positions;
-        let all_positions = all_positions.into_iter().map(|pe| pe.pubkey).collect::<Vec<_>>();
-        let core = &mut Core::create_core(
-            irma_admin_account.key(), // owner
-            all_positions,
-        ).unwrap();
-
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
+            core: core_account.clone(),
             system_program: sys_account.clone(),
-            // core: core.clone(),
         };
 
+        // Clone core before creating the mutable context
+        let mut core = accounts.core.clone();
+        
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
         let ctx: Context<Maint> = Context::new(
             program_id,

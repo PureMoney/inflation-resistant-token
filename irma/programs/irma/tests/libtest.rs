@@ -33,7 +33,7 @@ mod tests {
             // Create a buffer for StateMap and wrap it in AccountInfo
             let lamports: &mut u64 = Box::leak(Box::new(100000u64));
             let mut state: StateMap = allocate_state();
-            let _ = state.init_reserves(); // Add initial stablecoins to the state
+            // let _ = state.init_reserves(); // Add initial stablecoins to the state
 
             // Prepare the account data with the correct discriminator
             let mut state_data_vec: Vec<u8> = Vec::with_capacity(120*MAX_BACKING_COUNT);
@@ -88,7 +88,7 @@ mod tests {
 
         fn allocate_state() -> StateMap {
             let mut state: StateMap = StateMap::new();
-            state.init_reserves().unwrap(); // Initialize reserves
+            // state.init_reserves().unwrap(); // Initialize reserves
             state
         }
         msg!("Starting crank test...");

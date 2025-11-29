@@ -15,9 +15,9 @@ use crate::{Init, Maint};
 pub const BACKING_COUNT: usize = 6 as usize;
 // Maximum number of stablecoins supported
 // This is limited by the maximum size of the account data (10,240 bytes).
-// Each stablecoin entry in the reserves requires approximately 120 bytes of storage.
-// Therefore, the maximum number of stablecoins is calculated as 10,240 / 120 = 85 (rounded down).
-pub const MAX_BACKING_COUNT: usize = 10; // 85;
+// Each stablecoin entry in the reserves requires approximately 120 + 32 bytes of storage.
+// Therefore, the maximum number of stablecoins is calculated as 10,240 / 152 = 67 (rounded down).
+pub const MAX_BACKING_COUNT: usize = 40; // 67;
 
 // declare_id!("8zs1JbqxqLcCXzBrkMCXyY2wgSW8uk8nxYuMFEfUMQa6");
 
@@ -36,8 +36,8 @@ pub fn init_pricing(ctx: &mut Context<Init>) -> Result<()> {
     state.bump = 13u8; // InitializeBumps::bump(ctx.bumps).unwrap_or(0);
     msg!("State initialized with bump: {}", state.bump);
 
-    state.init_reserves()?;
-    msg!("Initial stablecoins added to the state.");
+    // state.init_reserves()?;
+    // msg!("Initial stablecoins added to the state.");
 
     Ok(())
 }
@@ -206,7 +206,7 @@ pub struct StableState {
     pub mint_price: f64, // mint price of IRMA in terms of the backing stablecoin
     pub backing_reserves: u64, // backing reserves is in whole numbers (no decimals)
     pub irma_in_circulation: u64, // in whole numbers (no decimals)
-    pub dlmm_lb_pair: Pubkey, // DLMM liquidity backing pair address
+    pub pool_id: Pubkey, // market ID in some Solana DEX
     pub active: bool, // whether the stablecoin is active or not
     pub extra: [u8; 7], // padding to make the size of the struct 25 * EnumCount + 8
 }
@@ -232,7 +232,7 @@ pub const IRMA: StableState = StableState {
     mint_price: 1.0,
     backing_reserves: 0u64,
     irma_in_circulation: 1u64,
-    dlmm_lb_pair: pubkey!("11111111111111111111111111111111"), // unused for IRMA because it is the other side of every pair
+    pool_id: pubkey!("11111111111111111111111111111111"), // unused for IRMA because it is the other side of every pair
     active: false, // IRMA cannot be a reserve backing of itself
     extra: [0; 7], // padding
 };
@@ -277,7 +277,7 @@ impl StableState {
             mint_price: 1.0, // default mint price is 1.0
             backing_reserves: 0,
             irma_in_circulation: 1,
-            dlmm_lb_pair: Pubkey::default(), // to be set later, outside of pricing.rs
+            pool_id: Pubkey::default(), // to be set later, outside of pricing.rs
             active: true,
             extra: [0; 7], // for future use
         })
@@ -395,68 +395,68 @@ impl StateMap {
         self.reserves.len()
     }
 
-    pub fn init_reserves(&mut self) -> Result<()> {
-        // This function is used to add initial stablecoins to the reserves.
-        // It is called during the initialization of the IRMA program.
+    // pub fn init_reserves(&mut self) -> Result<()> {
+    //     // This function is used to add initial stablecoins to the reserves.
+    //     // It is called during the initialization of the IRMA program.
 
-        let usdt = StableState::new(
-            "USDT",
-            pubkey!("Es9vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), // USDT mint address on Solana
-            6,
-        )?;
-        self.add_reserve(usdt);
+    //     let usdt = StableState::new(
+    //         "USDT",
+    //         pubkey!("Es9vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), // USDT mint address on Solana
+    //         6,
+    //     )?;
+    //     self.add_reserve(usdt);
 
-        //     symbol: Box::new(symbols[1].to_string()), // symbol of the stablecoin, e.g. "USDC"
-        //     mint_address: pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), // USDC mint address on Solana
-        let usdc = StableState::new(
-            "USDC",
-            pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), // USDC mint address on Solana
-            6,
-        )?;
-        self.add_reserve(usdc);
+    //     //     symbol: Box::new(symbols[1].to_string()), // symbol of the stablecoin, e.g. "USDC"
+    //     //     mint_address: pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), // USDC mint address on Solana
+    //     let usdc = StableState::new(
+    //         "USDC",
+    //         pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), // USDC mint address on Solana
+    //         6,
+    //     )?;
+    //     self.add_reserve(usdc);
 
-        //     symbol: Box::new(symbols[2].to_string()),
-        //     mint_address: pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"), // PYUSD mint address on Solana
-        let pyusd = StableState::new(
-            "PYUSD",
-            pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"), // PYUSD mint address on Solana
-            6,
-        )?;
-        self.add_reserve(pyusd);
+    //     //     symbol: Box::new(symbols[2].to_string()),
+    //     //     mint_address: pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"), // PYUSD mint address on Solana
+    //     let pyusd = StableState::new(
+    //         "PYUSD",
+    //         pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"), // PYUSD mint address on Solana
+    //         6,
+    //     )?;
+    //     self.add_reserve(pyusd);
 
-        //     symbol: Box::new(symbols[3].to_string()),
-        //     mint_address: pubkey!("USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"), // USDS mint address on Solana
-        let usds = StableState::new(
-            "USDS",
-            pubkey!("USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"), // USDS mint address on Solana
-            6,
-        )?;
-        self.add_reserve(usds);
+    //     //     symbol: Box::new(symbols[3].to_string()),
+    //     //     mint_address: pubkey!("USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"), // USDS mint address on Solana
+    //     let usds = StableState::new(
+    //         "USDS",
+    //         pubkey!("USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"), // USDS mint address on Solana
+    //         6,
+    //     )?;
+    //     self.add_reserve(usds);
 
-        //     symbol: Box::new(symbols[4].to_string()),
-        //     mint_address: pubkey!("2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH"), // USDG mint address on Solana
-        let usdg = StableState::new(
-            "USDG",
-            pubkey!("2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH"), // USDG mint address on Solana
-            6,
-        )?;
-        self.add_reserve(usdg);
+    //     //     symbol: Box::new(symbols[4].to_string()),
+    //     //     mint_address: pubkey!("2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH"), // USDG mint address on Solana
+    //     let usdg = StableState::new(
+    //         "USDG",
+    //         pubkey!("2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH"), // USDG mint address on Solana
+    //         6,
+    //     )?;
+    //     self.add_reserve(usdg);
 
-        //     symbol: Box::new(symbols[5].to_string()),
-        //     mint_address: pubkey!("9zNQRsGLjNKwCUU5Gq5LR8beUCPzQMVMqKAi3SSZh54u"), // FDUSD mint address on Solana
-        let fdusd = StableState::new(
-            "FDUSD",
-            pubkey!("9zNQRsGLjNKwCUU5Gq5LR8beUCPzQMVMqKAi3SSZh54u"), // FDUSD mint address on Solana
-            6,
-        )?;
-        self.add_reserve(fdusd);
+    //     //     symbol: Box::new(symbols[5].to_string()),
+    //     //     mint_address: pubkey!("9zNQRsGLjNKwCUU5Gq5LR8beUCPzQMVMqKAi3SSZh54u"), // FDUSD mint address on Solana
+    //     let fdusd = StableState::new(
+    //         "FDUSD",
+    //         pubkey!("9zNQRsGLjNKwCUU5Gq5LR8beUCPzQMVMqKAi3SSZh54u"), // FDUSD mint address on Solana
+    //         6,
+    //     )?;
+    //     self.add_reserve(fdusd);
 
-        msg!("Initialized reserves {}", self.reserves.iter().map(|e| e.symbol.clone()).collect::<Vec<_>>().join(", "));
-        self.reserves.sort_by_key(|e| e.symbol.clone()); // Sort reserves by symbol
-        msg!("sorted reserves {}", self.reserves.iter().map(|e| e.symbol.clone()).collect::<Vec<_>>().join(", "));
-        msg!("Vec length: {:?}", self.reserves.len());
-        Ok(())
-    } 
+    //     msg!("Initialized reserves {}", self.reserves.iter().map(|e| e.symbol.clone()).collect::<Vec<_>>().join(", "));
+    //     self.reserves.sort_by_key(|e| e.symbol.clone()); // Sort reserves by symbol
+    //     msg!("sorted reserves {}", self.reserves.iter().map(|e| e.symbol.clone()).collect::<Vec<_>>().join(", "));
+    //     msg!("Vec length: {:?}", self.reserves.len());
+    //     Ok(())
+    // } 
 
     pub fn list_reserves(&self) -> Vec<String> {
         let sorted_reserves = self.reserves.iter()

@@ -70,7 +70,7 @@ impl FromStr for MarketMakingMode {
 #[derive(Accounts)]
 pub struct Init<'info> {
     // Note: We need to qualify MAX_BACKING_COUNT with its module
-    #[account(init, space=32 + 8 + size_of::<StableState>()*pricing::MAX_BACKING_COUNT, payer=irma_admin, seeds=[b"state".as_ref()], bump)]
+    #[account(init, space=32 + 8 + size_of::<StableState>()*pricing::MAX_BACKING_COUNT, payer=irma_admin, seeds=[b"state_v3".as_ref()], bump)]
     pub state: Account<'info, StateMap>,
     #[account(mut)]
     pub irma_admin: Signer<'info>,
@@ -82,7 +82,7 @@ pub struct Init<'info> {
     //   - 4 bytes for all_positions Vec length + (max 10 positions * ~300 bytes each) = 3004 bytes  
     //   - 4 bytes for tokens Vec length + (max 20 tokens * ~200 bytes each) = 4004 bytes
     // Total: 8 + 32 + 2004 + 3004 + 4004 + buffer = ~10000 bytes
-    #[account(init, space=8 + 10000, payer=irma_admin, seeds=[b"core".as_ref()], bump)]
+    #[account(init, space=8 + 10000, payer=irma_admin, seeds=[b"core_v3".as_ref()], bump)]
     pub core: Account<'info, Core>,
     pub system_program: Program<'info, System>,
     // pub bumps: InitBumps,
@@ -90,9 +90,11 @@ pub struct Init<'info> {
 
 #[derive(Accounts)]
 pub struct Maint<'info> {
-    #[account(mut)]
+    #[account(mut, seeds=[b"state_v3".as_ref()], bump)]
     pub state: Account<'info, StateMap>,
     pub irma_admin: Signer<'info>,
+    #[account(mut, seeds=[b"core_v3".as_ref()], bump)]
+    pub core: Account<'info, Core>,
     pub system_program: Program<'info, System>,
     // pub bumps: MaintBumps,
 }
@@ -145,7 +147,7 @@ pub mod irma {
             if let Some(lb_pair_account) = ctx.remaining_accounts.get(i) {
                 // Store the LbPair account's pubkey directly
                 // TODO: Add validation that this is actually an LbPair account
-                stablecoin.dlmm_lb_pair = lb_pair_account.key();
+                stablecoin.pool_id = lb_pair_account.key();
                 msg!("Set LbPair {} for stablecoin {} at index {}", 
                      lb_pair_account.key(), stablecoin.symbol, i);
             } else {
@@ -175,6 +177,10 @@ pub mod irma {
 
     pub fn disable_reserve(ctx: Context<Maint>, symbol: String) -> Result<()> {
         pricing::disable_reserve(ctx, &symbol)
+    }
+
+    pub fn list_reserves(ctx: Context<Maint>) -> Result<Vec<String>> {
+        pricing::list_reserves(ctx)
     }
 
     pub fn get_redemption_price(ctx: Context<Maint>, quote_token: String) -> Result<f64> {

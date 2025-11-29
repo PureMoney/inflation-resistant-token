@@ -116,7 +116,7 @@ mod tests {
         // Create a buffer for StateMap and wrap it in AccountInfo
         let lamports: &mut u64 = Box::leak(Box::new(100000u64));
         let mut state: StateMap = allocate_state();
-        let _ = state.init_reserves(); // Add initial stablecoins to the state
+        // let _ = state.init_reserves(); // Add initial stablecoins to the state
 
         // Prepare the account data with the correct discriminator
         let mut state_data_vec: Vec<u8> = Vec::with_capacity(120*MAX_BACKING_COUNT);
@@ -254,8 +254,8 @@ mod tests {
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
+            core: core_account.clone(),
             system_program: sys_account.clone(),
-            // core: core_account.clone(),
         };
         let mut ctx: Context<Maint> = Context::new(
             program_id,
@@ -300,8 +300,8 @@ mod tests {
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
+            core: core_account.clone(),
             system_program: sys_account.clone(),
-            // core: core_account.clone(),
         };
         msg!("Pre-mint IRMA state:");
         msg!("Backing reserves for USDT: {:?}", 
@@ -391,7 +391,7 @@ mod tests {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
             system_program: sys_account.clone(),
-            // core: core_account.clone(),
+            core: core_account.clone(),
         };
         {
             let ctx: Context<Maint> = Context::new(
@@ -547,8 +547,8 @@ mod tests {
         let mut accounts: Maint<'_> = Maint {
             state: state_account.clone(),
             irma_admin: irma_admin_account.clone(),
+            core: core_account.clone(),
             system_program: sys_account.clone(),
-            // core: core_account.clone(),
         };
         {
             msg!("Pre-redeem IRMA state 2:");
