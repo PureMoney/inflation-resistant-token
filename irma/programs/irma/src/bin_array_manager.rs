@@ -1,8 +1,8 @@
 use crate::*;
+use crate::errors::CustomError;
 use commons::dlmm::types::*;
 use commons::*;
 use commons::MAX_BIN_PER_ARRAY;
-use commons::CustomError;
 use anchor_lang::prelude::*;
 
 // Number of bits to scale. This will decide the position of the radix point.

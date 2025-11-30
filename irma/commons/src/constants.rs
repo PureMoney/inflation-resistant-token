@@ -85,14 +85,14 @@ pub enum CustomError {
     ActiveBinOutOfBounds,
     #[msg("Bin ID is out of bounds.")]
     BinIdOutOfBound,
+    #[msg("Bin id does not belong to this bin array")]
+    BinIdDoesNotBelongToThisBinArray,
     #[msg("Pair is disabled.")]
     PairDisabled,
     #[msg("Requested bin id range is out of position's range")]
     RequestedBinIdRangeOutOfBounds,
     #[msg("Mint account does not match mint pubkey")]
     MintAccountMismatch,
-    #[msg("Invalid amount provided.")]
-    InvalidAmount,
     #[msg("Pair has insufficient liquidity.")]
     PairInsufficientLiquidity,
     #[msg("Math operation resulted in an error.")]
@@ -101,26 +101,4 @@ pub enum CustomError {
     ExceededMaxIterationsQuoteExactOut,
     #[msg("Exceeded maximum iterations in quote_exact_in")]
     ExceededMaxIterationsQuoteExactIn,
-    #[msg("Bin array not found.")]
-    BinArrayNotFound,
-    #[msg("Bin array is not correct")]
-    BinArrayIsNotCorrect,
-    #[msg("Amount x is not zero")]
-    AmountXNotZero,
-    #[msg("Amount y is not zero")]
-    AmountYNotZero,
-    #[msg("Lb pair state not found")]
-    LbPairStateNotFound,
-    #[msg("Cannot get binarray")]
-    CannotGetBinArray,
-    #[msg("Bin is not within the position")]
-    BinIsNotWithinThePosition,
-    #[msg("Account data too small")]
-    AccountDataTooSmall,
-    #[msg("Bin id does not belong to this bin array")]
-    BinIdDoesNotBelongToThisBinArray,
-    #[msg("Missing lb pair state")]
-    MissingLbPairState,
-    #[msg("Position not found")]
-    PositionNotFound,
 }

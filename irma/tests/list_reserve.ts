@@ -109,7 +109,7 @@ async function list_reserve() {
     ];
     
     const tx = await program.methods
-      .list_reserve()
+      .listReserve()
       .accounts({
         state: statePda,
         irmaAdmin: payer,

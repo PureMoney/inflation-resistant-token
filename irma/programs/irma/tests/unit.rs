@@ -14,7 +14,6 @@ mod tests {
     // use bytemuck::bytes_of_mut;
     // use anchor_lang::Discriminator;
     use irma::IRMA_ID;
-    use irma::pricing::CustomError;
     use irma::pricing::{StateMap, StableState};
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
     use irma::pricing::MAX_BACKING_COUNT;
@@ -67,11 +66,11 @@ mod tests {
         // Simulate mint_irma logic
         let mut_reserve = state.get_mut_stablecoin(quote_token).unwrap();
         mut_reserve.backing_reserves += amount;
-        mut_reserve.irma_in_circulation += (amount as f64 / price).ceil() as u64;
+        mut_reserve.irma_in_circulation += (amount as f64 / price).ceil() as u128;
         assert_eq!(state.get_stablecoin(quote_token).unwrap().backing_reserves, 
             prev_reserve + amount);
         assert_eq!(state.get_stablecoin(quote_token).unwrap().irma_in_circulation, 
-            prev_circulation + (amount as f64 / price).ceil() as u64);
+            prev_circulation + (amount as f64 / price).ceil() as u128);
         Ok(())
     }
 
@@ -136,7 +135,9 @@ mod tests {
             0,
         );
         let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
-        let mut core_state: Core = Core::create_core(*owner, vec![]).unwrap();
+        let mut vec = Vec::new();
+        vec.push(Pubkey::new_unique());
+        let mut core_state: Core = Core::create_core(*owner, vec).unwrap();
         let mut core_data_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of::<Core>());
         core_state.try_serialize(&mut core_data_vec).unwrap();
         let core_data: &'info mut Vec<u8> = Box::leak(Box::new(core_data_vec));
@@ -204,13 +205,18 @@ mod tests {
             system_program: Program::try_from(sys_account_static).unwrap(),
             core: Account::try_from(core_account_static).unwrap(),
         };
+        let irma_admin = accounts.irma_admin.key().to_string();
         let mut ctx: Context<Init> = Context::new(
             program_id,
             &mut accounts,
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
-        let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
+        let mut vec = Vec::new();
+        vec.push(Pubkey::new_unique().to_string());
+        assert_eq!(vec.len(), 1);
+        let result: std::result::Result<(), Error> = irma::irma::initialize(
+            ctx, irma_admin, vec);
         assert!(result.is_ok());
         // msg!("StateMap account: {:?}", accounts.state);
         return (accounts.state, accounts.irma_admin, accounts.system_program, accounts.core);
@@ -218,10 +224,11 @@ mod tests {
 
     #[test]
     fn test_initialize_anchor<'info>() {
-        msg!("-------------------------------------------------------------------------");
+        msg!("\n-------------------------------------------------------------------------");
         msg!("Testing init_pricing IRMA with normal conditions");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
+        // initialize_anchor calls irma:irma::initialize
         let (state_account, irma_admin_account, sys_account, core_account) 
                 = initialize_anchor(program_id);
         // Bind to variables to extend their lifetime
@@ -237,14 +244,20 @@ mod tests {
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
-        let result: std::result::Result<(), Error> = init_pricing(&mut ctx);
-        assert!(result.is_ok());
+
+        // Call the initialize function again. This should fail because the account is already initialized.
+        let mut vec = Vec::new();
+        vec.push(Pubkey::new_unique().to_string());
+        assert_eq!(vec.len(), 1);
+        let result: std::result::Result<(), Error> = irma::irma::initialize(
+            ctx, irma_admin_account.key().to_string(), vec);
+        assert!(result.is_ok()); // not running on-chain, so it's OK?
         msg!("StateMap account initialized successfully: {:?}", accounts.state);
    }
 
     #[test]
     fn test_set_mint_price_anchor<'info>() {
-        msg!("-------------------------------------------------------------------------");
+        msg!("\n-------------------------------------------------------------------------");
         msg!("Testing set IRMA mint price with normal conditions");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
@@ -257,13 +270,42 @@ mod tests {
             core: core_account.clone(),
             system_program: sys_account.clone(),
         };
+
         let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             &[],
             MaintBumps::default(),
         );
-        let mut result: std::result::Result<(), Error> = set_mint_price(ctx, "USDT", 1.5);
+        let xresult = irma::irma::add_reserve(
+            ctx, "USDT".to_string(), pubkey!("Es9vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        
+        let mut ctx: Context<Maint> = Context::new(
+            program_id,
+            &mut accounts,
+            &[],
+            MaintBumps::default(),
+        );
+        let xresult = irma::irma::add_reserve(
+            ctx, "USDC".to_string(), pubkey!("Es8vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        
+        let mut ctx: Context<Maint> = Context::new(
+            program_id,
+            &mut accounts,
+            &[],
+            MaintBumps::default(),
+        );
+        let xresult = irma::irma::add_reserve(
+            ctx, "FDUSD".to_string(), pubkey!("Es7vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+
+        let mut ctx: Context<Maint> = Context::new(
+            program_id,
+            &mut accounts,
+            &[],
+            MaintBumps::default(),
+        );
+        let mut result: std::result::Result<(), Error> = irma::irma::set_mint_price(
+            ctx, "USDT".to_string(), 1.5);
         assert!(result.is_ok());
         // Re-create ctx for the next call if needed
         ctx = Context::<Maint>::new(
@@ -272,7 +314,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = set_mint_price(ctx, "USDC", 1.8);
+        result = irma::irma::set_mint_price(ctx, "USDC".to_string(), 1.8);
         assert!(result.is_ok());
         ctx = Context::<Maint>::new(
             program_id,
@@ -280,7 +322,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = set_mint_price(ctx, "FDUSD", 1.3);
+        result = irma::irma::set_mint_price(ctx, "FDUSD".to_string(), 1.3);
         assert!(result.is_ok());
         // msg!("Mint price for USDT set successfully: {:?}", accounts.state.mint_price["USDT" as usize]);
         // msg!("Mint price for USDC set successfully: {:?}", accounts.state.mint_price[Stablecoins::USDC as usize]);
@@ -289,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_mint_irma_anchor<'info>() -> Result<()> {
-        msg!("-------------------------------------------------------------------------");
+        msg!("\n-------------------------------------------------------------------------");
         msg!("Testing mint IRMA with normal conditions");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
@@ -303,6 +345,28 @@ mod tests {
             core: core_account.clone(),
             system_program: sys_account.clone(),
         };
+
+        // Add all six stablecoins for testing
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDT".to_string(), pubkey!("Es9vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDC".to_string(), pubkey!("Es8vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "FDUSD".to_string(), pubkey!("Es7vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "PYUSD".to_string(), pubkey!("Es6vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDG".to_string(), pubkey!("Es5vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDE".to_string(), pubkey!("Es4vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+
+        // make sure they're all in there
         msg!("Pre-mint IRMA state:");
         msg!("Backing reserves for USDT: {:?}", 
             accounts.state.get_stablecoin("USDT").unwrap().backing_reserves);
@@ -316,6 +380,7 @@ mod tests {
             accounts.state.get_stablecoin("PYUSD").unwrap().irma_in_circulation);
         msg!("IRMA in circulation for USDG: {:?}", 
             accounts.state.get_stablecoin("USDG").unwrap().irma_in_circulation);
+
         let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
@@ -361,7 +426,7 @@ mod tests {
                 msg!("Mint IRMA successful for USDG");
             }
         }
-        msg!("-------------------------------------------------------------------------");
+        msg!("\n-------------------------------------------------------------------------");
         msg!("Post-mint IRMA state:");
         msg!("Backing reserves for USDT: {:?}", 
             accounts.state.get_stablecoin("USDT").unwrap().backing_reserves);
@@ -381,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_redeem_irma_anchor<'info>() -> Result<()> {
-        msg!("-------------------------------------------------------------------------");
+        msg!("\n-------------------------------------------------------------------------");
         msg!("Testing redeem IRMA when mint price is less than redemption price");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
@@ -393,6 +458,34 @@ mod tests {
             system_program: sys_account.clone(),
             core: core_account.clone(),
         };
+        // Bind to variables to extend their lifetime
+        let mut accounts: Maint<'_> = Maint {
+            state: state_account.clone(),
+            irma_admin: irma_admin_account.clone(),
+            core: core_account.clone(),
+            system_program: sys_account.clone(),
+        };
+
+        // Add all six stablecoins for testing
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDT".to_string(), pubkey!("Es9vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDC".to_string(), pubkey!("Es8vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "FDUSD".to_string(), pubkey!("Es7vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "PYUSD".to_string(), pubkey!("Es6vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDG".to_string(), pubkey!("Es5vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+        let _ = irma::irma::add_reserve(
+            Context::new(program_id, &mut accounts, &[], MaintBumps::default()),
+            "USDE".to_string(), pubkey!("Es4vMFrzaTmVRL3P15S3BtQDvVwWZEzPDk1e45sA2v6p"), 6u8);
+
         {
             let ctx: Context<Maint> = Context::new(
                 program_id,
@@ -411,8 +504,8 @@ mod tests {
                 continue; // skip non-existent stablecoins
             }
             let mut_backing = accounts.state.get_mut_stablecoin(&sc.symbol).unwrap();
-            let reserve: &mut u64 = &mut mut_backing.backing_reserves;
-            let circulation: &mut u64 = &mut mut_backing.irma_in_circulation;
+            let reserve: &mut u128 = &mut mut_backing.backing_reserves;
+            let circulation: &mut u128 = &mut mut_backing.irma_in_circulation;
             *reserve = 1000000; // Set a large reserve for testing
             *circulation = 100000; // Set a large IRMA in circulation for testing
         }
@@ -495,6 +588,7 @@ mod tests {
                 msg!("Redeem IRMA successful for FDUSD");
             }
         }
+
         ctx = Context::<Maint>::new(
             program_id,
             &mut accounts,
@@ -503,9 +597,28 @@ mod tests {
         );
 
         msg!("Mid-state for USDT before further redemption: {:?}", 
-            state_account.get_stablecoin("USDT").unwrap().backing_reserves);
+            irma::irma::list_reserves(ctx));
+        
+        // mint IRMA for USDT
+        
+        ctx = Context::<Maint>::new(
+            program_id,
+            &mut accounts,
+            &[],
+            MaintBumps::default(),
+        );
+        // pub fn sale_trade_event(ctx: Context<Maint>, bought_token: String, bought_amount: u64) -> Result<()> {
+        result = irma::irma::sale_trade_event(ctx, "USDT".to_string(), 50_000_000);
+
         // Test for near maximum redemption
-        result = redeem_irma(ctx, "USDT", 10_000);
+        
+        ctx = Context::<Maint>::new(
+            program_id,
+            &mut accounts,
+            &[],
+            MaintBumps::default(),
+        );
+        result = irma::irma::buy_trade_event(ctx, "USDT".to_string(), 10_000);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for USDT: {:?}", e);
@@ -538,7 +651,7 @@ mod tests {
     /// Test cases for when redemption price is less than mint price
     #[test]
     fn test_redeem_irma_normal<'info>() -> Result<()> {
-        msg!("-------------------------------------------------------------------------");
+        msg!("\n-------------------------------------------------------------------------");
         msg!("Testing redeem IRMA with normal conditions, but with large discrepancies in mint prices");  
         msg!("-------------------------------------------------------------------------");
         let program_id: &'info Pubkey = &IRMA_ID;
@@ -569,8 +682,8 @@ mod tests {
                     continue; // skip non-existent stablecoins
                 }
                 let mut_backing = state.get_mut_stablecoin(&sc.symbol).unwrap();
-                let reserve: &mut u64 = &mut mut_backing.backing_reserves;
-                let circulation: &mut u64 = &mut mut_backing.irma_in_circulation;
+                let reserve: &mut u128 = &mut mut_backing.backing_reserves;
+                let circulation: &mut u128 = &mut mut_backing.irma_in_circulation;
                 let price: &mut f64 = &mut mut_backing.mint_price;
                 *reserve = 9_900_000_000; // Set a large reserve for testing
                 *circulation = 10_000_000_000; // Set a large IRMA in circulation for testing
@@ -614,8 +727,8 @@ mod tests {
             if count % 10 == 0 {
                 let reserves = &accounts.state.reserves;
                 for sc in reserves {
-                    let backing: u64 = sc.backing_reserves;
-                    let circulation: u64 = sc.irma_in_circulation;
+                    let backing: u128 = sc.backing_reserves;
+                    let circulation: u128 = sc.irma_in_circulation;
                     let redemption_price: f64 = backing as f64 / circulation as f64;
                     msg!("{}, {:.3}, {}, {}, {:.3}", 
                         sc.symbol, 

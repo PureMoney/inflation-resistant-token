@@ -11,6 +11,7 @@ use commons::{
 
 use crate::position_manager::*;
 use crate::pair_config::*;
+use crate::errors::CustomError;
 use crate::ID;
 use crate::{MarketMakingMode, Init, Maint, InitBumps, MaintBumps, StateMap};
 use std::collections::HashMap;
@@ -64,6 +65,9 @@ impl Core {
     /// state_key: Pubkey == the position state account pubkey
     pub fn create_core(owner: Pubkey, config: Vec<Pubkey>) -> Result<Core> {
         // Core initialization logic here
+        require!(!config.is_empty(), CustomError::InvalidAmount);
+        msg!("Core config vector length: {}", config.len());
+        msg!("first lb_pair_config: {}", config[0]);
 
         // we will eventually have six trading pairs (one each for popular stablecoins)
         // for now, let's just initialize with one pair

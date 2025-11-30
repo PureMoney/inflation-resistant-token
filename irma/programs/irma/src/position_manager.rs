@@ -13,13 +13,14 @@ use std::str::FromStr;
 
 use crate::pair_config::PairConfig;
 use crate::bin_array_manager::BinArrayManager;
+use crate::errors::CustomError;
 
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::Bin;
 use commons::u64x64_math::pow;
 use commons::bin::*;
 use commons::position::*;
-use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET, CustomError};
+use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET};
 
 // Serializable version of Mint info
 #[account]

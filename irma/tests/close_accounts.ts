@@ -20,7 +20,9 @@ const PROGRAM_ID = new PublicKey(idl.address);
 
 async function closeAccounts() {
   console.log("\n🗑️ Closing IRMA Protocol Accounts");
-  console.log("===================================\n");
+  console.log("  This does not actually close the accounts, but checks their existence and balance.");
+  console.log("  It should work if there is a close_account instruction implemented on-chain.");
+  console.log("===================================================================================\n");
 
   // Use environment variables from .env file
   const rpcUrl = process.env.ANCHOR_PROVIDER_URL || process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
