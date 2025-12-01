@@ -197,6 +197,14 @@ pub mod irma {
         pricing::disable_reserve(ctx, &symbol)
     }
 
+    pub fn update_reserve_lbpair(ctx: Context<Maint>, symbol: String, lb_pair: String) -> Result<String> {
+        let reserves = &mut ctx.accounts.state.reserves;
+        let stablecoin = &mut reserves.iter_mut().find(|r| r.symbol == symbol).unwrap();
+        stablecoin.pool_id = Pubkey::from_str(&lb_pair).unwrap();
+        let stablecoin = reserves.iter().find(|r| r.symbol == symbol).unwrap();
+        Ok(stablecoin.mint_address.to_string())
+    }
+
     pub fn list_reserves(ctx: Context<Maint>) -> Result<String> {
         Ok(pricing::list_reserves(ctx))
     }

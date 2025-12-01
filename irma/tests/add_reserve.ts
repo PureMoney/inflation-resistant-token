@@ -121,9 +121,9 @@ async function add_reserve() {
     console.log("✅ Initialize transaction signature:", tx);
     console.log("⏳ Waiting for confirmation...");
 
-    // Wait for confirmation
-    await connection.confirmTransaction(tx);
-    console.log("✅ Transaction confirmed!");
+    // // Wait for confirmation
+    // await connection.confirmTransaction(tx);
+    // console.log("✅ Transaction confirmed!");
 
     // Fetch the post-add state
     console.log("📖 Fetching post-add state...");

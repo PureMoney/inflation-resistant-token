@@ -116,21 +116,22 @@ async function list_reserve() {
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .simulate();
+      // .rpc();
 
-    console.log("✅ Initialize transaction signature:", tx);
-    console.log("⏳ Waiting for confirmation...");
+    console.log("✅ ListReserves transaction results:", tx);
+    // console.log("⏳ Waiting for confirmation...");
 
-    // Wait for confirmation
-    await connection.confirmTransaction(tx);
-    console.log("✅ Transaction confirmed!");
+    // // Wait for confirmation
+    // await connection.confirmTransaction(tx);
+    // console.log("✅ Transaction confirmed!");
 
     // Fetch the initialized state
-    console.log("📖 Fetching initialized state...");
+    console.log("📖 Fetching current state...");
     const state = await (program.account as any).stateMap.fetch(statePda);
     const core = await (program.account as any).core.fetch(corePda);
 
-    console.log("🎉 Protocol successfully initialized!\n");
+    console.log("🎉 Protocol data fetched successfully!\n");
     console.log("📊 State Data:", JSON.stringify(state, null, 2));
     console.log("📊 Core Data:", JSON.stringify(core, null, 2));
 
