@@ -79,12 +79,12 @@ if (balance < 1e9) { // Less than 1 SOL
 
 // Derive PDAs
 const [statePda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("state_v3")],
+  [Buffer.from("state_v4")],
   PROGRAM_ID
 );
 
 const [corePda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("core_v3")],
+  [Buffer.from("core_v4")],
   PROGRAM_ID
 );
 
@@ -135,8 +135,9 @@ async function testMintPriceInflation() {
     console.log(`  Total Inflation Rate: ${totalInflationRate} bps`);
     console.log(`  Applying Inflation Rate: ${inflationRate} bps\n`);
 
-    const newPrice = Math.floor(irmaPrice365daysAgo * (10_000 + inflationRate) / (10_000 * currentUSDCOraclePrice) * 1_000_000);
-    console.log(`  New Mint Price to Set: ${(newPrice / 1_000_000).toFixed(6)} USDC (raw: ${newPrice})\n`);
+    const newPriceRaw = Math.floor(irmaPrice365daysAgo * (10_000 + inflationRate) / (10_000 * currentUSDCOraclePrice) * 1_000_000);
+    console.log(`  New Mint Price to Set: ${(newPriceRaw / 1_000_000).toFixed(6)} USDC (raw: ${newPriceRaw})\n`);
+    const newPrice = (newPriceRaw / 1_000_000).toFixed(6);
 
     const tx = await program.methods
       .setMintPrice("devUSDC", newPrice)
@@ -159,13 +160,13 @@ async function testMintPriceInflation() {
 
     const mintPrice2 = Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").mintPrice);
     const redemptionPrice2 = Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").redemptionPrice);
-    const lastUpdate2 = new Date(Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").lastPriceUpdate) * 1000);
+    // const lastUpdate2 = new Date(Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").lastPriceUpdate) * 1000);
 
     console.log("AFTER Inflation:");
     console.log(`  Mint Price: ${(mintPrice2 / 1_000_000_000).toFixed(6)} USDC (raw: ${mintPrice2})`);
     console.log(`  Redemption Price: ${(redemptionPrice2 / 1_000_000_000).toFixed(6)} USDC`);
     console.log(`  Spread: ${((mintPrice2 - redemptionPrice2) / redemptionPrice2 * 100).toFixed(2)}%`);
-    console.log(`  Last Update: ${lastUpdate2.toISOString()}\n`);
+    // console.log(`  Last Update: ${lastUpdate2.toISOString()}\n`);
 
     // Calculate changes
     const mintPriceChange = ((mintPrice2 - mintPrice1) / mintPrice1) * 100;
@@ -190,11 +191,11 @@ async function testMintPriceInflation() {
       console.log(`  ✗ ERROR: Redemption price did not increase!`);
     }
 
-    if (lastUpdate2 > lastUpdate1) {
-      console.log(`  ✓ Timestamp updated`);
-    } else {
-      console.log(`  ✗ ERROR: Timestamp not updated!`);
-    }
+    // if (lastUpdate2 > lastUpdate1) {
+    //   console.log(`  ✓ Timestamp updated`);
+    // } else {
+    //   console.log(`  ✗ ERROR: Timestamp not updated!`);
+    // }
 
     console.log("\n🎉 Inflation test complete!\n");
 

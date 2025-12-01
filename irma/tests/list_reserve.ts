@@ -83,12 +83,12 @@ async function list_reserve() {
 
   // Derive PDAs
   const [statePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("state_v3")],
+    [Buffer.from("state_v4")],
     PROGRAM_ID
   );
   
   const [corePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("core_v3")],
+    [Buffer.from("core_v4")],
     PROGRAM_ID
   );
 
@@ -109,7 +109,7 @@ async function list_reserve() {
     ];
     
     const tx = await program.methods
-      .listReserve()
+      .listReserves()
       .accounts({
         state: statePda,
         irmaAdmin: payer,

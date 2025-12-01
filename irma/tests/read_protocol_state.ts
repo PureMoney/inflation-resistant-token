@@ -83,12 +83,12 @@ async function initializeProtocol() {
 
   // Derive PDAs
   const [statePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("state_v3")],
+    [Buffer.from("state_v4")],
     PROGRAM_ID
   );
   
   const [corePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("core_v3")],
+    [Buffer.from("core_v4")],
     PROGRAM_ID
   );
 
