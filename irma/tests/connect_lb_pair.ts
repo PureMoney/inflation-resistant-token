@@ -35,9 +35,9 @@ const PROGRAM_ID = new PublicKey(idl.address);
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
 // Main function to connect liquidity-bearing pair
-// Params: pairAddress - DLMM pair address
-//         reserveMintAddress - Reserve stablecoin mint address
-async function connect_lb_pair(pairAddress: string, reserveMintAddress: string) {
+// Params: reserveSymbol - Reserve stablecoin symbol (.e.g "devUSDC")
+//         pairAddress - DLMM pair address
+async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
 
   console.log("\n🚀 Connecting liquidity-bearing pair to IRMA Protocol");
   console.log("=====================================================\n");
@@ -114,12 +114,27 @@ async function connect_lb_pair(pairAddress: string, reserveMintAddress: string) 
     let stateAccount: any = null;
     let stableCoinStruct: any = null;
     try {
+      let stCoinAddress = await program.methods
+        .updateReserveLbpair(reserveSymbol, pairAddress)
+        .accounts({
+          state: statePda,
+          irmaAdmin: payer,
+          core: corePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+        // .simulate();
+      console.log("✅ updateReserveLbpair updated stablecoin mint:", stCoinAddress);
       stateAccount = await (program.account as any).stateMap.fetch(statePda);
       console.log("✅ State account fetched successfully");
-      let stateClone = stateAccount.clone();
-      stableCoinStruct = stateClone.reserves.filter((r: any) => r.mintAddress === reserveMintAddress)[0];
-      stableCoinStruct.poolId = pairAddress;
-      console.log("📊 State account data:", JSON.stringify(stateClone, null, 2));
+      stableCoinStruct = stateAccount.reserves.filter((r: any) => r.symbol === reserveSymbol)[0];
+      if (stableCoinStruct.poolId === pairAddress) {
+        console.log(`🎉 Successfully connected pair ${pairAddress} to reserve ${reserveSymbol}`);
+      }
+      else {
+        console.log(`❌ Failed to connect pair ${pairAddress} to reserve ${reserveSymbol}`);
+      }
+      console.log("📊 State account data:", JSON.stringify(stateAccount, null, 2));
       // core account is fetched below
     } catch (stateError) {
       console.log("❌ Error fetching state account:", stateError);
@@ -252,7 +267,7 @@ if (args.length < 2) {
   console.error("   npx ts-node tests/connect_lb_pair.ts <PAIR_ADDRESS> <RESERVE_MINT_ADDRESS>");
   process.exit(1);
 }
-const pairAddress = args[0];
-const reserveMintAddress = args[1];
+const reserveSymbol = args[0];
+const pairAddress = args[1];
 // Run the function
-connect_lb_pair(pairAddress, reserveMintAddress).catch(console.error);
+connect_lb_pair(reserveSymbol, pairAddress).catch(console.error);
