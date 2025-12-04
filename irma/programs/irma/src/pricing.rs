@@ -4,11 +4,10 @@ use std::string::String;
 use std::option::Option;
 use std::collections::BTreeMap;
 use std::mem::size_of;
-use commons::math::u128x128_math::mul_div;
 
 
 use anchor_lang::prelude::*;
-use static_assertions::{const_assert, const_assert_eq};
+use static_assertions::const_assert;
 
 use crate::{Init, Maint};
 use crate::errors::CustomError;
@@ -136,16 +135,16 @@ pub fn set_mint_price(ctx: Context<Maint>, quote_token: &str, mint_price: f64) -
 /// Input amount is  in quote token's smallest unit (e.g. 1 USDT = 10^6, 1 USDC = 10^6, etc.)
 /// Input amount therefore is an unsigned integer suitable for on-chain processing, not for 
 /// human consumption.
-pub fn mint_irma(ctx: Context<Maint>, quote_token: &str, amount: u64) -> Result<()> {
+pub fn mint_irma(state_map: &mut Account<StateMap>, quote_token: &str, amount: u64) -> Result<()> {
     require!(amount >= 100_000_000u64, CustomError::InvalidAmount);
-    let state_map = &mut ctx.accounts.state;
     validate_params(&(*state_map), quote_token)?;
 
     if amount == 0u64 { return Ok(()); };
 
     let stablecoin = state_map.get_stablecoin(quote_token).unwrap();
     let curr_price: f64 = stablecoin.mint_price;
-    let amount = (amount as f64 / (10.0_f64).powf(stablecoin.backing_decimals as f64)) as f64;
+    // 10f64.powi(token_x_decimals.into())
+    let amount = (amount as f64 / (10.0_f64).powi(stablecoin.backing_decimals as i32)) as f64;
 
     let stablecoin = state_map.get_mut_stablecoin(quote_token).unwrap();
     stablecoin.backing_reserves += amount.ceil() as u128; // backing should not have a fractional part
@@ -157,8 +156,7 @@ pub fn mint_irma(ctx: Context<Maint>, quote_token: &str, amount: u64) -> Result<
 /// RedeemIRMA - user surrenders IRMA in irma_amount, expecting to get back quote_token according to redemption price.
 /// FIXME: If resulting redemption price increases by more than 0.0000001, then actual redemption price 
 /// should be updated immediately.
-pub fn redeem_irma(ctx: Context<Maint>, quote_token: &str, irma_amount: u64) -> Result<()> {
-    let state_map = &mut ctx.accounts.state;
+pub fn redeem_irma(state_map: &mut Account<StateMap>, quote_token: &str, irma_amount: u64) -> Result<()> {
     validate_params(&(*state_map), quote_token)?;
 
     if irma_amount == 0 { return Ok(()) };
@@ -168,11 +166,10 @@ pub fn redeem_irma(ctx: Context<Maint>, quote_token: &str, irma_amount: u64) -> 
     // the quote token) whichever is smaller.
     let circulation: u128 = state.irma_in_circulation;
     require!(circulation >= MAX_REDEEM_AMOUNT, CustomError::InsufficientCirculation);
-    let reserves: u128 = state.backing_reserves;
-    let irma_amount = (irma_amount as f64 / (10.0_f64).powf(IRMA.backing_decimals as f64)).ceil() as u64;
+    let irma_amount = (irma_amount as f64 / (10.0_f64).powi(IRMA.backing_decimals as i32)).ceil() as u64;
     require!((irma_amount <= MAX_REDEEM_AMOUNT as u64), CustomError::InvalidIrmaAmount);
 
-    ctx.accounts.state.distribute(quote_token, irma_amount)?;
+    state_map.distribute(quote_token, irma_amount)?;
 
     Ok(())
 }
@@ -204,7 +201,7 @@ pub fn get_redemption_price(ctx: Context<Maint>, quote_token: &str) -> Result<f6
         return Ok(1.0); // Default to 1.0 if no IRMA in circulation
     }
 
-    let ten_pow_decimals = (10.0_f32).powf(IRMA.backing_decimals as f32 - stablecoin.backing_decimals as f32) as f64;
+    let ten_pow_decimals =  10.0_f64.powi(IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32);
     let redemption_price = (backing_reserves.checked_div(irma_in_circulation).unwrap_or(0) as f64) * ten_pow_decimals;
     Ok(redemption_price)
 }
@@ -420,7 +417,7 @@ impl StateMap {
     /// the objective is always to preserve the backing, the system will not allow the mint price 
     /// to be less than the redemption price. Instead, it will simply set the redemption price to the mint price.
     /// NOTE: irma_amount is now scaled down by the backing_decimals of IRMA.
-    fn distribute(&mut self, quote_token: &str, irma_amount: u64) -> Result<()> {
+    pub fn distribute(&mut self, quote_token: &str, irma_amount: u64) -> Result<()> {
 
         require!(quote_token.len() > 2, CustomError::InvalidQuoteToken);
         let reserves = &mut self.reserves;
@@ -439,8 +436,11 @@ impl StateMap {
                 let circulation = reserve.irma_in_circulation;
                 let backing_reserves = reserve.backing_reserves;
                 let stablecoin = reserve.clone();
-                let ten_pow_decimals = (10.0_f32).powf(IRMA.backing_decimals as f32 - stablecoin.backing_decimals as f32);
-                let redemption_price = backing_reserves.checked_div(circulation).unwrap_or(0) as f64 * (ten_pow_decimals as f64);
+                let ten_pow_decimals = 10.0_f64.powi(
+                    IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
+                );
+                let redemption_price = (backing_reserves.checked_div(circulation).unwrap_or(0) as f64)
+                     * (ten_pow_decimals as f64);
                 let mint_price = reserve.mint_price;
                 if mint_price == 0.0 || reserve.backing_decimals == 0 || reserve.active == false {
                     // msg!("Skipping {}: mint_price is 0.0 or backing_decimals is 0", Stablecoins::from_index(i).unwrap().to_string());
@@ -480,8 +480,11 @@ impl StateMap {
         let stablecoin = &self.get_stablecoin(quote_token).unwrap();
         let ro_circulation: u128 = stablecoin.irma_in_circulation;
         let reserve: u128 = stablecoin.backing_reserves;
-        let ten_pow_decimals = (10.0_f32).powf(IRMA.backing_decimals as f32 - stablecoin.backing_decimals as f32);
-        let redemption_price = (reserve.checked_div(ro_circulation).unwrap_or(0) as f32 * ten_pow_decimals) as f64;
+        let ten_pow_decimals =  10.0_f64.powi(
+            IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
+        );
+        let redemption_price = ((reserve.checked_div(ro_circulation).unwrap_or(0) as f64)
+             * ten_pow_decimals) as f64;
         let subject_adjustment: u64 = (irma_amount as f64 * redemption_price).ceil() as u64; // irma_amount is in whole numbers, so we can use it directly
 
         // no matter what, we need to reduce the subject reserve (quote_token)
@@ -529,8 +532,11 @@ impl StateMap {
         let other_circulation: u128 = other_stablecoin.irma_in_circulation;
         let other_price: f64 = other_stablecoin.mint_price;
         let other_reserve: u128 = other_stablecoin.backing_reserves;
-        let other_red_price: f64 = (other_reserve.checked_div(other_circulation).unwrap_or(0) as f32 
-            * (10.0_f32).powf(IRMA.backing_decimals as f32 - other_stablecoin.backing_decimals as f32)) as f64;
+        let ten_pow_decimals =  10.0_f64.powi(
+            IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
+        );
+        let other_red_price: f64 = ((other_reserve.checked_div(other_circulation).unwrap_or(0) as f64) 
+            * ten_pow_decimals) as f64;
 
         let price: f64 = stablecoin.mint_price;
         let reserve: u128 = stablecoin.backing_reserves;

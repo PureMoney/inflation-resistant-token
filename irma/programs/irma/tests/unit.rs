@@ -387,7 +387,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        let mut result = mint_irma(ctx, "USDT", 100);
+        let mut result = mint_irma(&mut ctx.accounts.state, "USDT", 100);
         match result {
             Err(e) => {
                 msg!("Error minting IRMA for USDT: {:?}", e);
@@ -402,7 +402,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = mint_irma(ctx, "PYUSD", 1000);
+        result = mint_irma(&mut ctx.accounts.state, "PYUSD", 1000);
         match result {
             Err(e) => {
                 msg!("Error minting IRMA for PYUSD: {:?}", e);
@@ -417,7 +417,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = mint_irma(ctx, "USDG", 10000);
+        result = mint_irma(&mut ctx.accounts.state, "USDG", 10000);
         match result {
             Err(e) => {
                 msg!("Error minting IRMA for USDG: {:?}", e);
@@ -518,7 +518,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        let mut result: std::result::Result<(), Error> = redeem_irma(ctx, "USDC", 10);
+        let mut result: std::result::Result<(), Error> = redeem_irma(&mut ctx.accounts.state, "USDC", 10);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for USDC: {:?}", e);
@@ -534,7 +534,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = redeem_irma(ctx, "USDT", 20);
+        result = redeem_irma(&mut ctx.accounts.state, "USDT", 20);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for USDT: {:?}", e);
@@ -549,7 +549,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = redeem_irma(ctx, "PYUSD", 30);
+        result = redeem_irma(&mut ctx.accounts.state, "PYUSD", 30);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for PYUSD: {:?}", e);
@@ -564,7 +564,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = redeem_irma(ctx, "USDG", 40);
+        result = redeem_irma(&mut ctx.accounts.state, "USDG", 40);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for USDG: {:?}", e);
@@ -579,7 +579,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = redeem_irma(ctx, "FDUSD", 50);
+        result = redeem_irma(&mut ctx.accounts.state, "FDUSD", 50);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for FDUSD: {:?}", e);
@@ -633,7 +633,7 @@ mod tests {
             &[],
             MaintBumps::default(),
         );
-        result = redeem_irma(ctx, "USDS", 10);
+        result = redeem_irma(&mut ctx.accounts.state, "USDS", 10);
         match result {
             Err(e) => {
                 msg!("Error redeeming IRMA for USDS: {:?}", e);
@@ -704,7 +704,7 @@ mod tests {
         // Test for near maximum redemption, multiple times, until it fails.
         // What we expect is that these repeated redemptions will equalize the differences between
         // mint prices and redemptions prices for all stablecoins.
-        let mut reslt = redeem_irma(ctx, "FDUSD", 100_000_000_000);
+        let mut reslt = redeem_irma(&mut ctx.accounts.state, "FDUSD", 100_000_000_000);
         while reslt.is_ok() {
             ctx = Context::<Maint>::new(
                 program_id,
@@ -712,7 +712,7 @@ mod tests {
                 &[],
                 MaintBumps::default(),
             );
-            reslt = redeem_irma(ctx, "FDUSD", 100_000_000_000);
+            reslt = redeem_irma(&mut ctx.accounts.state, "FDUSD", 100_000_000_000);
             match reslt {
                 Err(e) => {
                     msg!("Error redeeming IRMA for USDT: {:?}", e);

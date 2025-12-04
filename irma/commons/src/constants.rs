@@ -101,4 +101,6 @@ pub enum CustomError {
     ExceededMaxIterationsQuoteExactOut,
     #[msg("Exceeded maximum iterations in quote_exact_in")]
     ExceededMaxIterationsQuoteExactIn,
+    #[msg("Missing LbPair data")]
+    MissingLbPairState,
 }

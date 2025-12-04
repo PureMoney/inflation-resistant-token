@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
+use std::collections::HashMap;
 use crate::dlmm::accounts::*;
+use crate::conversions::*;
 
 /// Check if a position account matches the given wallet and pair
 /// For on-chain usage where we have direct access to account data
@@ -44,6 +46,20 @@ pub fn filter_positions_by_wallet_and_pair(
     }
     
     Ok(matching_indices)
+}
+
+/// Fetch positions dynamically when needed
+pub fn fetch_positions(acct_infos: &[AccountInfo], position_pks: &[Pubkey]) -> Result<Vec<PositionV2>> {
+    let accounts: HashMap<Pubkey, Option<PositionV2>> = 
+        get_multiple_bytemuck_accounts(acct_infos, &position_pks.to_vec())?;
+        
+    let mut positions = Vec::new();
+    for pk in position_pks {
+        if let Some(Some(position)) = accounts.get(pk) {
+            positions.push(*position);
+        }
+    }
+    Ok(positions)
 }
 
 /// Extract position data from accounts that match the given criteria

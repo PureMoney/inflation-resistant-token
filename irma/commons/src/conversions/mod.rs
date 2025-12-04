@@ -10,3 +10,6 @@ pub use activation_type::*;
 
 pub mod token_program_flag;
 pub use token_program_flag::*;
+
+pub mod dlmm_bytemuck;
+pub use dlmm_bytemuck::*;

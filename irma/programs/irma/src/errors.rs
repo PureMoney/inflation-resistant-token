@@ -50,4 +50,6 @@ pub enum CustomError {
     GoodbyeUSD,
     #[msg("This reserve stablecoin has lost too much value, remove it.")]
     RemoveReserve,
+    #[msg("Failed to fetch bin arrays.")]
+    FailedToFetchBinArrays,
 }

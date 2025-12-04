@@ -21,6 +21,7 @@ use commons::u64x64_math::pow;
 use commons::bin::*;
 use commons::position::*;
 use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET};
+use commons::fetch_positions;
 
 // Serializable version of Mint info
 #[account]
@@ -121,7 +122,7 @@ pub struct SinglePosition {
     // pub lb_pair_state: Option<LbPair>,
     // pub bin_arrays: Vec<(Pubkey, BinArray)>,
     // pub positions: Vec<PositionV2>,
-    
+    pub bin_array_pks: Vec<Pubkey>, // Keep bin array keys to fetch dynamically
     pub position_pks: Vec<Pubkey>,  // Keep pubkeys to fetch positions dynamically
     pub rebalance_time: u64,
     pub min_bin_id: i32,
@@ -158,14 +159,27 @@ impl SinglePosition {
     }
 
     /// Calculate total position amounts and fees across all positions
-    pub fn get_positions(
-        &self, 
-        positions: &[PositionV2],           // Pass as parameter
-        bin_arrays: &[(Pubkey, BinArray)],  // Pass as parameter
-        lb_pair_state: &LbPair,             // Pass as parameter
+    pub fn get_positions_total(
+        &self,
+        acct_infos: &[AccountInfo],
     ) -> Result<PositionRaw> {
+
+        // Fetch lb pair state
+        let lb_pair_state = commons::conversions::fetch_lb_pair_state(acct_infos, self.lb_pair)?;
+        
+        // Fetch positions
+        let positions = fetch_positions(acct_infos, &self.position_pks)?;
+
         if positions.len() == 0 {
             return Ok(PositionRaw::default());
+        }
+        
+        // Fetch bin arrays
+        let bin_arrays = commons::conversions::fetch_bin_arrays(acct_infos, &self.bin_array_pks)?;
+
+        // bin arrays must be present because positions exist
+        if bin_arrays.len() == 0 {
+            Err(Error::from(CustomError::FailedToFetchBinArrays))?;
         }
 
         let mut amount_x = 0u64;
@@ -338,6 +352,7 @@ impl SinglePosition {
         SinglePosition {
             lb_pair,
             rebalance_time: 0,
+            bin_array_pks: vec![],
             position_pks: vec![],
             min_bin_id: 0,
             max_bin_id: 0,

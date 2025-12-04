@@ -371,14 +371,18 @@ mod core_test {
         let mut core = accounts.core.clone();
         
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
-        let ctx: Context<Maint> = Context::new(
+        let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             remaining_accounts,
             MaintBumps::default(), // Use default bumps if not needed
         );
 
-        core.refresh_state(&ctx).unwrap();
+        core.refresh_position_data(
+            state_account.reserves.clone(),
+            &remaining_accounts,
+            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
+        ).unwrap();
 
         let state = {
             let mut_state = core.get_mut_state(lb_pair);
@@ -418,14 +422,18 @@ mod core_test {
         let mut core = accounts.core.clone();
         
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
-        let ctx: Context<Maint> = Context::new(
+        let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             remaining_accounts,
             MaintBumps::default(), // Use default bumps if not needed
         );
 
-        core.refresh_state(&ctx).unwrap();
+        core.refresh_position_data(
+            state_account.reserves.clone(),
+            remaining_accounts,
+            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
+        ).unwrap();
 
         let state = {
             let mut_state = core.get_mut_state(lb_pair);
