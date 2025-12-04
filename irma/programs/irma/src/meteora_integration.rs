@@ -174,7 +174,7 @@ impl Core {
 
         let pair_address = quote_token.unwrap().pool_id; // DLMM LbPair address
 
-        msg!("==> Refreshing state for pair: {}", pair_address.to_string());
+        msg!("==> Refreshing state for pair: {}", pair_address.to_base58());
 
         // all_positions should contain all relevant position accounts
         // for the current mint or redemption swap

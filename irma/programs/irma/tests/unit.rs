@@ -205,7 +205,7 @@ mod tests {
             system_program: Program::try_from(sys_account_static).unwrap(),
             core: Account::try_from(core_account_static).unwrap(),
         };
-        let irma_admin = accounts.irma_admin.key().to_string();
+        let irma_admin = accounts.irma_admin.key().to_base58();
         let mut ctx: Context<Init> = Context::new(
             program_id,
             &mut accounts,
@@ -213,7 +213,7 @@ mod tests {
             InitBumps::default(), // Use default bumps if not needed
         );
         let mut vec = Vec::new();
-        vec.push(Pubkey::new_unique().to_string());
+        vec.push(Pubkey::new_unique().to_base58());
         assert_eq!(vec.len(), 1);
         let result: std::result::Result<(), Error> = irma::irma::initialize(
             ctx, irma_admin, vec);
@@ -247,10 +247,10 @@ mod tests {
 
         // Call the initialize function again. This should fail because the account is already initialized.
         let mut vec = Vec::new();
-        vec.push(Pubkey::new_unique().to_string());
+        vec.push(Pubkey::new_unique().to_base58());
         assert_eq!(vec.len(), 1);
         let result: std::result::Result<(), Error> = irma::irma::initialize(
-            ctx, irma_admin_account.key().to_string(), vec);
+            ctx, irma_admin_account.key().to_base58(), vec);
         assert!(result.is_ok()); // not running on-chain, so it's OK?
         msg!("StateMap account initialized successfully: {:?}", accounts.state);
    }

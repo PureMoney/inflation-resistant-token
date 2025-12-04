@@ -130,7 +130,7 @@ mod core_test {
         );
 
         let config = vec![PairConfig {
-            pair_address: lb_pair.to_string(),
+            pair_address: lb_pair.to_base58(),
             x_amount: 17000000,
             y_amount: 2000000,
             mode: MarketMakingMode::ModeBoth,
@@ -261,7 +261,7 @@ mod core_test {
         // Use pod_read_unaligned to handle alignment issues in tests
         if full_data.len() >= 8 + std::mem::size_of::<PositionV2>() {
             let pos = bytemuck::pod_read_unaligned::<PositionV2>(&full_data[8..8 + std::mem::size_of::<PositionV2>()]);
-            msg!("    PositionV2 account owner: {:?}", pos.owner.to_string());
+            msg!("    PositionV2 account owner: {:?}", pos.owner.to_base58());
         }
         
         let position_data: &'info mut Vec<u8> = Box::leak(Box::new(full_data));
@@ -381,7 +381,7 @@ mod core_test {
         core.refresh_position_data(
             state_account.reserves.clone(),
             &remaining_accounts,
-            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
+            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_base58() // devUSDC
         ).unwrap();
 
         let state = {
@@ -432,7 +432,7 @@ mod core_test {
         core.refresh_position_data(
             state_account.reserves.clone(),
             remaining_accounts,
-            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
+            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_base58() // devUSDC
         ).unwrap();
 
         let state = {

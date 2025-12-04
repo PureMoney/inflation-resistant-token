@@ -217,14 +217,14 @@ pub mod irma {
         // remove extraneous LbPair configs if any
         for i in (0..core.config.len()).rev() {
             let pair_config = &core.config[i];
-            if !reserves.iter().any(|r| r.pool_id.to_string() == pair_config.pair_address) {
+            if !reserves.iter().any(|r| r.pool_id.to_base58() == pair_config.pair_address) {
                 core.config.remove(i);
             }
         }
         // TODO: make sure that token_y in the LbPair matches the reserve stablecoin mint
         let stablecoin = reserves.iter().find(|r| r.symbol == symbol)
             .ok_or(error!(CustomError::ReserveNotFound))?;
-        Ok(stablecoin.mint_address.to_string())
+        Ok(stablecoin.mint_address.to_base58())
     }
 
     pub fn list_reserves(ctx: Context<Maint>) -> Result<String> {
