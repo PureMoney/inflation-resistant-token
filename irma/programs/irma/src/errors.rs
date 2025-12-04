@@ -42,6 +42,8 @@ pub enum CustomError {
     InvalidBackingAddress,
     #[msg("Symbol not found.")]
     SymbolNotFound,
+    #[msg("Invalid public key.")]
+    InvalidPubkey,
     #[msg("Lb pair state not found")]
     LbPairStateNotFound,
     #[msg("Ordering of stablecoins does not match LbPair order in remaining_accounts.")]
