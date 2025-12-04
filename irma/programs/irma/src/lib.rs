@@ -202,8 +202,9 @@ pub mod irma {
         let reserves = &mut ctx.accounts.state.reserves;
         let core = &mut ctx.accounts.core;
         // update the pool_id for the given stablecoin symbol
-        let stablecoin = &mut reserves.iter_mut().find(|r| r.symbol == symbol).unwrap();
-        stablecoin.pool_id = Pubkey::from_str(&lb_pair).unwrap();
+        let stablecoin = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?;
+        stablecoin.pool_id = Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?;
         // add the LbPair to the core config if not already present
         if !core.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
             core.config.push(PairConfig {
@@ -221,7 +222,8 @@ pub mod irma {
             }
         }
         // TODO: make sure that token_y in the LbPair matches the reserve stablecoin mint
-        let stablecoin = reserves.iter().find(|r| r.symbol == symbol).unwrap();
+        let stablecoin = reserves.iter().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?;
         Ok(stablecoin.mint_address.to_string())
     }
 

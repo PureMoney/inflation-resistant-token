@@ -72,7 +72,7 @@ impl Core {
     /// state_key: Pubkey == the position state account pubkey
     pub fn create_core(owner: Pubkey, config: Vec<Pubkey>) -> Result<Core> {
         // Core initialization logic here
-        require!(config.is_empty(), CustomError::InvalidReserveList);
+        require!(config.is_empty(), CustomError::ConfigMustBeEmpty);
 
         // we will eventually have six trading pairs (one each for popular stablecoins)
         // for now, let's just initialize with zero pairs
@@ -140,7 +140,7 @@ impl Core {
         &mut self,
         state: &mut Account<StateMap>,
         remaining_accounts: &[AccountInfo],
-        token: String,
+        token: String, // symbol of the stablecoin
         amount: u64,
         is_sale: bool
     ) -> Result<()> {
@@ -165,12 +165,11 @@ impl Core {
         &mut self,
         reserves: Vec<StableState>,
         remaining_accounts: &[AccountInfo],
-        token: String
+        token: String // symbol of the stablecoin
     ) -> Result<()> {
 
         // search for lbpair matching the token
-        let quote_token = reserves.iter()
-            .find(|stablecoin| stablecoin.mint_address.to_string() == token);
+        let quote_token = reserves.iter().find(|stablecoin| stablecoin.symbol == token);
         require!(quote_token.is_some(), CustomError::InvalidReserveList);
 
         let pair_address = quote_token.unwrap().pool_id; // DLMM LbPair address
@@ -412,8 +411,8 @@ impl Core {
             transfer_hook_remaining_accounts = remaining_accounts;
         }
 
-        for &position in state.position_pks.iter() {
-            let vec_positions = fetch_positions(context.remaining_accounts, &[position])?;
+        for &position_key in state.position_pks.iter() {
+            let vec_positions = fetch_positions(context.remaining_accounts, &[position_key])?;
             let position_state = vec_positions
                 .get(0)
                 .ok_or(error!(CustomError::PositionNotFound))?;
@@ -435,7 +434,7 @@ impl Core {
             let mut instructions = vec![];
 
             let main_accounts = dlmm::client::accounts::RemoveLiquidityByRange2 {
-                position,
+                position_key,
                 lb_pair,
                 bin_array_bitmap_extension: Some(DLMM_ID),
                 user_token_x,
@@ -479,7 +478,7 @@ impl Core {
 
             let main_accounts = dlmm::client::accounts::ClaimFee2 {
                 lb_pair,
-                position,
+                position_key,
                 sender: payer.key(),
                 event_authority,
                 program: DLMM_ID,
@@ -519,7 +518,7 @@ impl Core {
             instructions.push(claim_fee_ix);
 
             let accounts = dlmm::client::accounts::ClosePosition2 {
-                position,
+                position_key,
                 sender: payer.key(),
                 rent_receiver: payer.key(),
                 event_authority,
@@ -538,7 +537,7 @@ impl Core {
             instructions.push(close_position_ix);
 
             let _result = Core::execute_meteora_instruction(context, instructions, true)?;
-            msg!("Close position {position} {result}");
+            msg!("Close position_key {position_key} {result}");
         }
 
         Ok(())
@@ -1029,7 +1028,10 @@ impl Core {
         // fetch positions again (Note: token y is the reserve stablecoin)
         let reserves = context.accounts.state.reserves.clone();
         let remaining_accounts = context.remaining_accounts;
-        self.refresh_position_data(reserves, remaining_accounts, lb_pair_state.token_y_mint.to_string())?;
+        let symbol = context.accounts.state.get_stablecoin_symbol(&lb_pair_state.token_y_mint)
+            .ok_or(Error::from(CustomError::ReserveNotFound))?
+            .to_string();
+        self.refresh_position_data(reserves, remaining_accounts, symbol)?;
         Ok(())
     }
 
@@ -1088,7 +1090,11 @@ impl Core {
         // fetch positions again (Note: token y is the reserve stablecoin)
         let reserves = context.accounts.state.reserves.clone();
         let remaining_accounts = context.remaining_accounts;
-        self.refresh_position_data(reserves, remaining_accounts, lb_pair_state.token_y_mint.to_string())?;
+
+        let symbol = context.accounts.state.get_stablecoin_symbol(&lb_pair_state.token_y_mint)
+            .ok_or(Error::from(CustomError::ReserveNotFound))?
+            .to_string();
+        self.refresh_position_data(reserves, remaining_accounts, symbol)?;
         Ok(())
     }
 

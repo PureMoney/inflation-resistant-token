@@ -52,4 +52,10 @@ pub enum CustomError {
     RemoveReserve,
     #[msg("Failed to fetch bin arrays.")]
     FailedToFetchBinArrays,
+    #[msg("Configuration must be empty.")]
+    ConfigMustBeEmpty,
+    #[msg("Reserve not found.")]
+    ReserveNotFound,
+    #[msg("Invalid pubkey.")]
+    InvalidPubkey,
 }

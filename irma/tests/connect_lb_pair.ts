@@ -114,7 +114,7 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
     let stateAccount: any = null;
     let stableCoinStruct: any = null;
     try {
-      let stCoinAddress = await program.methods
+      let updateTxId = await program.methods
         .updateReserveLbpair(reserveSymbol, pairAddress)
         .accounts({
           state: statePda,
@@ -124,11 +124,11 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
         })
         .rpc();
         // .simulate();
-      console.log("✅ updateReserveLbpair updated stablecoin mint:", stCoinAddress);
+      console.log("✅ updateReserveLbpair updated stablecoin mint signature:", updateTxId);
       stateAccount = await (program.account as any).stateMap.fetch(statePda);
       console.log("✅ State account fetched successfully");
       stableCoinStruct = stateAccount.reserves.filter((r: any) => r.symbol === reserveSymbol)[0];
-      if (stableCoinStruct.poolId === pairAddress) {
+      if (stableCoinStruct.poolId.toString() === pairAddress) {
         console.log(`🎉 Successfully connected pair ${pairAddress} to reserve ${reserveSymbol}`);
       }
       else {
