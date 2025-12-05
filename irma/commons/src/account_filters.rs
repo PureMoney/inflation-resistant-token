@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use std::collections::HashMap;
+use crate::anyhow;
 use crate::dlmm::accounts::*;
 use crate::conversions::*;
 
@@ -68,10 +69,13 @@ pub fn get_matching_positions(
     position_accounts: &[AccountInfo],
     wallet: &Pubkey,
     pair: &Pubkey,
-) -> Result<Vec<(Pubkey, PositionV2)>> {
+) -> anyhow::Result<Vec<(Pubkey, PositionV2)>> {
     let mut matching_positions = Vec::new();
     
     for account in position_accounts.iter() {
+        if account.data.borrow().is_empty() {
+            Err(anyhow!("Invalid position {} found in input list", account.key()))?;
+        }
         let discriminator = &account.data.borrow()[0..8];
         msg!("Discriminator: {:?}", discriminator);
         if position_matches_wallet_and_pair(account, wallet, pair)? {

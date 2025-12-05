@@ -152,7 +152,7 @@ impl Core {
         }
 
         // Call the core position refresh logic without needing a full context
-        self.refresh_position_data(state.reserves.clone(), remaining_accounts, token)?;
+        self.refresh_position_data(&state.reserves, remaining_accounts, token)?;
         
         Ok(())
     }
@@ -163,7 +163,7 @@ impl Core {
     /// and the config Vec in Core to go through the pairs.
     pub fn refresh_position_data(
         &mut self,
-        reserves: Vec<StableState>,
+        reserves: &[StableState], // Changed to slice reference
         remaining_accounts: &[AccountInfo],
         token: String // symbol of the stablecoin
     ) -> Result<()> {
@@ -238,7 +238,9 @@ impl Core {
         }
 
         let all_state = &mut self.position_data;
-        let state = all_state.get_position_mut(&pair_address).unwrap();
+        let state = all_state.get_position_mut(&pair_address).ok_or_else(|| {
+            error!(CustomError::PositionNotFound)
+        })?;
 
         state.lb_pair = pair_address;
         // Don't store non-serializable types - they will be fetched dynamically
@@ -1026,7 +1028,7 @@ impl Core {
         }
         msg!("refresh state {}", state.lb_pair);
         // fetch positions again (Note: token y is the reserve stablecoin)
-        let reserves = context.accounts.state.reserves.clone();
+        let reserves = &context.accounts.state.reserves;
         let remaining_accounts = context.remaining_accounts;
         let symbol = context.accounts.state.get_stablecoin_symbol(lb_pair_state.token_y_mint)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
@@ -1088,7 +1090,7 @@ impl Core {
 
         msg!("refresh state {}", state.lb_pair);
         // fetch positions again (Note: token y is the reserve stablecoin)
-        let reserves = context.accounts.state.reserves.clone();
+        let reserves = &context.accounts.state.reserves;
         let remaining_accounts = context.remaining_accounts;
 
         let symbol = context.accounts.state.get_stablecoin_symbol(lb_pair_state.token_y_mint)

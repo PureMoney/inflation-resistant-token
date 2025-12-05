@@ -379,8 +379,8 @@ mod core_test {
         );
 
         core.refresh_position_data(
-            state_account.reserves.clone(),
-            &remaining_accounts,
+            &state_account.reserves,
+            remaining_accounts,
             "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
         ).unwrap();
 
@@ -430,7 +430,7 @@ mod core_test {
         );
 
         core.refresh_position_data(
-            state_account.reserves.clone(),
+            &state_account.reserves,
             remaining_accounts,
             "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
         ).unwrap();
