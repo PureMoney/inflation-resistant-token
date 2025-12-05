@@ -12,17 +12,33 @@ pub fn position_matches_wallet_and_pair(
     pair: &Pubkey,
 ) -> Result<bool> {
     // Ensure account has enough data
-    if position_account.data.borrow().len() < std::mem::size_of::<PositionV2>() + 8 {
+    let required_size = std::mem::size_of::<PositionV2>() + 8;
+    if position_account.data.borrow().len() < required_size {
+        msg!("Account {} has insufficient data: {} bytes, need {}", 
+             position_account.key(), position_account.data.borrow().len(), required_size);
         return Ok(false);
     }
 
     // Skip the 8-byte discriminator and read the position data
-    let position_data = &position_account.data.borrow()[8..];
+    let data_borrow = position_account.data.borrow();
+    let position_data = &data_borrow[8..];
     
-    // Read the position struct using bytemuck
-    let position = bytemuck::pod_read_unaligned::<PositionV2>(
-        &position_data
-    ); // .map_err(|_| ProgramError::InvalidAccountData)?;
+    // Ensure we have exactly the right amount of data for PositionV2
+    let position_size = std::mem::size_of::<PositionV2>();
+    if position_data.len() < position_size {
+        msg!("Position data too small: {} bytes, need {}", position_data.len(), position_size);
+        return Ok(false);
+    }
+    
+    // Safely read the position struct using bytemuck with bounds checking
+    let position_bytes = &position_data[..position_size];
+    let position = match bytemuck::try_from_bytes::<PositionV2>(position_bytes) {
+        Ok(pos) => *pos,
+        Err(e) => {
+            msg!("Failed to parse position data: {:?}", e);
+            return Ok(false);
+        }
+    };
 
     msg!("    Checking position: lb_pair {:?}, owner {:?}", position.lb_pair, position.owner);
     msg!("    Against pair {:?}, wallet {:?}", pair, wallet);
@@ -79,13 +95,23 @@ pub fn get_matching_positions(
         let discriminator = &account.data.borrow()[0..8];
         msg!("Discriminator: {:?}", discriminator);
         if position_matches_wallet_and_pair(account, wallet, pair)? {
-            // Skip the 8-byte discriminator and read the position data
-            let position_data = &account.data.borrow()[8..];
-            let position = bytemuck::pod_read_unaligned::<PositionV2>(
-                &position_data
-            ); // .map_err(|_| ProgramError::InvalidAccountData)?;
+            // The position_matches_wallet_and_pair already validated the data,
+            // so we can safely read it here
+            let data_borrow = account.data.borrow();
+            let position_data = &data_borrow[8..];
+            let position_size = std::mem::size_of::<PositionV2>();
+            let position_bytes = &position_data[..position_size];
             
-            matching_positions.push((account.key(), position));
+            match bytemuck::try_from_bytes::<PositionV2>(position_bytes) {
+                Ok(position) => {
+                    matching_positions.push((account.key(), *position));
+                }
+                Err(e) => {
+                    msg!("Failed to parse position data for {}: {:?}", account.key(), e);
+                    // Skip this position instead of failing completely
+                    continue;
+                }
+            }
         }
     }
     
