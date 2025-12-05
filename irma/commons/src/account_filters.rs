@@ -90,7 +90,7 @@ pub fn get_matching_positions(
     
     for account in position_accounts.iter() {
         if account.data.borrow().is_empty() {
-            Err(anyhow!("Invalid position {} found in input list", account.key()))?;
+            return Err(anyhow!("Invalid position {} found in input list", account.key()))?;
         }
         let discriminator = &account.data.borrow()[0..8];
         msg!("Discriminator: {:?}", discriminator);

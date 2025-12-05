@@ -6,8 +6,8 @@ use crate::constants::CustomError;
 use std::collections::HashMap;
 
 /// Fetch LbPair state dynamically when needed
-pub fn fetch_lb_pair_state(acct_infos: &[AccountInfo], lb_pair: Pubkey) -> Result<LbPair> {
-    get_bytemuck_account::<LbPair>(acct_infos, &lb_pair)
+pub fn fetch_lb_pair_state(acct_infos: &[AccountInfo], lb_pair: &Pubkey) -> Result<LbPair> {
+    get_bytemuck_account::<LbPair>(acct_infos, lb_pair)
         .ok_or(error!(CustomError::MissingLbPairState))
 }
 

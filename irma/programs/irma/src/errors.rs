@@ -58,4 +58,6 @@ pub enum CustomError {
     ReserveNotFound,
     #[msg("Invalid pubkey.")]
     InvalidPubkey,
+    #[msg("Invalid LbPair state.")]
+    InvalidLbPairState,
 }

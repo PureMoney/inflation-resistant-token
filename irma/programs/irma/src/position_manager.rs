@@ -165,7 +165,7 @@ impl SinglePosition {
     ) -> Result<PositionRaw> {
 
         // Fetch lb pair state
-        let lb_pair_state = commons::conversions::fetch_lb_pair_state(acct_infos, self.lb_pair)?;
+        let lb_pair_state = commons::conversions::fetch_lb_pair_state(acct_infos, &self.lb_pair)?;
         
         // Fetch positions
         let positions = fetch_positions(acct_infos, &self.position_pks)?;

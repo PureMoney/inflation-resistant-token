@@ -9,8 +9,6 @@ pub struct Account<'info, T> {
     pub lamports: &'info mut u64,
     pub data: &'info mut T,
     pub owner: Pubkey,
-    info: AccountInfo<'info>,
-    account: T,
 }
 
 /// Create Clock on-chain
@@ -252,32 +250,4 @@ mod utils_tests {
         Ok(())
     }
     
-    #[test]
-    fn test_account_info_creation() {
-        let key = Pubkey::new_unique();
-        let mut lamports1 = 1000000u64;
-        let mut lamports2 = 1000000u64;
-        let mut data1 = vec![0u8; 100];
-        let mut data2 = vec![0u8; 100];
-        let owner = Pubkey::new_unique();
-
-        let account = Account {
-            key,
-            is_signer: true,
-            is_writable: true,
-            lamports: &mut lamports1,
-            data: &mut data1,
-            owner,
-            info: AccountInfo::new(&key, true, true, &mut lamports2, &mut data2, &owner, false, 0),
-            account: vec![0u8; 100],
-        };
-        
-        let account_info = account.info;
-        
-        assert_eq!(*account_info.key, key);
-        assert_eq!(account_info.is_signer, true);
-        assert_eq!(account_info.is_writable, true);
-        assert_eq!(*account_info.owner, owner);
-        assert_eq!(account_info.data_len(), 100);
-    }
 }

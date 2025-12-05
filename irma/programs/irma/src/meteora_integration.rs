@@ -184,7 +184,7 @@ impl Core {
             remaining_accounts,
             &self.owner, 
             &pair_address
-        ).unwrap();
+        ).or_else(|error| Err(error)).unwrap();
 
         let mut position_pks = vec![];
         // Note: We'll fetch positions and bin_arrays dynamically when needed
@@ -250,8 +250,7 @@ impl Core {
         // state.positions = positions;
         state.min_bin_id = min_bin_id;
         state.max_bin_id = max_bin_id;
-        // TODO: skip for now
-        // state.last_update_timestamp = Self::get_epoch_sec()?.max(0) as u64;
+        state.last_update_timestamp = Self::get_epoch_sec()?.max(0) as u64;
 
         Ok(())
     }
@@ -294,7 +293,7 @@ impl Core {
 
         for position_entry in state.all_positions.iter() {
             let lb_pair_state = fetch_lb_pair_state(
-                context.remaining_accounts, position_entry.position.lb_pair
+                context.remaining_accounts, &position_entry.position.lb_pair
             )?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
@@ -395,7 +394,7 @@ impl Core {
         let (event_authority, _bump) = derive_event_authority_pda();
 
         let lb_pair = state.lb_pair;
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &state.lb_pair)?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -558,7 +557,7 @@ impl Core {
         swap_for_y: bool
     ) -> Result<()> {
 
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, state.lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &state.lb_pair)?;
 
         msg!("==> Swapping on pair: {}", state.lb_pair);
 
@@ -784,7 +783,7 @@ impl Core {
         let (bin_array_lower, _bump) = derive_bin_array_pda(lb_pair, lower_bin_array_idx.into());
         let (bin_array_upper, _bump) = derive_bin_array_pda(lb_pair, upper_bin_array_idx.into());
 
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &lb_pair)?;
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
         let user_token_x = get_associated_token_address_with_program_id(
@@ -883,7 +882,7 @@ impl Core {
         amount_x: u64,
         amount_y: u64,
     ) -> Result<(u64, u64)> {
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, position.lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &position.lb_pair)?;
 
         // let rpc_client = self.rpc_client();
         let payer = context.accounts.irma_admin.clone();
@@ -947,7 +946,7 @@ impl Core {
         for position in all_positions.iter() {
             let pair_config = get_pair_config(&self.config, position.lb_pair);
             // check whether out of price range
-            let lb_pair = fetch_lb_pair_state(context.remaining_accounts, position.lb_pair)?;
+            let lb_pair = fetch_lb_pair_state(context.remaining_accounts, &position.lb_pair)?;
             if pair_config.mode == MarketMakingMode::ModeRight
                 && lb_pair.active_id > position.max_bin_id
             {
@@ -1002,7 +1001,7 @@ impl Core {
         // let Some(lb_pair_state) = &state.lb_pair_state else {
         //     return Err(Error::from(CustomError::MissingLbPairState));
         // };
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, state.lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &state.lb_pair)?;
 
         let (amount_x, amount_y) = if amount_y_for_buy != 0 {
             msg!("swap {}", state.lb_pair);
@@ -1062,7 +1061,7 @@ impl Core {
         // let Some(lb_pair_state) = &state.lb_pair_state else {
         //     return Err(Error::from(CustomError::MissingLbPairState));
         // };
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, state.lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &state.lb_pair)?;
 
         let (amount_x, amount_y) = if amount_x_for_sell != 0 {
                 msg!("swap {}", state.lb_pair);
@@ -1114,7 +1113,7 @@ impl Core {
 
         let mut position_infos = vec![];
         for position in all_positions.iter() {
-            let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, position.lb_pair)?;
+            let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &position.lb_pair)?;
             // Get decimals from token info
             let x_decimals = get_decimals(lb_pair_state.token_x_mint, &tokens);
             let y_decimals = get_decimals(lb_pair_state.token_y_mint, &tokens);

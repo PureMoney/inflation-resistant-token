@@ -28,6 +28,7 @@ declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 use anchor_lang::context::Context;
 
 use commons::dlmm::accounts::*;
+use commons::fetch_lb_pair_state;
 
 // Re-export types for IDL generation
 pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, PositionEntry, TokenEntry};
@@ -198,14 +199,26 @@ pub mod irma {
 
     /// This connects a reserve stablecoin to its corresponding LBPair.
     /// There can only be a single LbPair per stablecoin reserve.
-    pub fn update_reserve_lbpair(ctx: Context<Maint>, symbol: String, lb_pair: String) -> Result<String> {
-        let reserves = &mut ctx.accounts.state.reserves;
-        let core = &mut ctx.accounts.core;
+    pub fn update_reserve_lbpair(ctx: Context<Maint>, symbol: String, lb_pair: String) -> Result<()> {
+        {
+            let stablecoin = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
+                .ok_or(error!(CustomError::ReserveNotFound))?;
+            let lb_pair_state = fetch_lb_pair_state(
+                &ctx.remaining_accounts,
+                &stablecoin.pool_id,
+            )?;
+            // check that the input LbPair is valid and matches the reserve stablecoin mint
+            if !lb_pair_state.token_y_mint.eq(&stablecoin.mint_address) {
+                return Err(error!(CustomError::InvalidLbPairState));
+            }
+        }
         // update the pool_id for the given stablecoin symbol
-        let stablecoin = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
+        let reserves = &mut ctx.accounts.state.reserves;
+        let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
             .ok_or(error!(CustomError::ReserveNotFound))?;
-        stablecoin.pool_id = Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?;
+        stablecoin_mut.pool_id = Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?;
         // add the LbPair to the core config if not already present
+        let core = &mut ctx.accounts.core;
         if !core.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
             core.config.push(PairConfig {
                 pair_address: lb_pair,
@@ -221,10 +234,7 @@ pub mod irma {
                 core.config.remove(i);
             }
         }
-        // TODO: make sure that token_y in the LbPair matches the reserve stablecoin mint
-        let stablecoin = reserves.iter().find(|r| r.symbol == symbol)
-            .ok_or(error!(CustomError::ReserveNotFound))?;
-        Ok(stablecoin.mint_address.to_string())
+        Ok(())
     }
 
     pub fn list_reserves(ctx: Context<Maint>) -> Result<String> {
