@@ -37,7 +37,8 @@ console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 // Main function to connect liquidity-bearing pair
 // Params: reserveSymbol - Reserve stablecoin symbol (.e.g "devUSDC")
 //         pairAddress - DLMM pair address
-async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
+// async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
+async function connect_lb_pair() {
 
   console.log("\n🚀 Connecting liquidity-bearing pair to IRMA Protocol");
   console.log("=====================================================\n");
@@ -113,6 +114,19 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
     console.log("🔍 Call updateReserveLbpair...");
     let stateAccount: any = null;
     let stableCoinStruct: any = null;
+    let reserveSymbol = "devUSDC";
+    let pairAddress = "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP"; // Example pair
+
+    const remainingKeys: string[] = [
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair
+      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // position
+      "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // token x mint (IRMA)
+      "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k", // token y mint (devUSDC)
+      "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // reserve x vault
+      "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // reserve y vault
+      "DLmm1111111111111111111111111111111111111", // DLMM program
+    ];
+
     try {
       let updateTxId = await program.methods
         .updateReserveLbpair(reserveSymbol, pairAddress)
@@ -123,7 +137,7 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
           systemProgram: SystemProgram.programId,
         })
         .remainingAccounts(
-          [pairAddress].map((addr) => ({
+          remainingKeys.map((addr) => ({
             pubkey: new PublicKey(addr),
             isWritable: false,
             isSigner: false,
@@ -241,13 +255,13 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
   }
 }
 
-const args = process.argv.slice(2);
-if (args.length < 2) {
-  console.error("❌ Missing arguments. Usage:");
-  console.error("   npx ts-node tests/connect_lb_pair.ts <PAIR_ADDRESS> <RESERVE_MINT_ADDRESS>");
-  process.exit(1);
-}
-const reserveSymbol = args[0];
-const pairAddress = args[1];
+// const args = process.argv.slice(2);
+// if (args.length < 2) {
+//   console.error("❌ Missing arguments. Usage:");
+//   console.error("   npx ts-node tests/connect_lb_pair.ts <RESERVE_SYMBOL> <LB_PAIR_ADDRESS>");
+//   process.exit(1);
+// }
+// const reserveSymbol = args[0];
+// const pairAddress = args[1];
 // Run the function
-connect_lb_pair(reserveSymbol, pairAddress).catch(console.error);
+connect_lb_pair(/* reserveSymbol, pairAddress */);

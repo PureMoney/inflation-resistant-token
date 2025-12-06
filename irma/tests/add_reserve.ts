@@ -103,7 +103,7 @@ async function add_reserve() {
     
     const owner = payer.toBase58();
     const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
+      // Add some example pair addresses - this is not needed for add_reserve
       "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1
       // "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
     ];

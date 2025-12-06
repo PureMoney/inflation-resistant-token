@@ -148,8 +148,8 @@ async function test_swap() {
 
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
-       "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
-    //   "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair
+      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
     ];
 
     // Sale Trade Event

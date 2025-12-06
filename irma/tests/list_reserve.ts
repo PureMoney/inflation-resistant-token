@@ -104,8 +104,8 @@ async function list_reserve() {
     const owner = payer.toBase58();
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
-      "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", // Example pair 1
-      "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1
+      // "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
     ];
     
     const tx = await program.methods

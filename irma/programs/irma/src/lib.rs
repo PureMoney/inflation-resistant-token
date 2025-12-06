@@ -27,7 +27,7 @@ use errors::CustomError;
 // declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
 declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 
-use anchor_lang::context::Context;
+// use anchor_lang::context::Context;
 
 use commons::dlmm::accounts::*;
 use commons::fetch_lb_pair_state;
@@ -151,7 +151,7 @@ pub mod irma {
         let owner_pk = Pubkey::from_str(&owner).unwrap();
 
         assert_eq!(config_keys.len() == 0, true);
-        
+
         let config_pks: Vec<Pubkey> = config_keys.iter()
             .map(|key| Pubkey::from_str(key).unwrap())
             .collect();
@@ -187,12 +187,13 @@ pub mod irma {
     /// This connects a reserve stablecoin to its corresponding LBPair.
     /// There can only be a single LbPair per stablecoin reserve.
     pub fn update_reserve_lbpair(ctx: Context<Maint>, symbol: String, lb_pair: String) -> Result<()> {
+        let lb_pair_key: Pubkey = Pubkey::from_str(&lb_pair).unwrap();
         {
             let stablecoin = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
                 .ok_or(error!(CustomError::ReserveNotFound))?;
             let lb_pair_state = fetch_lb_pair_state(
                 &ctx.remaining_accounts,
-                &stablecoin.pool_id,
+                &lb_pair_key,
             )?;
             // check that the input LbPair is valid and matches the reserve stablecoin mint
             if !lb_pair_state.token_y_mint.eq(&stablecoin.mint_address) {
@@ -210,9 +211,7 @@ pub mod irma {
                 mode: MarketMakingMode::ModeBoth,
             });
             core.position_data.all_positions.push(
-                position_manager::SinglePosition::new(
-                    Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?
-                )
+                position_manager::SinglePosition::new(lb_pair_key.clone())
             );
             core.fetch_token_info(remaining_accounts);
             // remove extraneous LbPair configs if any
@@ -228,7 +227,7 @@ pub mod irma {
         let reserves = &mut ctx.accounts.state.reserves;
         let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
             .ok_or(error!(CustomError::ReserveNotFound))?;
-        stablecoin_mut.pool_id = Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?;
+        stablecoin_mut.pool_id = lb_pair_key.clone();
         Ok(())
     }
 

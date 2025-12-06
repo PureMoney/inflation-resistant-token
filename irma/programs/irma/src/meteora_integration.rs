@@ -256,16 +256,17 @@ impl Core {
     }
 
     /// Fetch token info for all tokens in the positions
-    pub fn fetch_token_info(&mut self, remaining_accounts: &[AccountInfo]) -> Result<()> {
-        let token_mints_with_program = self.get_all_token_mints_with_program_id(remaining_accounts)?;
+    pub fn fetch_token_info(&mut self, remaining_accounts: &[AccountInfo]) {
+        let token_mints_with_program: Vec<(Pubkey, Pubkey)> = 
+            self.get_all_token_mints_with_program_id(remaining_accounts).unwrap();
 
         let token_mint_keys = token_mints_with_program
             .iter()
             .map(|(key, _program_id)| *key)
-            .collect::<Vec<_>>();
+            .collect::<Vec<Pubkey>>();
 
         let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts(
-            remaining_accounts, &token_mint_keys)?;
+            remaining_accounts, &token_mint_keys).unwrap();
         let mut tokens = Vec::<TokenEntry>::new();
 
         for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
@@ -285,7 +286,6 @@ impl Core {
         let state = &mut self.position_data;
         state.tokens = tokens;
 
-        Ok(())
     }
 
     fn get_all_token_mints_with_program_id(&self, remaining_accounts: &[AccountInfo]) -> Result<Vec<(Pubkey, Pubkey)>> {
