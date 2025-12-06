@@ -156,7 +156,7 @@ async function test_swap() {
     console.log("🔄 Calling sale_trade_event() instruction...");
     
     const tx_sale = await program.methods
-      .saleTradeEvent("devUSDC", new BN(100_000_000)) // Example: selling 1 USDC (6 decimals)
+      .saleTradeEvent("devUSDC", new BN(100_000_000)) // Example: selling IRMA, accepting 100 devUSDC (6 decimals)
       .accounts({
         state: statePda,
         irmaAdmin: payer,

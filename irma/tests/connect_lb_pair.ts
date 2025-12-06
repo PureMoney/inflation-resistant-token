@@ -124,7 +124,6 @@ async function connect_lb_pair() {
       "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k", // token y mint (devUSDC)
       "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // reserve x vault
       "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // reserve y vault
-      "DLmm1111111111111111111111111111111111111", // DLMM program
     ];
 
     try {

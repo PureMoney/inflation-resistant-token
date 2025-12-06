@@ -90,21 +90,53 @@ impl Core {
         Ok(clock.unix_timestamp)
     }
 
-    fn get_multiple_anchor_accounts<T: anchor_lang::AccountDeserialize>(
+    fn get_multiple_anchor_accounts<T: anchor_lang::AccountDeserialize + std::fmt::Debug>(
         remaining_accounts: &[AccountInfo],
         pubkeys: &Vec<Pubkey>
     ) -> Result<HashMap<Pubkey, Option<T>>> {
+        msg!("==> get_multiple_anchor_accounts: {} pubkeys", pubkeys.len());
         let mut data = HashMap::new();
         for pubkey in pubkeys.iter() {
             let account_info = remaining_accounts.iter()
                 .find(|acc| acc.key == pubkey);
             if let Some(account_info) = account_info {
-                let account_data = T::try_deserialize(&mut &account_info.data.borrow()[8..])?;
-                data.insert(*pubkey, Some(account_data));
+                // Check if account has enough data
+                if account_info.data.borrow().len() < 8 {
+                    data.insert(*pubkey, None);
+                    continue;
+                }
+                
+                // Check discriminator
+                let discriminator = &account_info.data.borrow()[0..8];
+                
+                // For Mint accounts, we expect no discriminator (SPL Token accounts don't use discriminators)
+                // Let's try to deserialize directly without skipping 8 bytes
+                let borrowed_data = account_info.data.borrow();
+                match T::try_deserialize(&mut &borrowed_data[..]) {
+                    Ok(account_data) => {
+                        data.insert(*pubkey, Some(account_data));
+                    }
+                    Err(e) => {
+                        // Also try skipping discriminator in case it's an Anchor account
+                        if borrowed_data.len() > 8 {
+                            match T::try_deserialize(&mut &borrowed_data[8..]) {
+                                Ok(account_data) => {
+                                    data.insert(*pubkey, Some(account_data));
+                                }
+                                Err(e2) => {
+                                    data.insert(*pubkey, None);
+                                }
+                            }
+                        } else {
+                            data.insert(*pubkey, None);
+                        }
+                    }
+                }
             } else {
                 data.insert(*pubkey, None);
             }
         }
+        msg!("==> Finished get_multiple_anchor_accounts");
         Ok(data)
     }
 
@@ -256,17 +288,20 @@ impl Core {
     }
 
     /// Fetch token info for all tokens in the positions
-    pub fn fetch_token_info(&mut self, remaining_accounts: &[AccountInfo]) {
+    pub fn fetch_token_info(&mut self, remaining_accounts: &[AccountInfo]) -> Result<()> {
         let token_mints_with_program: Vec<(Pubkey, Pubkey)> = 
-            self.get_all_token_mints_with_program_id(remaining_accounts).unwrap();
+            self.get_all_token_mints_with_program_id(remaining_accounts)?;
 
-        let token_mint_keys = token_mints_with_program
+        let token_keys = token_mints_with_program
             .iter()
             .map(|(key, _program_id)| *key)
             .collect::<Vec<Pubkey>>();
 
-        let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts(
-            remaining_accounts, &token_mint_keys).unwrap();
+        let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts::<Mint>(
+            remaining_accounts, &token_keys)?;
+
+        msg!("==> Mints count: {}", accounts.len());
+
         let mut tokens = Vec::<TokenEntry>::new();
 
         for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
@@ -286,6 +321,7 @@ impl Core {
         let state = &mut self.position_data;
         state.tokens = tokens;
 
+        Ok(())
     }
 
     fn get_all_token_mints_with_program_id(&self, remaining_accounts: &[AccountInfo]) -> Result<Vec<(Pubkey, Pubkey)>> {
@@ -905,7 +941,7 @@ impl Core {
         );
 
         let accounts: HashMap<Pubkey, Option<TokenAccount>> 
-                = Core::get_multiple_anchor_accounts(
+                = Core::get_multiple_anchor_accounts::<TokenAccount>(
                     context.remaining_accounts, &vec![user_token_x, user_token_y])?;
 
         let user_token_x_state = accounts.get(&user_token_x).unwrap().as_ref().unwrap();

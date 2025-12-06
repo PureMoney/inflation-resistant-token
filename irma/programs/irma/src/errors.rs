@@ -10,6 +10,8 @@ pub enum CustomError {
     AmountYNotZero,
     #[msg("Cannot get binarray")]
     CannotGetBinArray,
+    #[msg("Account not found")]
+    AccountNotFound,
     #[msg("Bin is not within the position")]
     BinIsNotWithinThePosition,
     // #[msg("Account data too small")]

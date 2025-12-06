@@ -213,7 +213,7 @@ pub mod irma {
             core.position_data.all_positions.push(
                 position_manager::SinglePosition::new(lb_pair_key.clone())
             );
-            core.fetch_token_info(remaining_accounts);
+            let _ = core.fetch_token_info(remaining_accounts)?;
             // remove extraneous LbPair configs if any
             let reserves = &ctx.accounts.state.reserves;
             for i in (0..core.config.len()).rev() {
@@ -256,6 +256,7 @@ pub mod irma {
 
     /// Let pricing know about a sale trade event
     /// Note that IRMA is what we are selling (minting).
+    /// bought_amount is the amount of bought_token we received from the sale.
     pub fn sale_trade_event(ctx: Context<Maint>, bought_token: String, bought_amount: u64) -> Result<()> {
         // Extract references to avoid double mutable borrow
         let core = &mut ctx.accounts.core;
