@@ -141,7 +141,7 @@ mod core_test {
 
         let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
         let all_positions = AllPosition::new(&config).unwrap().all_positions;
-        let all_positions = all_positions.into_iter().map(|pe| pe.pubkey).collect::<Vec<_>>();
+        let all_positions = all_positions.into_iter().map(|pe| pe.lb_pair).collect::<Vec<_>>();
         let core_state = &mut Core::create_core(
             *signer_pubkey, // owner
             all_positions,
@@ -385,7 +385,7 @@ mod core_test {
         ).unwrap();
 
         let state = {
-            let mut_state = core.get_mut_state(lb_pair);
+            let mut_state = core.get_mut_position_state(lb_pair);
             let lb_pair_data = &lb_pair_account_info.data.borrow()[8..];
             // let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
             //     &lb_pair_data
@@ -436,7 +436,7 @@ mod core_test {
         ).unwrap();
 
         let state = {
-            let mut_state = core.get_mut_state(lb_pair);
+            let mut_state = core.get_mut_position_state(lb_pair);
             let lb_pair_data = &lb_pair_account_info.data.borrow()[8..];
             // let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
             //     &lb_pair_data

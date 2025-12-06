@@ -55,13 +55,6 @@ pub struct MintWithProgramId {
 
 #[account]
 #[derive(Debug)]
-pub struct PositionEntry {
-    pub pubkey: Pubkey,
-    pub position: SinglePosition,
-}
-
-#[account]
-#[derive(Debug)]
 pub struct TokenEntry {
     pub pubkey: Pubkey,
     pub mint_with_program: MintWithProgramId,
@@ -72,7 +65,7 @@ pub struct TokenEntry {
 #[account]
 #[derive(Debug)]
 pub struct AllPosition {
-    pub all_positions: Vec<PositionEntry>,  // Use struct instead of tuple
+    pub all_positions: Vec<SinglePosition>,  // Use struct instead of tuple
     pub tokens: Vec<TokenEntry>,            // Use struct instead of tuple
 }
 
@@ -81,10 +74,7 @@ impl AllPosition {
         let mut all_positions = Vec::new();
         for pair in config.iter() {
             let pool_pk = Pubkey::from_str(&pair.pair_address).unwrap();
-            let position_entry = PositionEntry {
-                pubkey: pool_pk,
-                position: SinglePosition::new(pool_pk),
-            };
+            let position_entry = SinglePosition::new(pool_pk);
             all_positions.push(position_entry);
         }
         Ok(AllPosition {
@@ -96,14 +86,12 @@ impl AllPosition {
     // Helper methods to work with Vec like HashMap
     pub fn get_position(&self, pubkey: &Pubkey) -> Option<&SinglePosition> {
         self.all_positions.iter()
-            .find(|entry| &entry.pubkey == pubkey)
-            .map(|entry| &entry.position)
+            .find(|entry| &entry.lb_pair == pubkey)
     }
     
     pub fn get_position_mut(&mut self, pubkey: &Pubkey) -> Option<&mut SinglePosition> {
         self.all_positions.iter_mut()
-            .find(|entry| &entry.pubkey == pubkey)
-            .map(|entry| &mut entry.position)
+            .find(|entry| &entry.lb_pair == pubkey)
     }
     
     // Helper methods for tokens

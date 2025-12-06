@@ -91,12 +91,12 @@ impl Core {
     }
 
     fn get_multiple_anchor_accounts<T: anchor_lang::AccountDeserialize>(
-        context: &Context<Maint>,
+        remaining_accounts: &[AccountInfo],
         pubkeys: &Vec<Pubkey>
     ) -> Result<HashMap<Pubkey, Option<T>>> {
         let mut data = HashMap::new();
         for pubkey in pubkeys.iter() {
-            let account_info = context.remaining_accounts.iter()
+            let account_info = remaining_accounts.iter()
                 .find(|acc| acc.key == pubkey);
             if let Some(account_info) = account_info {
                 let account_data = T::try_deserialize(&mut &account_info.data.borrow()[8..])?;
@@ -256,15 +256,16 @@ impl Core {
     }
 
     /// Fetch token info for all tokens in the positions
-    pub fn fetch_token_info(&mut self, context: &Context<Maint>) -> Result<()> {
-        let token_mints_with_program = self.get_all_token_mints_with_program_id(context)?;
+    pub fn fetch_token_info(&mut self, remaining_accounts: &[AccountInfo]) -> Result<()> {
+        let token_mints_with_program = self.get_all_token_mints_with_program_id(remaining_accounts)?;
 
         let token_mint_keys = token_mints_with_program
             .iter()
             .map(|(key, _program_id)| *key)
             .collect::<Vec<_>>();
 
-        let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts(context, &token_mint_keys)?;
+        let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts(
+            remaining_accounts, &token_mint_keys)?;
         let mut tokens = Vec::<TokenEntry>::new();
 
         for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
@@ -287,13 +288,13 @@ impl Core {
         Ok(())
     }
 
-    fn get_all_token_mints_with_program_id(&self, context: &Context<Maint>) -> Result<Vec<(Pubkey, Pubkey)>> {
+    fn get_all_token_mints_with_program_id(&self, remaining_accounts: &[AccountInfo]) -> Result<Vec<(Pubkey, Pubkey)>> {
         let state = &self.position_data;
         let mut token_mints_with_program = vec![];
 
         for position_entry in state.all_positions.iter() {
             let lb_pair_state = fetch_lb_pair_state(
-                context.remaining_accounts, &position_entry.position.lb_pair
+                remaining_accounts, &position_entry.lb_pair
             )?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
@@ -311,7 +312,7 @@ impl Core {
         position.clone()
     }
 
-    pub fn get_mut_state(&mut self, lp_pair: Pubkey) -> &mut SinglePosition {
+    pub fn get_mut_position_state(&mut self, lp_pair: Pubkey) -> &mut SinglePosition {
         let state = &mut self.position_data;
         let position = state.get_position_mut(&lp_pair).unwrap();
         position
@@ -363,7 +364,9 @@ impl Core {
         &self, context: &Context<Maint>,
     ) -> Result<()> {
         let wallet = &context.accounts.irma_admin;
-        for (token_mint, program_id) in self.get_all_token_mints_with_program_id(context)?.iter() {
+        for (token_mint, program_id) in self.get_all_token_mints_with_program_id(
+            context.remaining_accounts
+        )?.iter() {
             self.get_or_create_ata(
                 context,
                 *token_mint,
@@ -902,7 +905,8 @@ impl Core {
         );
 
         let accounts: HashMap<Pubkey, Option<TokenAccount>> 
-                = Core::get_multiple_anchor_accounts(context, &vec![user_token_x, user_token_y])?;
+                = Core::get_multiple_anchor_accounts(
+                    context.remaining_accounts, &vec![user_token_x, user_token_y])?;
 
         let user_token_x_state = accounts.get(&user_token_x).unwrap().as_ref().unwrap();
         let user_token_y_state = accounts.get(&user_token_y).unwrap().as_ref().unwrap();
@@ -928,7 +932,7 @@ impl Core {
         let state = &self.position_data;
         let mut positions = vec![];
         for position_entry in &state.all_positions {
-            positions.push(position_entry.position.clone());
+            positions.push(position_entry.clone());
         }
         positions
     }

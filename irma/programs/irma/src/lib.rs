@@ -4,6 +4,8 @@
 use anchor_lang::prelude::*;
 use std::mem::size_of;
 use std::str::FromStr;
+// use anchor_spl::token::ID as TOKEN_PROGRAM_ID;
+// use anchor_spl::token_2022::ID as TOKEN_2022_PROGRAM_ID;
 
 // Module declarations
 pub mod errors;
@@ -31,7 +33,7 @@ use commons::dlmm::accounts::*;
 use commons::fetch_lb_pair_state;
 
 // Re-export types for IDL generation
-pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, PositionEntry, TokenEntry};
+pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, TokenEntry};
 pub use meteora_integration::Core;
 pub use pair_config::*;
 
@@ -212,28 +214,36 @@ pub mod irma {
                 return Err(error!(CustomError::InvalidLbPairState));
             }
         }
-        // update the pool_id for the given stablecoin symbol
-        let reserves = &mut ctx.accounts.state.reserves;
-        let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
-            .ok_or(error!(CustomError::ReserveNotFound))?;
-        stablecoin_mut.pool_id = Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?;
         // add the LbPair to the core config if not already present
+        let remaining_accounts = &ctx.remaining_accounts;
         let core = &mut ctx.accounts.core;
         if !core.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
             core.config.push(PairConfig {
-                pair_address: lb_pair,
+                pair_address: lb_pair.clone(),
                 x_amount: 0,
                 y_amount: 0,
                 mode: MarketMakingMode::ModeBoth,
             });
-        }
-        // remove extraneous LbPair configs if any
-        for i in (0..core.config.len()).rev() {
-            let pair_config = &core.config[i];
-            if !reserves.iter().any(|r| r.pool_id.to_string() == pair_config.pair_address) {
-                core.config.remove(i);
+            core.position_data.all_positions.push(
+                position_manager::SinglePosition::new(
+                    Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?
+                )
+            );
+            core.fetch_token_info(remaining_accounts);
+            // remove extraneous LbPair configs if any
+            let reserves = &ctx.accounts.state.reserves;
+            for i in (0..core.config.len()).rev() {
+                let pair_config = &core.config[i];
+                if !reserves.iter().any(|r| r.pool_id.to_string() == pair_config.pair_address) {
+                    core.config.remove(i);
+                }
             }
         }
+        // finally, update the pool_id for the given stablecoin symbol
+        let reserves = &mut ctx.accounts.state.reserves;
+        let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?;
+        stablecoin_mut.pool_id = Pubkey::from_str(&lb_pair).map_err(|_| error!(CustomError::InvalidPubkey))?;
         Ok(())
     }
 
@@ -311,12 +321,6 @@ pub mod irma {
     /// Helper instruction to force MintWithProgramId type into IDL
     pub fn get_mint_with_program_id(_ctx: Context<Maint>) -> Result<position_manager::MintWithProgramId> {
         // This forces MintWithProgramId to be included in IDL as a return type  
-        Err(error!(CustomError::InvalidAmount))
-    }
-
-    /// Helper instruction to force PositionEntry type into IDL
-    pub fn get_position_entry(_ctx: Context<Maint>) -> Result<position_manager::PositionEntry> {
-        // This forces PositionEntry to be included in IDL as a return type  
         Err(error!(CustomError::InvalidAmount))
     }
 

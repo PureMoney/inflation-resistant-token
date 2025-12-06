@@ -109,8 +109,8 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    // First, let's check if we can fetch the state account
-    console.log("🔍 Checking state account...");
+    // Call API for connecting liquidity-bearing pair
+    console.log("🔍 Call updateReserveLbpair...");
     let stateAccount: any = null;
     let stableCoinStruct: any = null;
     try {
@@ -122,6 +122,13 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
           core: corePda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts(
+          [pairAddress].map((addr) => ({
+            pubkey: new PublicKey(addr),
+            isWritable: false,
+            isSigner: false,
+          }))
+        )
         .rpc();
         // .simulate();
       console.log("✅ updateReserveLbpair updated stablecoin mint signature:", updateTxId);
@@ -210,33 +217,6 @@ async function connect_lb_pair(reserveSymbol: string, pairAddress: string) {
         }
       }
   
-      // Initialize the protocol
-      console.log("🔄 Calling initialize instruction...");
-    
-    const owner = payer.toBase58();
-    const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
-      "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", // Example pair 1
-      "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
-    ];
-    
-    const tx = await program.methods
-      .initialize(owner, configKeys)
-      .accounts({
-        state: statePda,
-        irmaAdmin: payer,
-        core: corePda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    console.log("✅ Initialize transaction signature:", tx);
-    console.log("⏳ Waiting for confirmation...");
-
-    // Wait for confirmation
-    await connection.confirmTransaction(tx);
-    console.log("✅ Transaction confirmed!");
-
     // Fetch the initialized state
     console.log("📖 Fetching initialized state...");
     const state = await (program.account as any).stateMap.fetch(statePda);
