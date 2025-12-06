@@ -77,7 +77,7 @@ pub struct Init<'info> {
     #[account(
         init,
         space=32 + 8 + size_of::<StableState>()*pricing::MAX_BACKING_COUNT,
-        payer=irma_admin, seeds=[b"state_v4".as_ref()],
+        payer=irma_admin, seeds=[b"state_v5".as_ref()],
         bump
     )]
     pub state: Account<'info, StateMap>,
@@ -95,7 +95,7 @@ pub struct Init<'info> {
         init,
         space=8 + 10000,
         payer=irma_admin,
-        seeds=[b"core_v4".as_ref()],
+        seeds=[b"core_v5".as_ref()],
         bump
     )]
     pub core: Account<'info, Core>,
@@ -105,10 +105,10 @@ pub struct Init<'info> {
 
 #[derive(Accounts)]
 pub struct Maint<'info> {
-    #[account(mut, seeds=[b"state_v4".as_ref()], bump)]
+    #[account(mut, seeds=[b"state_v5".as_ref()], bump)]
     pub state: Account<'info, StateMap>,
     pub irma_admin: Signer<'info>,
-    #[account(mut, seeds=[b"core_v4".as_ref()], bump)]
+    #[account(mut, seeds=[b"core_v5".as_ref()], bump)]
     pub core: Account<'info, Core>,
     pub system_program: Program<'info, System>,
     // pub bumps: MaintBumps,

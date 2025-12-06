@@ -131,12 +131,12 @@ async function test_swap() {
 
   // Derive PDAs
   const [statePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("state_v4")],
+    [Buffer.from("state_v5")],
     PROGRAM_ID
   );
   
   const [corePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("core_v4")],
+    [Buffer.from("core_v5")],
     PROGRAM_ID
   );
 
