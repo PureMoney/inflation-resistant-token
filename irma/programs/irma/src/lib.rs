@@ -148,38 +148,23 @@ pub mod irma {
         owner: String,
         config_keys: Vec<String>
     ) -> Result<()> {
-        let owner_pk = Pubkey::from_str(&owner).unwrap(); // map_err(|_| Error::InvalidPubkey)?;
-        assert_eq!(config_keys.len() > 0, true);
-        let config_pks: Vec<Pubkey> = config_keys.iter()
-            .map(|key| Pubkey::from_str(key).unwrap()) // map_err(|_| Error::InvalidPubkey)
-            .collect();
+        let owner_pk = Pubkey::from_str(&owner).unwrap();
 
-        assert_eq!(config_pks.len() > 0, true);
+        assert_eq!(config_keys.len() == 0, true);
+        
+        let config_pks: Vec<Pubkey> = config_keys.iter()
+            .map(|key| Pubkey::from_str(key).unwrap())
+            .collect();
 
         // Initialize the pricing system first
         pricing::init_pricing(&mut ctx)?;
-
-        // LB_Pairs, one for each reserve stablecoin, should have been created; we set these here.
-        // NOTE: the order of reserve stablecoins must match the order of the provided LbPair accounts.
-        for (i, stablecoin) in ctx.accounts.state.reserves.iter_mut().enumerate() {
-            if let Some(lb_pair_account) = ctx.remaining_accounts.get(i) {
-                // Store the LbPair account's pubkey directly
-                // TODO: Add validation that this is actually an LbPair account
-                stablecoin.pool_id = lb_pair_account.key();
-                msg!("Set LbPair {} for stablecoin {} at index {}", 
-                     lb_pair_account.key(), stablecoin.symbol, i);
-            } else {
-                msg!("Error: No LbPair account provided for stablecoin {} at index {}", stablecoin.symbol, i);
-                return Err(error!(CustomError::LbPairStateNotFound));
-            }
-        }
 
         // TODO: Initialize Core separately if needed
         // For now, just do basic initialization
         msg!("IRMA protocol initialized with owner: {}", owner_pk);
         msg!("Config keys count: {}", config_pks.len());
 
-        assert_eq!(config_pks.len() > 0, true);
+        assert_eq!(config_pks.len() == 0, true);
 
         let core = Core::create_core(owner_pk, config_pks)?;
         ctx.accounts.core.set_inner(core);

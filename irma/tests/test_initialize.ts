@@ -103,10 +103,8 @@ async function initializeProtocol() {
     console.log("🔄 Calling initialize instruction...");
     
     const owner = payer.toBase58();
-    const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
-      "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", // Example pair 1
-      "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
+    const configKeys: string[] = [
+      // No config keys for now
     ];
     
     const tx = await program.methods
@@ -117,6 +115,11 @@ async function initializeProtocol() {
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
+      .remainingAccounts(configKeys.map((key) => ({
+        pubkey: new PublicKey(key),
+        isWritable: false,
+        isSigner: false,
+      })))
       .rpc();
 
     console.log("✅ Initialize transaction signature:", tx);
