@@ -107,7 +107,7 @@ impl Core {
                 }
                 
                 // Check discriminator
-                let discriminator = &account_info.data.borrow()[0..8];
+                let _discriminator = &account_info.data.borrow()[0..8];
                 
                 // For Mint accounts, we expect no discriminator (SPL Token accounts don't use discriminators)
                 // Let's try to deserialize directly without skipping 8 bytes
@@ -116,14 +116,14 @@ impl Core {
                     Ok(account_data) => {
                         data.insert(*pubkey, Some(account_data));
                     }
-                    Err(e) => {
+                    Err(_error) => {
                         // Also try skipping discriminator in case it's an Anchor account
                         if borrowed_data.len() > 8 {
                             match T::try_deserialize(&mut &borrowed_data[8..]) {
                                 Ok(account_data) => {
                                     data.insert(*pubkey, Some(account_data));
                                 }
-                                Err(e2) => {
+                                Err(_error) => {
                                     data.insert(*pubkey, None);
                                 }
                             }

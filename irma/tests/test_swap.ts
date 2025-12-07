@@ -154,23 +154,46 @@ async function test_swap() {
 
     // Sale Trade Event
     console.log("🔄 Calling sale_trade_event() instruction...");
-    
-    const tx_sale = await program.methods
-      .saleTradeEvent("devUSDC", new BN(100_000_000)) // Example: selling IRMA, accepting 100 devUSDC (6 decimals)
-      .accounts({
+    const tx_sell = await program.methods
+    .saleTradeEvent("devUSDC", new BN(110_000_000))
+    .accounts({
         state: statePda,
         irmaAdmin: payer,
         core: corePda,
         systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(configKeys.map((key) => ({
+    })
+    .remainingAccounts(configKeys.map((key) => ({
         pubkey: new PublicKey(key),
         isSigner: false,
         isWritable: false,
-      })))
-      .rpc();
-      // .simulate();
-    console.log("✅ SaleTradeEvent transaction results:", tx_sale);
+    })))
+    .transaction();
+
+    // Send transaction
+    const signature = await connection.sendTransaction(tx_sell, [wallet.payer]);
+    console.log("🚀 Transaction sent:", signature);
+
+    // Wait for confirmation with custom timeout
+    try {
+        const confirmation = await connection.confirmTransaction(
+            {
+            signature,
+            blockhash: (await connection.getLatestBlockhash()).blockhash,
+            lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
+            },
+            "confirmed"
+        );
+        
+        if (confirmation.value.err) {
+            console.error("❌ Transaction failed:", confirmation.value.err);
+        } else {
+            console.log("✅ Transaction confirmed:", signature);
+        }
+    } catch (timeoutError) {
+        console.log("⏰ Transaction timeout, but may still be processing...");
+        console.log("🔍 Check transaction status:", `https://solscan.io/tx/${signature}?cluster=devnet`);
+    }      // .simulate();
+
     console.log();
 
     await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
@@ -179,22 +202,47 @@ async function test_swap() {
 
     // Buy Trade Event
     console.log("🔄 Calling buy_trade_event() instruction...");
-
     const tx_buy = await program.methods
-      .buyTradeEvent("devUSDC", new BN(10_000_000)) // Example: buying 1 USDC (6 decimals)
-      .accounts({
+    .buyTradeEvent("devUSDC", new BN(10_000_000))
+    .accounts({
         state: statePda,
         irmaAdmin: payer,
         core: corePda,
         systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(configKeys.map((key) => ({
+    })
+    .remainingAccounts(configKeys.map((key) => ({
         pubkey: new PublicKey(key),
         isSigner: false,
         isWritable: false,
-      })))
-      .rpc();
-      // .simulate();
+    })))
+    .transaction();
+
+    // Send transaction
+    const buySignature = await connection.sendTransaction(tx_buy, [wallet.payer]);
+    console.log("🚀 Transaction sent:", buySignature);
+
+    // Wait for confirmation with custom timeout
+    try {
+        const confirmation = await connection.confirmTransaction(
+            {
+            signature: buySignature,
+            blockhash: (await connection.getLatestBlockhash()).blockhash,
+            lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
+            },
+            "confirmed"
+        );
+        
+        if (confirmation.value.err) {
+            console.error("❌ Transaction failed:", confirmation.value.err);
+        } else {
+            console.log("✅ Transaction confirmed:", buySignature);
+        }
+    } catch (timeoutError) {
+        console.log("⏰ Transaction timeout, but may still be processing...");
+        console.log("🔍 Check transaction status:", `https://solscan.io/tx/${buySignature}?cluster=devnet`);
+    }      // .simulate();
+    console.log("✅ SaleTradeEvent transaction results:", tx_sell);
+    console.log();
 
     await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
       console.log("\n");

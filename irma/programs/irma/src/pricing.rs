@@ -165,9 +165,9 @@ pub fn redeem_irma(state_map: &mut Account<StateMap>, quote_token: &str, irma_am
     // There is a redemption rule: every redemption is limited to 100k IRMA or 10% of the IRMA in circulation (for
     // the quote token) whichever is smaller.
     let circulation: u128 = state.irma_in_circulation;
-    require!(circulation >= MAX_REDEEM_AMOUNT, CustomError::InsufficientCirculation);
     let irma_amount = (irma_amount as f64 / (10.0_f64).powi(IRMA.backing_decimals as i32)).ceil() as u64;
     require!((irma_amount <= MAX_REDEEM_AMOUNT as u64), CustomError::InvalidIrmaAmount);
+    require!(circulation >= irma_amount as u128, CustomError::InsufficientCirculation);
 
     state_map.distribute(quote_token, irma_amount)?;
 
