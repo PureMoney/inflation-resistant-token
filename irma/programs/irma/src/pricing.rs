@@ -419,9 +419,42 @@ impl StateMap {
     /// NOTE: irma_amount is now scaled down by the backing_decimals of IRMA.
     pub fn distribute(&mut self, quote_token: &str, irma_amount: u64) -> Result<()> {
 
+        msg!("Distributing redemption for {} IRMA in {}", irma_amount, quote_token);
+
         require!(quote_token.len() > 2, CustomError::InvalidQuoteToken);
         let reserves = &mut self.reserves;
         let clone_reserves = reserves.clone();
+
+        // if there's only a single reserve, save ourselves the trouble and just adjust
+        // quantities for this one stablecoin.
+        if clone_reserves.len() == 1 {
+            let stablecoin = &self.get_stablecoin(quote_token).unwrap();
+            let ro_circulation: u128 = stablecoin.irma_in_circulation;
+            let reserve: u128 = stablecoin.backing_reserves;
+            let ten_pow_decimals =  10.0_f64.powi(
+                IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
+            );
+            let redemption_price = ((reserve.checked_div(ro_circulation).unwrap_or(0) as f64)
+                 * ten_pow_decimals) as f64;
+            let subject_adjustment: u64 = (irma_amount as f64 * redemption_price).ceil() as u64; // irma_amount is in whole numbers, so we can use it directly
+
+            require!(reserve >= subject_adjustment as u128, CustomError::InsufficientReserve);
+            require!(ro_circulation >= irma_amount as u128, CustomError::InsufficientCirculation);
+            
+            let mut_reserve = self.get_mut_stablecoin(quote_token).unwrap();
+            
+            // Subtract from backing reserves
+            mut_reserve.backing_reserves = mut_reserve.backing_reserves
+                .checked_sub(subject_adjustment.into())
+                .ok_or(CustomError::InsufficientReserve)?;
+                
+            // Subtract from circulation
+            mut_reserve.irma_in_circulation = mut_reserve.irma_in_circulation
+                .checked_sub(irma_amount.into())
+                .ok_or(CustomError::InsufficientCirculation)?;
+
+            return Ok(());
+        }
 
         // determine what this redemption does:
         // does it keep the relative spreads even, or does it skew the spreads?
@@ -490,7 +523,9 @@ impl StateMap {
         // no matter what, we need to reduce the subject reserve (quote_token)
         require!(reserve >= subject_adjustment as u128, CustomError::InsufficientReserve);
         let mut_reserve = self.get_mut_stablecoin(quote_token).unwrap();
-        mut_reserve.backing_reserves -= subject_adjustment as u128;
+        mut_reserve.backing_reserves = mut_reserve.backing_reserves
+            .checked_sub(subject_adjustment.into())
+            .ok_or(CustomError::InsufficientReserve)?;
 
         // Now determine which other stableoin this redeemed circulation can be subtracted from.
         // The objective is to reduce the price spread between mint price and redemption price,
@@ -508,7 +543,9 @@ impl StateMap {
                 let circulation: u128 = self.get_stablecoin(quote_token).unwrap().irma_in_circulation;
                 require!(circulation >= irma_amount as u128, CustomError::InsufficientCirculation);
                 let mut_reserve = self.get_mut_stablecoin(quote_token).unwrap();
-                mut_reserve.irma_in_circulation -= irma_amount as u128;
+                mut_reserve.irma_in_circulation = mut_reserve.irma_in_circulation
+                    .checked_sub(irma_amount.into())
+                    .ok_or(CustomError::InsufficientCirculation)?;
             } else {
                 msg!("m price <= r price for quote token, adjust backing reserve only for {:?}.", quote_token);
                 // If the price difference is negative, it means that the mint price is lower than the redemption price;
@@ -556,7 +593,9 @@ impl StateMap {
             // let circulation: u128 = stablecoin.irma_in_circulation;
             // require!(irma_amount <= circulation, CustomError::InsufficientCirculation);
             let mut_reserve = self.get_mut_stablecoin(quote_token).unwrap();
-            mut_reserve.irma_in_circulation -= irma_amount as u128;
+            mut_reserve.irma_in_circulation = mut_reserve.irma_in_circulation
+                .checked_sub(irma_amount.into())
+                .ok_or(CustomError::InsufficientCirculation)?;
         } else
         if post_other_price_diff < post_price_diff {
             // msg!("--> Post other price diff is less than or equal to second price diff, 
@@ -565,7 +604,9 @@ impl StateMap {
             // adjustment, we can choose to subtract irma_amount from the other_circulation only
             require!(irma_amount as u128 <= other_circulation, CustomError::InsufficientCirculation);
             let mut_reserve = self.get_mut_stablecoin(other_target).unwrap();
-            mut_reserve.irma_in_circulation -= irma_amount as u128;
+            mut_reserve.irma_in_circulation = mut_reserve.irma_in_circulation
+                .checked_sub(irma_amount.into())
+                .ok_or(CustomError::InsufficientCirculation)?;
         } else {
             // if irma amount is such that it doesn't improve the redemption price for either stablecoin,
             // we can do a linear adjustment of both other and second circulations.
@@ -577,9 +618,14 @@ impl StateMap {
             require!(adjustment_amount <= irma_amount as f64, CustomError::InvalidAmount);
             // msg!("Adjusting other circulation by {} and second circulation by {}", adjustment_amount.ceil(), irma_amount as f64 - adjustment_amount.ceil());
             let mut_reserve = self.get_mut_stablecoin(other_target).unwrap();
-            mut_reserve.irma_in_circulation -= adjustment_amount.ceil() as u128;
+            mut_reserve.irma_in_circulation = mut_reserve.irma_in_circulation
+                .checked_sub(adjustment_amount.ceil() as u128)
+                .ok_or(CustomError::InsufficientCirculation)?;
             let mut_reserve = self.get_mut_stablecoin(quote_token).unwrap();
-            mut_reserve.irma_in_circulation = (ro_circulation as i128 - (irma_amount as i128 - adjustment_amount.ceil() as i128)) as u128;
+            mut_reserve.irma_in_circulation = ro_circulation.checked_sub(
+                irma_amount.checked_add((adjustment_amount.ceil() as u128).try_into()
+                .unwrap_or(0)).unwrap_or(0).into()
+            ).ok_or(CustomError::InsufficientCirculation)?;
         }
 
         return Ok(());

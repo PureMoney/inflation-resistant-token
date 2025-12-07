@@ -74,7 +74,7 @@ async function get_prices_for_usdc(
     }
 }
 
-async function test_swap() {
+async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
   console.log("\n🚀 Test Swap Effect on redemption price");
   console.log("==========================================\n");
 
@@ -152,47 +152,51 @@ async function test_swap() {
       "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
     ];
 
-    // Sale Trade Event
-    console.log("🔄 Calling sale_trade_event() instruction...");
-    const tx_sell = await program.methods
-    .saleTradeEvent("devUSDC", new BN(110_000_000))
-    .accounts({
-        state: statePda,
-        irmaAdmin: payer,
-        core: corePda,
-        systemProgram: SystemProgram.programId,
-    })
-    .remainingAccounts(configKeys.map((key) => ({
-        pubkey: new PublicKey(key),
-        isSigner: false,
-        isWritable: false,
-    })))
-    .transaction();
+    if (mintOnly) {
+        // Sale Trade Event
+        console.log("🔄 Calling sale_trade_event() instruction...");
+        const tx_sell = await program.methods
+        .saleTradeEvent("devUSDC", new BN(110_000_000))
+        .accounts({
+            state: statePda,
+            irmaAdmin: payer,
+            core: corePda,
+            systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(configKeys.map((key) => ({
+            pubkey: new PublicKey(key),
+            isSigner: false,
+            isWritable: false,
+        })))
+        .transaction();
 
-    // Send transaction
-    const signature = await connection.sendTransaction(tx_sell, [wallet.payer]);
-    console.log("🚀 Transaction sent:", signature);
+        // Send transaction
+        const signature = await connection.sendTransaction(tx_sell, [wallet.payer]);
+        console.log("🚀 Transaction sent:", signature);
 
-    // Wait for confirmation with custom timeout
-    try {
-        const confirmation = await connection.confirmTransaction(
-            {
-            signature,
-            blockhash: (await connection.getLatestBlockhash()).blockhash,
-            lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
-            },
-            "confirmed"
-        );
-        
-        if (confirmation.value.err) {
-            console.error("❌ Transaction failed:", confirmation.value.err);
-        } else {
-            console.log("✅ Transaction confirmed:", signature);
+        // Wait for confirmation with custom timeout
+        try {
+            const confirmation = await connection.confirmTransaction(
+                {
+                signature,
+                blockhash: (await connection.getLatestBlockhash()).blockhash,
+                lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
+                },
+                "confirmed"
+            );
+            
+            if (confirmation.value.err) {
+                console.error("❌ Transaction failed:", confirmation.value.err);
+            } else {
+                console.log("✅ Transaction confirmed:", signature);
+            }
+        } catch (timeoutError) {
+            console.log("⏰ Transaction timeout, but may still be processing...");
+            console.log("🔍 Check transaction status:", `https://solscan.io/tx/${signature}?cluster=devnet`);
         }
-    } catch (timeoutError) {
-        console.log("⏰ Transaction timeout, but may still be processing...");
-        console.log("🔍 Check transaction status:", `https://solscan.io/tx/${signature}?cluster=devnet`);
-    }      // .simulate();
+        console.log("✅ SaleTradeEvent transaction results:", tx_sell);
+        console.log();
+    }
 
     console.log();
 
@@ -200,56 +204,56 @@ async function test_swap() {
       console.log("\n");
     });
 
-    // Buy Trade Event
-    console.log("🔄 Calling buy_trade_event() instruction...");
-    const tx_buy = await program.methods
-    .buyTradeEvent("devUSDC", new BN(10_000_000))
-    .accounts({
-        state: statePda,
-        irmaAdmin: payer,
-        core: corePda,
-        systemProgram: SystemProgram.programId,
-    })
-    .remainingAccounts(configKeys.map((key) => ({
-        pubkey: new PublicKey(key),
-        isSigner: false,
-        isWritable: false,
-    })))
-    .transaction();
+    if (redeemOnly) {
+        // Buy Trade Event
+        console.log("🔄 Calling buy_trade_event() instruction...");
+        const tx_buy = await program.methods
+        .buyTradeEvent("devUSDC", new BN(10_000_000))
+        .accounts({
+            state: statePda,
+            irmaAdmin: payer,
+            core: corePda,
+            systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(configKeys.map((key) => ({
+            pubkey: new PublicKey(key),
+            isSigner: false,
+            isWritable: false,
+        })))
+        .transaction();
 
-    // Send transaction
-    const buySignature = await connection.sendTransaction(tx_buy, [wallet.payer]);
-    console.log("🚀 Transaction sent:", buySignature);
+        // Send transaction
+        const buySignature = await connection.sendTransaction(tx_buy, [wallet.payer]);
+        console.log("🚀 Transaction sent:", buySignature);
 
-    // Wait for confirmation with custom timeout
-    try {
-        const confirmation = await connection.confirmTransaction(
-            {
-            signature: buySignature,
-            blockhash: (await connection.getLatestBlockhash()).blockhash,
-            lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
-            },
-            "confirmed"
-        );
-        
-        if (confirmation.value.err) {
-            console.error("❌ Transaction failed:", confirmation.value.err);
-        } else {
-            console.log("✅ Transaction confirmed:", buySignature);
+        // Wait for confirmation with custom timeout
+        try {
+            const confirmation = await connection.confirmTransaction(
+                {
+                signature: buySignature,
+                blockhash: (await connection.getLatestBlockhash()).blockhash,
+                lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
+                },
+                "confirmed"
+            );
+            
+            if (confirmation.value.err) {
+                console.error("❌ Transaction failed:", confirmation.value.err);
+            } else {
+                console.log("✅ Transaction confirmed:", buySignature);
+            }
+        } catch (timeoutError) {
+            console.log("⏰ Transaction timeout, but may still be processing...");
+            console.log("🔍 Check transaction status:", `https://solscan.io/tx/${buySignature}?cluster=devnet`);
         }
-    } catch (timeoutError) {
-        console.log("⏰ Transaction timeout, but may still be processing...");
-        console.log("🔍 Check transaction status:", `https://solscan.io/tx/${buySignature}?cluster=devnet`);
-    }      // .simulate();
-    console.log("✅ SaleTradeEvent transaction results:", tx_sell);
-    console.log();
+        console.log("✅ BuyTradeEvent transaction results:", tx_buy);
+        console.log();
+    }
 
     await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 
-    console.log("✅ BuyTradeEvent transaction results:", tx_buy);
-    console.log();
     // console.log("⏳ Waiting for confirmation...");
 
     // // Wait for confirmation
@@ -280,5 +284,24 @@ async function test_swap() {
   }
 }
 
+const args = process.argv.slice(2);
+if (args.length > 1) {
+  console.error("❌ Too many arguments. Usage:");
+  console.error("   npx ts-node tests/test_swap.ts mo | ro");
+  console.error("   mo = mint only, ro = redeem only");
+  console.error("   Either mo or ro exclusive, or no argument for both");
+  process.exit(1);
+}
+const option = args[0];
+let mintOnly = true;
+let redeemOnly = true;
+if (option && option === "mo") {
+  mintOnly = true;
+  redeemOnly = false;
+} else if (option && option === "ro") {
+  mintOnly = false;
+  redeemOnly = true;
+}
+
 // Run the function (removed catch so it doesn't display the error twice)
-test_swap(); // .catch(console.error);
+test_swap(mintOnly, redeemOnly); // .catch(console.error);
