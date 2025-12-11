@@ -129,6 +129,7 @@ pub fn quote_exact_out<'a>(
 
             if !active_bin.is_empty(!swap_for_y) {
                 let bin_max_amount_out = active_bin.get_max_amount_out(swap_for_y);
+                msg!("-----> amount_out: {}, bin_max_amount_out: {}", amount_out, bin_max_amount_out);
                 if amount_out >= bin_max_amount_out {
                     let max_amount_in = active_bin.get_max_amount_in(price, swap_for_y)?;
                     let max_fee = lb_pair.compute_fee(max_amount_in)?;
@@ -155,6 +156,7 @@ pub fn quote_exact_out<'a>(
                     amount_out = 0;
                 }
             }
+            msg!("-----> amount_out left to quote: {}, total_amount_in: {}", amount_out, total_amount_in);
 
             iterations += 1;
             require!(iterations < MAX_ITERATIONS, CustomError::ExceededMaxIterationsQuoteExactOut);
@@ -167,6 +169,7 @@ pub fn quote_exact_out<'a>(
             }
         }
     }
+    msg!("Total fee: {}", total_fee);
 
     total_amount_in = total_amount_in
         .checked_add(total_fee)
@@ -221,15 +224,23 @@ pub fn quote_exact_in<'a>(
     const MAX_ITERATIONS: u64 = 70 * 512;
 
     while amount_left > 0 {
-        let active_bin_array_pubkey = get_bin_array_pubkeys_for_swap(
+        let mut active_bin_array_pubkey;
+        match get_bin_array_pubkeys_for_swap(
             lb_pair_pubkey,
             &lb_pair,
             bitmap_extension,
             swap_for_y,
             1,
         )?
-        .pop()
-        .ok_or("Pool out of liquidity").unwrap();
+        .pop() {
+            Some(pubkey) => {
+                active_bin_array_pubkey = pubkey;
+            }
+            None => {
+                msg!("Failed to get bin array pubkey for swap");
+                break;
+            }
+        }
 
         let mut active_bin_array = bin_arrays
             .get(&active_bin_array_pubkey)
@@ -262,6 +273,9 @@ pub fn quote_exact_in<'a>(
                     .checked_add(amount_out)
                     .ok_or("MathOverflow").unwrap();
                 total_fee = total_fee.checked_add(fee).ok_or("MathOverflow").unwrap();
+
+                msg!("-----> amount_left: {}, total_amount_out: {}, amount_out: {}", 
+                    amount_left, total_amount_out, amount_out);
             }
 
             iterations += 1;

@@ -1,3 +1,4 @@
+use anchor_lang::prelude::msg;
 use crate::dlmm::types::Rounding;
 use ruint::aliases::U256;
 
@@ -6,6 +7,7 @@ pub fn mul_div(x: u128, y: u128, denominator: u128, rounding: Rounding) -> Optio
     if denominator == 0 {
         return None;
     }
+    msg!("mul_div: x {}, y {}, denominator {}, rounding {:?}", x, y, denominator, rounding);
 
     let x = U256::from(x);
     let y = U256::from(y);

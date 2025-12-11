@@ -74,4 +74,6 @@ pub enum CustomError {
     MathError,
     #[msg("Invalid MarketMakingMode for IRMA")]
     InvalidMarketMakingModeForIRMA,
+    #[msg("Price not found in LB pair")]
+    PriceNotFoundInLBPair,
 }

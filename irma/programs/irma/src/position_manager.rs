@@ -17,12 +17,13 @@ use crate::errors::CustomError;
 
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::Bin;
-use commons::u64x64_math::pow;
+// use commons::u64x64_math::pow;
 use commons::bin::*;
 use commons::position::*;
 use commons::{ONE, BASIS_POINT_MAX, SCALE_OFFSET};
 use commons::fetch_positions;
 use commons::conversions::*;
+use commons::math::*;
 
 // Serializable version of Mint info
 #[account]
@@ -231,6 +232,35 @@ impl SinglePosition {
             last_update_timestamp: self.last_update_timestamp,
         })
     }
+
+    /// Binary search to find the bin id for a given price
+    pub fn search_bin_given_price(
+        lb_pair_state: &LbPair,
+        target_price: u128,
+    ) -> Result<i32> {
+
+        let bin_step = lb_pair_state.bin_step;
+        let half_step = bin_step.checked_div(2).unwrap();
+
+        let mut lower_bin_id = lb_pair_state.parameters.min_bin_id;
+        let mut upper_bin_id = lb_pair_state.parameters.max_bin_id;
+
+        while lower_bin_id <= upper_bin_id {
+            let mid_bin_id = lower_bin_id + (upper_bin_id - lower_bin_id) / 2;
+            let mid_price = PositionRaw::get_price_from_id(mid_bin_id, bin_step)?;
+
+            if (mid_price - <u16 as Into<u128>>::into(half_step)) < target_price && 
+                (mid_price + <u16 as Into<u128>>::into(half_step)) > target_price {
+                return Ok(mid_bin_id);
+            } else if mid_price < target_price {
+                lower_bin_id = mid_bin_id + 1;
+            } else {
+                upper_bin_id = mid_bin_id - 1;
+            }
+        }
+
+        Err(Error::from(CustomError::PriceNotFoundInLBPair))
+    }
 }
 
 #[derive(Default, PartialEq, Debug, Clone)]
@@ -310,15 +340,7 @@ impl PositionRaw {
     }
 
     pub fn get_price_from_id(active_id: i32, bin_step: u16) -> Result<u128> {
-        let bps = u128::from(bin_step)
-            .checked_shl(SCALE_OFFSET.into())
-            .unwrap()
-            .checked_div(BASIS_POINT_MAX as u128)
-            .unwrap();
-
-        let base = ONE.checked_add(bps).unwrap();
-
-        Ok(pow(base, active_id).unwrap())
+        Ok(price_math::get_price_from_id(active_id, bin_step).unwrap())
     }
 
     pub fn get_id_from_price(price: u128, bin_step: u16) -> Result<i32> {
@@ -330,7 +352,6 @@ impl PositionRaw {
 
         let one_plus_bps = ONE.checked_add(bps).unwrap();
         
-        // Solve for active_id from: price = (1 + bps) * active_id
         let active_id = price
             .checked_div(one_plus_bps)
             .ok_or(CustomError::MathError)?;

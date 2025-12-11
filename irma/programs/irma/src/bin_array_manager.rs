@@ -6,14 +6,8 @@ use commons::MAX_BIN_PER_ARRAY;
 
 // Number of bits to scale. This will decide the position of the radix point.
 //
-// SCALE_OFFSET was previously 64, but has been changed to 20 to better match the precision requirements
-// of our application and to improve performance. A value of 20 provides sufficient precision for all
-// calculations involving liquidity shares and fee computations, while avoiding unnecessary use of
-// high-precision arithmetic. All usages of SCALE_OFFSET in this file (notably in bit-shifting and
-// scaling operations) have been reviewed and verified to work correctly with this new value.
-// If future changes require higher precision, this value and all dependent calculations should be
-// re-evaluated.
-pub const SCALE_OFFSET: u8 = 20;
+// Unfortunately, Meteora DLMM cannot handle values for SCALE_OFFSET other than 64.
+pub const SCALE_OFFSET: u8 = 64;
 
 // Code below is from bin_array_manager.rs in Meteora SDK, adapted for our use case.
 

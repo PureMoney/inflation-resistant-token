@@ -2,7 +2,11 @@
 pub const PRECISION: u128 = 1_000_000_000_000;
 
 // Number of bits to scale. This will decide the position of the radix point.
-pub const SCALE_OFFSET: u8 = 20; // 64;
+// Results of experiments on the value of SCALE_OFFSET:
+// Three of the tests/on_chain fail if SCALE_OFFSET is set to 21 and above.
+// Only one of the tests fail if SCALE_OFFSET is set to 20 and below.
+// The DLMM program can only deal with SCALE_OFFSET of 64.
+pub const SCALE_OFFSET: u8 = 64;
 
 // Where does this value come from ?
 // When smallest bin is used (1 bps), the maximum of bin limit is 887272 (Check: https://docs.traderjoexyz.com/concepts/bin-math).

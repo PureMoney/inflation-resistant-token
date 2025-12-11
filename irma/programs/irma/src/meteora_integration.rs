@@ -1056,8 +1056,8 @@ impl Core {
             remaining_accounts, 
             &core_position.lb_pair
         )?;
-        let mint_price_bin_id = PositionRaw::get_id_from_price(mint_price_u128, lb_pair_state.bin_step)?;
-        let redemption_price_bin_id = PositionRaw::get_id_from_price(redemption_price_u128, lb_pair_state.bin_step)?;
+        let mint_price_bin_id = SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128)?;
+        let redemption_price_bin_id = SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128)?;
 
         let pair_config = get_pair_config(&core.config, core_position.lb_pair);
         
