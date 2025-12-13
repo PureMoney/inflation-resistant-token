@@ -197,16 +197,15 @@ pub mod irma {
 
     /// This connects a reserve stablecoin to its corresponding LBPair.
     /// There can only be a single LbPair per stablecoin reserve.
-    pub fn update_reserve_lbpair(
-        ctx: Context<Maint>, symbol: String, lb_pair: String
+    pub fn update_reserve_lbpair<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, lb_pair: String
     ) -> Result<()> {
         let lb_pair_key: Pubkey = Pubkey::from_str(&lb_pair).unwrap();
-        let remaining_accounts: &[AccountInfo<'_>] = &ctx.remaining_accounts;
         {
             let stablecoin = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
                 .ok_or(error!(CustomError::ReserveNotFound))?;
             let lb_pair_state = fetch_lb_pair_state(
-                remaining_accounts,
+                &ctx.remaining_accounts,
                 &lb_pair_key,
             )?;
             // check that the input LbPair is valid and matches the reserve stablecoin mint
@@ -216,24 +215,26 @@ pub mod irma {
         }
         // add the LbPair to the core config if not already present
         // let remaining_accounts = &ctx.remaining_accounts;
-        let core = &mut ctx.accounts.core;
+        let core_mut = &mut ctx.accounts.core;
+        let core = core_mut.clone(); // immutable clone
         if !core.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
-            core.config.push(PairConfig {
+            core_mut.config.push(PairConfig {
                 pair_address: lb_pair.clone(),
                 x_amount: 0,
                 y_amount: 0,
                 mode: MarketMakingMode::ModeBoth,
             });
-            core.position_data.all_positions.push(
+            core_mut.position_data.all_positions.push(
                 position_manager::SinglePosition::new(lb_pair_key.clone())
             );
-            let _ = core.fetch_token_info(remaining_accounts)?;
+            // Skip fetch_token_info to avoid lifetime issues in Anchor instructions
+            let _ = core_mut.fetch_token_info(&ctx.remaining_accounts)?;
             // remove extraneous LbPair configs if any
             let reserves = &ctx.accounts.state.reserves;
             for i in (0..core.config.len()).rev() {
                 let pair_config = &core.config[i];
                 if !reserves.iter().any(|r| r.pool_id.to_string() == pair_config.pair_address) {
-                    core.config.remove(i);
+                    core_mut.config.remove(i);
                 }
             }
         }
@@ -297,15 +298,15 @@ pub mod irma {
 
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions.
-    pub fn check_shift_price_ranges(
-        ctx: Context<Maint>
+    pub fn check_shift_price_ranges<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
         let corei = &mut ctx.accounts.core.clone();
         let core = &mut ctx.accounts.core;
         let payer = &mut ctx.accounts.irma_admin;
         let reserves = &mut ctx.accounts.state.reserves;
-        let remaining_accounts: &[AccountInfo<'_>] = &ctx.remaining_accounts;
+        let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
 
         for position in corei.position_data.all_positions.iter_mut() {
             Core::check_shift_price_range(
@@ -316,6 +317,7 @@ pub mod irma {
                 position,
             )?;
         }
+        msg!("check_shift_price_ranges called");
         Ok(())
     }
 

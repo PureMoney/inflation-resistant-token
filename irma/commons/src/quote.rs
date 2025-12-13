@@ -224,7 +224,7 @@ pub fn quote_exact_in<'a>(
     const MAX_ITERATIONS: u64 = 70 * 512;
 
     while amount_left > 0 {
-        let mut active_bin_array_pubkey;
+        let mut active_bin_array_pubkey = Pubkey::default();
         match get_bin_array_pubkeys_for_swap(
             lb_pair_pubkey,
             &lb_pair,

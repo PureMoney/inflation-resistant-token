@@ -21,7 +21,6 @@ use commons::dlmm::types::Bin;
 use commons::bin::*;
 use commons::position::*;
 use commons::ONE;
-use commons::account_filters::fetch_positions;
 use commons::conversions::*;
 use commons::math::*;
 

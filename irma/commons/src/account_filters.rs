@@ -65,21 +65,6 @@ pub fn filter_positions_by_wallet_and_pair(
     Ok(matching_indices)
 }
 
-/// Fetch positions dynamically when needed
-pub fn fetch_positions<'a>(
-    acct_infos: &'a [AccountInfo<'a>], position_pks: &[Pubkey]
-) -> Result<Vec<&'a PositionV2>> {
-    let accounts: HashMap<Pubkey, Option<&PositionV2>> = 
-        get_multiple_bytemuck_account_refs(acct_infos, position_pks)?;
-        
-    let mut positions = Vec::new();
-    for pk in position_pks {
-        if let Some(Some(position)) = accounts.get(pk) {
-            positions.push(*position);
-        }
-    }
-    Ok(positions)
-}
 
 /// Extract position data from accounts that match the given criteria
 /// Returns tuples of (pubkey, position_data) for matching accounts
