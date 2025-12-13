@@ -171,28 +171,42 @@ pub mod irma {
         Ok(())
     }
 
-    pub fn add_reserve(ctx: Context<Maint>, symbol: String, mint_address: Pubkey, decimals: u8) -> Result<()> {
+    pub fn add_reserve(
+        ctx: Context<Maint>,
+        symbol: String,
+        mint_address: Pubkey,
+        decimals: u8
+    ) -> Result<()> {
         msg!("Add stablecoin entry, size of StateMap: {}", ctx.accounts.state.reserves.len());
         pricing::add_reserve(ctx, &symbol, mint_address, decimals)
     }
 
-    pub fn remove_reserve(ctx: Context<Maint>, symbol: String) -> Result<()> {
+    pub fn remove_reserve(
+        ctx: Context<Maint>,
+        symbol: String
+    ) -> Result<()> {
         pricing::remove_reserve(ctx, &symbol)
     }
 
-    pub fn disable_reserve(ctx: Context<Maint>, symbol: String) -> Result<()> {
+    pub fn disable_reserve(
+        ctx: Context<Maint>,
+        symbol: String
+    ) -> Result<()> {
         pricing::disable_reserve(ctx, &symbol)
     }
 
     /// This connects a reserve stablecoin to its corresponding LBPair.
     /// There can only be a single LbPair per stablecoin reserve.
-    pub fn update_reserve_lbpair(ctx: Context<Maint>, symbol: String, lb_pair: String) -> Result<()> {
+    pub fn update_reserve_lbpair(
+        ctx: Context<Maint>, symbol: String, lb_pair: String
+    ) -> Result<()> {
         let lb_pair_key: Pubkey = Pubkey::from_str(&lb_pair).unwrap();
+        let remaining_accounts: &[AccountInfo<'_>] = &ctx.remaining_accounts;
         {
             let stablecoin = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
                 .ok_or(error!(CustomError::ReserveNotFound))?;
             let lb_pair_state = fetch_lb_pair_state(
-                &ctx.remaining_accounts,
+                remaining_accounts,
                 &lb_pair_key,
             )?;
             // check that the input LbPair is valid and matches the reserve stablecoin mint
@@ -201,7 +215,7 @@ pub mod irma {
             }
         }
         // add the LbPair to the core config if not already present
-        let remaining_accounts = &ctx.remaining_accounts;
+        // let remaining_accounts = &ctx.remaining_accounts;
         let core = &mut ctx.accounts.core;
         if !core.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
             core.config.push(PairConfig {
@@ -238,7 +252,7 @@ pub mod irma {
     pub fn get_redemption_price(ctx: Context<Maint>, quote_token: String) -> Result<f64> {
         pricing::get_redemption_price(&ctx.accounts.state.reserves, &quote_token)
     }
-
+    
     pub fn get_prices(ctx: Context<Maint>, quote_token: String) -> Result<(f64, f64)> {
         pricing::get_prices(&ctx.accounts.state.reserves, &quote_token)
     }
@@ -257,7 +271,9 @@ pub mod irma {
     /// Let pricing know about a sale trade event
     /// Note that IRMA is what we are selling (minting).
     /// bought_amount is the amount of bought_token we received from the sale.
-    pub fn sale_trade_event(ctx: Context<Maint>, bought_token: String, bought_amount: u64) -> Result<()> {
+    pub fn sale_trade_event(
+        ctx: Context<Maint>, bought_token: String, bought_amount: u64
+    ) -> Result<()> {
         // Extract references to avoid double mutable borrow
         let core = &mut ctx.accounts.core;
         let state = &mut ctx.accounts.state;
@@ -268,7 +284,9 @@ pub mod irma {
 
     /// Let pricing know about a buy-back trade event
     /// Note that IRMA is what we are buying back (burning) and we just sold the backing token.
-    pub fn buy_trade_event(ctx: Context<Maint>, sold_token: String, irma_amount: u64) -> Result<()> {
+    pub fn buy_trade_event(
+        ctx: Context<Maint>, sold_token: String, irma_amount: u64
+    ) -> Result<()> {
         // Extract references to avoid double mutable borrow
         let core = &mut ctx.accounts.core;
         let state = &mut ctx.accounts.state;
@@ -279,13 +297,15 @@ pub mod irma {
 
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions.
-    pub fn check_shift_price_ranges(ctx: Context<Maint>) -> Result<()> {
+    pub fn check_shift_price_ranges(
+        ctx: Context<Maint>
+    ) -> Result<()> {
         // Extract references to avoid double mutable borrow
         let corei = &mut ctx.accounts.core.clone();
         let core = &mut ctx.accounts.core;
         let payer = &mut ctx.accounts.irma_admin;
         let reserves = &mut ctx.accounts.state.reserves;
-        let remaining_accounts = ctx.remaining_accounts;
+        let remaining_accounts: &[AccountInfo<'_>] = &ctx.remaining_accounts;
 
         for position in corei.position_data.all_positions.iter_mut() {
             Core::check_shift_price_range(
@@ -301,39 +321,49 @@ pub mod irma {
 
     /// Helper instruction to ensure Core type is included in IDL
     /// Returns the Core account data for debugging
-    // pub fn get_core_data<'info>(ctx: Context<'info, Core>) -> Result<Account<'info, Core>> {
+    // pub fn get_core_data<'a>(ctx: Context<'a, Core>) -> Result<Account<'a, Core>> {
     //     // Simple read operation to include Core type in IDL
     //     let core = &ctx.accounts.core;
     //     Ok(Account::from(*core))
     // }
 
     /// Helper instruction to force AllPosition type into IDL
-    pub fn get_position_info(_ctx: Context<Maint>) -> Result<position_manager::AllPosition> {
+    pub fn get_position_info(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::AllPosition> {
         // This forces AllPosition to be included in IDL as a return type
         Err(error!(CustomError::InvalidAmount))
     }
 
-    /// Helper instruction to force SinglePosition type into IDL  
-    pub fn get_single_position(_ctx: Context<Maint>) -> Result<position_manager::SinglePosition> {
+    /// Helper instruction to force SinglePosition type into IDL
+    pub fn get_single_position(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::SinglePosition> {
         // This forces SinglePosition to be included in IDL as a return type
         Err(error!(CustomError::InvalidAmount))
     }
 
     /// Helper instruction to force MintInfo type into IDL
-    pub fn get_mint_info(_ctx: Context<Maint>) -> Result<position_manager::MintInfo> {
-        // This forces MintInfo to be included in IDL as a return type  
+    pub fn get_mint_info(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::MintInfo> {
+        // This forces MintInfo to be included in IDL as a return type
         Err(error!(CustomError::InvalidAmount))
     }
 
     /// Helper instruction to force MintWithProgramId type into IDL
-    pub fn get_mint_with_program_id(_ctx: Context<Maint>) -> Result<position_manager::MintWithProgramId> {
+    pub fn get_mint_with_program_id(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::MintWithProgramId> {
         // This forces MintWithProgramId to be included in IDL as a return type  
         Err(error!(CustomError::InvalidAmount))
     }
 
     /// Helper instruction to force TokenEntry type into IDL
-    pub fn get_token_entry(_ctx: Context<Maint>) -> Result<position_manager::TokenEntry> {
-        // This forces TokenEntry to be included in IDL as a return type  
+    pub fn get_token_entry(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::TokenEntry> {
+        // This forces TokenEntry to be included in IDL as a return type
         Err(error!(CustomError::InvalidAmount))
     }
 }

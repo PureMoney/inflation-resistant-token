@@ -26,8 +26,8 @@ const PROGRAM_ID = new PublicKey(idl.address);
 
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
-async function initializeProtocol() {
-  console.log("\n🚀 Initializing IRMA Protocol");
+async function readProtocolState() {
+  console.log("\n🚀 Reading IRMA Protocol State");
   console.log("===============================\n");
 
   // Use environment variables from .env file
@@ -175,4 +175,4 @@ async function initializeProtocol() {
 }
 
 // Run the function
-initializeProtocol().catch(console.error);
+readProtocolState().catch(console.error);

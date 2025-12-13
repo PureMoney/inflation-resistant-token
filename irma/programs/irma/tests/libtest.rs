@@ -99,15 +99,16 @@ mod tests {
         let state_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(state_account_info));
         let irma_admin_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(irma_admin_account_info));
         let sys_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(sys_account_info));
-        let mut accounts: Init<'_> = Init {
+        let mut accounts = Init {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
             core: Account::try_from(state_account_static).unwrap(), // Placeholder
         };
+        let mut accounts_static: &mut Init = Box::leak(Box::new(accounts));
         let ctx: Context<Init> = Context::new(
             program_id,
-            &mut accounts,
+            accounts_static, // &mut accounts,
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );

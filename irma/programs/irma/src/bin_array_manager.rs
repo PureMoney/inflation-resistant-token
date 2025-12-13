@@ -12,7 +12,7 @@ pub const SCALE_OFFSET: u8 = 64;
 // Code below is from bin_array_manager.rs in Meteora SDK, adapted for our use case.
 
 pub struct BinArrayManager<'a> {
-    pub bin_arrays: &'a [BinArray],
+    pub bin_arrays: &'a [&'a BinArray],
 }
 
 impl<'a> BinArrayManager<'a> {
@@ -21,7 +21,7 @@ impl<'a> BinArrayManager<'a> {
         match self
             .bin_arrays
             .iter()
-            .find(|ba| ba.index == bin_array_idx as i64)
+            .find(|ba| (*ba).index == bin_array_idx as i64)
         {
             Some(bin_array) => Ok(bin_array.get_bin(bin_id)?),
             None => Err(Error::from(CustomError::BinArrayNotFound)),
@@ -29,8 +29,8 @@ impl<'a> BinArrayManager<'a> {
     }
 
     pub fn get_lower_upper_bin_id(&self) -> Result<(i32, i32)> {
-        let lower_bin_array_idx = self.bin_arrays[0].index as i32;
-        let upper_bin_array_idx = self.bin_arrays[self.bin_arrays.len() - 1].index as i32;
+        let lower_bin_array_idx = (*self.bin_arrays[0]).index as i32;
+        let upper_bin_array_idx = (*self.bin_arrays[self.bin_arrays.len() - 1]).index as i32;
 
         let lower_bin_id = lower_bin_array_idx
             .checked_mul(MAX_BIN_PER_ARRAY as i32)

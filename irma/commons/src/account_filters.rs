@@ -66,9 +66,11 @@ pub fn filter_positions_by_wallet_and_pair(
 }
 
 /// Fetch positions dynamically when needed
-pub fn fetch_positions(acct_infos: &[AccountInfo], position_pks: &[Pubkey]) -> Result<Vec<PositionV2>> {
-    let accounts: HashMap<Pubkey, Option<PositionV2>> = 
-        get_multiple_bytemuck_accounts(acct_infos, &position_pks.to_vec())?;
+pub fn fetch_positions<'a>(
+    acct_infos: &'a [AccountInfo<'a>], position_pks: &[Pubkey]
+) -> Result<Vec<&'a PositionV2>> {
+    let accounts: HashMap<Pubkey, Option<&PositionV2>> = 
+        get_multiple_bytemuck_account_refs(acct_infos, position_pks)?;
         
     let mut positions = Vec::new();
     for pk in position_pks {
