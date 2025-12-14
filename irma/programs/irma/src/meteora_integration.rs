@@ -9,7 +9,8 @@ use commons::{
     conversions::fetch_positions,
     get_matching_positions,
     get_bytemuck_account_ref,
-    derive_event_authority_pda
+    derive_event_authority_pda,
+    price_math::get_price_from_id,
 };
 
 use crate::position_manager::*;
@@ -1078,8 +1079,34 @@ impl Core {
             remaining_accounts, 
             &core_position.lb_pair
         )?;
-        let mut mint_price_bin_id = SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128)?;
-        let redemption_price_bin_id = SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128)?;
+        msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
+        let bin_step = lb_pair_state.bin_step;
+        let min_bin_id = lb_pair_state.parameters.min_bin_id;
+        let max_bin_id = lb_pair_state.parameters.max_bin_id;
+        msg!("    --> lb pair bin step: {}, min bin id: {}, max bin id: {}", bin_step, min_bin_id, max_bin_id);
+        let mut mint_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128) {
+            Ok(bin_id) => bin_id,
+            Err(_) => {
+                // if out of range, set to max or min bin id
+                if mint_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                    min_bin_id
+                } else {
+                    max_bin_id
+                }
+            }
+        };
+        let redemption_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128) {
+            Ok(bin_id) => bin_id,
+            Err(_) => {
+                // if out of range, set to max or min bin id
+                if redemption_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                    min_bin_id
+                } else {
+                    max_bin_id
+                }
+            }
+        };
+        msg!("    --> mint price bin id: {}, redemption price bin id: {}", mint_price_bin_id, redemption_price_bin_id);
         // ensure that mint bin id is higher than redemption bin id
         if mint_price_bin_id <= redemption_price_bin_id {
             // adjust mint price bin id by one to ensure they are different

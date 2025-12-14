@@ -245,7 +245,7 @@ impl SinglePosition {
         let bin_step = lb_pair_state.bin_step;
         let half_step = bin_step.checked_mul(50).unwrap() + 16;
         let half_step_u128: u128 = <u16 as Into<u128>>::into(half_step);
-        // msg!("  half_step: {}", half_step_u128);
+        msg!("  half_step: {}", half_step_u128);
 
         let mut lower_bin_id = lb_pair_state.parameters.min_bin_id;
         let mut upper_bin_id = lb_pair_state.parameters.max_bin_id;
@@ -253,7 +253,7 @@ impl SinglePosition {
         while lower_bin_id <= upper_bin_id {
             let mid_bin_id = lower_bin_id + (upper_bin_id - lower_bin_id) / 2;
             let mid_price = PositionRaw::get_price_from_id(mid_bin_id, bin_step)?;
-            // msg!("  mid_bin_id: {}, mid_price: {}", mid_bin_id, mid_price);
+            msg!("  mid_bin_id: {}, mid_price: {}", mid_bin_id, mid_price);
 
             if (mid_price - half_step_u128) < target_price && 
                 (mid_price + half_step_u128) > target_price {
