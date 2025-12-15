@@ -761,6 +761,7 @@ impl Core {
         amount_y: u64, // must zero if amount_x > 0 and vice versa
         new_price_bin_id: i32 // this is not the lb_pair active bin id; this is the bin we want to deposit to
     ) -> Result<Pubkey> {
+        msg!("==> Depositing liquidity into position for bin: {}", new_price_bin_id);
         // enforce exclusive OR condition
         require!(
             (amount_x == 0) != (amount_y == 0),
@@ -778,34 +779,22 @@ impl Core {
 
         let mut instructions = vec![/* ComputeBudgetInstruction::set_compute_unit_limit(1_400_000) */];
 
-        // Initialize bin array if not exists
+        // Initialize bin array where the bin belongs, if not exists
         let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
-        let dummy_pubkey = Pubkey::default();
+        msg!("    Checking bin array at index: {}", bin_array_idx);
 
-        let bin_array_instance = BinArray {
-            lb_pair: dummy_pubkey,
-            version: 0u8,
-            index: 0i64,
-            bins: [Bin::default(); 70],
-            _padding: [0u8; 7],
-        };
-
-        let bin_array_ref: &BinArray;
         let acct_info = remaining_accounts.iter()
             .find(|acc| acc.key == &bin_array);
         if let Some(acct_info) = acct_info {
-            bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
+            let _bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
                 Some(bin_array_state) => bin_array_state,
-                None => &bin_array_instance,
+                None => Err(error!(CustomError::InvalidBinArrayState))?,
             };
         } else {
-            bin_array_ref = &bin_array_instance;
-        }
-
-        if bin_array_ref.lb_pair == dummy_pubkey {
+            msg!("    Bin array account not found, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
-                bin_array,
+                bin_array, // derived
                 funder: payer.key(),
                 lb_pair,
                 system_program: system_program::ID,
@@ -819,8 +808,9 @@ impl Core {
                 accounts: accounts.to_vec(),
                 data,
             };
+            msg!("    Initializing bin array {}.", bin_array);
 
-            instructions.push(instruction)
+            instructions.push(instruction);
         }
 
         if state.position_pks.len() > 2 {
@@ -864,6 +854,7 @@ impl Core {
             accounts: accounts.to_vec(),
             data,
         };
+        msg!("    Initializing position: {}", position);
 
         instructions.push(instruction);
 
@@ -959,6 +950,7 @@ impl Core {
             accounts,
             data,
         };
+        msg!("    Adding liquidity instruction created: x {} y {}", amount_x, amount_y );
 
         instructions.push(instruction);
 
