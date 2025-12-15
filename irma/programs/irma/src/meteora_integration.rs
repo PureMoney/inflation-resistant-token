@@ -5,7 +5,7 @@ use commons::{
     *,
 };
 use commons::{
-    fetch_lb_pair_state,
+    fetch_lb_pair_state, get_bytemuck_account,
     conversions::fetch_positions,
     get_matching_positions,
     get_bytemuck_account_ref,
@@ -336,9 +336,9 @@ impl Core {
         let mut token_mints_with_program = vec![];
 
         for position_entry in state.all_positions.iter() {
-            let lb_pair_state = fetch_lb_pair_state(
+            let lb_pair_state = get_bytemuck_account::<LbPair>(
                 remaining_accounts, &position_entry.lb_pair
-            )?;
+            ).ok_or(error!(CustomError::MissingLbPairState))?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -440,7 +440,8 @@ impl Core {
         let (event_authority, _bump) = derive_event_authority_pda();
 
         let lb_pair = state.lb_pair;
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, &state.lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts_in, &state.lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -603,7 +604,8 @@ impl Core {
         swap_for_y: bool
     ) -> Result<()> {
 
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts, &state.lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
 
         msg!("==> Swapping on pair: {}", state.lb_pair);
 
@@ -874,7 +876,8 @@ impl Core {
 
         let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts, &lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
         let user_token_x = get_associated_token_address_with_program_id(
@@ -984,7 +987,8 @@ impl Core {
         amount_x: u64,
         amount_y: u64,
     ) -> Result<(u64, u64)> {
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &position.lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(context.remaining_accounts, &position.lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
 
         // let rpc_client = self.rpc_client();
         let payer = context.accounts.irma_admin.clone();

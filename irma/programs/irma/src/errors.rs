@@ -76,4 +76,6 @@ pub enum CustomError {
     InvalidMarketMakingModeForIRMA,
     #[msg("Price not found in LB pair")]
     PriceNotFoundInLBPair,
+    #[msg("Position missing in remaining_accounts")]
+    MissingPositionState,
 }

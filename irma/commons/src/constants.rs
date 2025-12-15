@@ -103,4 +103,6 @@ pub enum CustomError {
     ExceededMaxIterationsQuoteExactIn,
     #[msg("Missing LbPair data")]
     MissingLbPairState,
+    #[msg("Position missing in remaining_accounts")]
+    MissingPositionState,
 }
