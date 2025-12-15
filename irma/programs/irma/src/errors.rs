@@ -78,4 +78,6 @@ pub enum CustomError {
     PriceNotFoundInLBPair,
     #[msg("Position missing in remaining_accounts")]
     MissingPositionState,
+    #[msg("Found BinArray in remaining_accounts, but it is invalid")]
+    InvalidBinArrayState,
 }
