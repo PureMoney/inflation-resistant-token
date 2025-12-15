@@ -1,7 +1,7 @@
 import { AnchorProvider, Program, Wallet } from "@coral-xyz/anchor";
 import pkg from "@coral-xyz/anchor";
 const { BN } = pkg;
-import { Connection, PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
+import { Connection, PublicKey, SystemProgram, Keypair, ComputeBudgetProgram, TransactionInstruction } from "@solana/web3.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -173,6 +173,18 @@ async function test_check_shift_price() {
             isWritable: false,
         })))
         .transaction();
+
+        // Add compute budget instructions to increase CU limit
+        const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({
+            units: 1_000_000, // Request 1M compute units (5x the default)
+        });
+        
+        const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: 1000, // Set higher priority fee for faster processing
+        });
+
+        // Add compute budget instructions at the beginning
+        tx_sell.instructions.unshift(computeLimitIx, computePriceIx);
 
         // Send transaction
         const signature = await connection.sendTransaction(tx_sell, [wallet.payer]);
