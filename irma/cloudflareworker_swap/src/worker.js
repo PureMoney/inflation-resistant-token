@@ -34,7 +34,7 @@ class CustomWallet {
 // ==================================================================
 // CONFIGURATION
 // ==================================================================
-const HELIUS_API_KEY = env.HELIUS_API_KEY;
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
 const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 
 // CONSTANTS
