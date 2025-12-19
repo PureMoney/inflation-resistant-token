@@ -346,7 +346,7 @@ impl Core {
             }
             let lb_pair_state = fetch_lb_pair_state(
                 remaining_accounts, &position_entry.lb_pair
-            )?;
+            ).ok_or(error!(CustomError::MissingLbPairState))?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
