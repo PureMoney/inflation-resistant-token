@@ -200,6 +200,7 @@ pub mod irma {
     pub fn update_reserve_lbpair<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, lb_pair: String
     ) -> Result<()> {
+        // msg!("Update reserve LB pair for symbol: {}, lb_pair: {}", symbol, lb_pair);
         let lb_pair_key: Pubkey = Pubkey::from_str(&lb_pair).unwrap();
         {
             let stablecoin = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
@@ -216,8 +217,27 @@ pub mod irma {
         // add the LbPair to the core config if not already present
         // let remaining_accounts = &ctx.remaining_accounts;
         let core_mut = &mut ctx.accounts.core;
-        let core = core_mut.clone(); // immutable clone
-        if !core.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
+        if core_mut.config.len() == 0 {
+            // msg!("Core config is empty, adding all reserves' LB pairs");
+            let reserves = &ctx.accounts.state.reserves;
+            for reserve in reserves.iter() {
+                // msg!("Core config length b4: {}", core_mut.config.len());
+                let pool_id = reserve.pool_id.clone();
+                core_mut.config.push(PairConfig {
+                    pair_address: pool_id.to_string(),
+                    x_amount: 0,
+                    y_amount: 0,
+                    mode: MarketMakingMode::ModeView,
+                });
+                // msg!("Core config length after: {}", core_mut.config.len());
+                if core_mut.position_data.all_positions.iter().all(|p| p.lb_pair != pool_id) {
+                    core_mut.position_data.all_positions.push(
+                        position_manager::SinglePosition::new(pool_id.clone())
+                    );
+                }
+            }
+        }
+        else if !core_mut.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
             core_mut.config.push(PairConfig {
                 pair_address: lb_pair.clone(),
                 x_amount: 0,
@@ -227,17 +247,13 @@ pub mod irma {
             core_mut.position_data.all_positions.push(
                 position_manager::SinglePosition::new(lb_pair_key.clone())
             );
-            // Skip fetch_token_info to avoid lifetime issues in Anchor instructions
-            let _ = core_mut.fetch_token_info(&ctx.remaining_accounts)?;
-            // remove extraneous LbPair configs if any
-            let reserves = &ctx.accounts.state.reserves;
-            for i in (0..core.config.len()).rev() {
-                let pair_config = &core.config[i];
-                if !reserves.iter().any(|r| r.pool_id.to_string() == pair_config.pair_address) {
-                    core_mut.config.remove(i);
-                }
-            }
         }
+        else {
+            msg!("LB pair already in core config, clean up core config and position data");
+            core_mut.clean_up_config_and_positions()?;
+        }
+        let _ = core_mut.fetch_token_info(&ctx.remaining_accounts)?;
+        // msg!("Core config length after update: {}", core_mut.config.len());
         // finally, update the pool_id for the given stablecoin symbol
         let reserves = &mut ctx.accounts.state.reserves;
         let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)

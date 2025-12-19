@@ -293,6 +293,7 @@ impl Core {
 
     /// Fetch token info for all tokens in the positions
     pub fn fetch_token_info<'a>(&mut self, remaining_accounts: &'a [AccountInfo<'a>]) -> Result<()> {
+        msg!("==> Fetching token info for all tokens in positions");
         let token_mints_with_program: Vec<(Pubkey, Pubkey)> = 
             self.get_all_token_mints_with_program_id(remaining_accounts)?;
 
@@ -300,6 +301,7 @@ impl Core {
             .iter()
             .map(|(key, _program_id)| *key)
             .collect::<Vec<Pubkey>>();
+        msg!("==> Token keys count: {}", token_keys.len());
 
         let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts::<Mint>(
             remaining_accounts, &token_keys)?;
@@ -336,9 +338,15 @@ impl Core {
         let mut token_mints_with_program = vec![];
 
         for position_entry in state.all_positions.iter() {
-            let lb_pair_state = get_bytemuck_account::<LbPair>(
+            msg!("    Fetching token mints for position on pair: {}, rem count: {}", 
+                position_entry.lb_pair, remaining_accounts.len());
+            if remaining_accounts.iter().all(|acc| acc.key != &position_entry.lb_pair) {
+                msg!("    Missing LB pair state for position on pair");
+                continue;
+            }
+            let lb_pair_state = fetch_lb_pair_state(
                 remaining_accounts, &position_entry.lb_pair
-            ).ok_or(error!(CustomError::MissingLbPairState))?;
+            )?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -1274,5 +1282,24 @@ impl Core {
         }
         return Ok(position_infos);
     }
-}
 
+    pub fn clean_up_config_and_positions(&mut self) -> Result<()> {
+        let bad_pair = "11111111111111111111111111111111";
+        if self.config.iter().any(|pair| bad_pair == pair.pair_address) {
+            // remove extraneous dummy entry
+            for i in (0..self.config.len()).rev() {
+                let pair_config = &self.config[i];
+                if pair_config.pair_address == bad_pair {
+                    self.config.remove(i);
+                }
+            }
+            for i in (0..self.position_data.all_positions.len()).rev() {
+                let position_entry = &self.position_data.all_positions[i];
+                if position_entry.lb_pair.to_string() == bad_pair {
+                    self.position_data.all_positions.remove(i);
+                }
+            }
+        }
+        Ok(())
+    }
+}
