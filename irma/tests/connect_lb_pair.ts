@@ -7,7 +7,7 @@
 // npx ts-node tests/connect_lb_pair.ts HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k
 // (Connect devUSDC-IRMA DLMM pair to devUSDC reserve)
 import { AnchorProvider, Program, Wallet } from "@coral-xyz/anchor";
-import { Connection, PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
+import { Connection, PublicKey, SystemProgram, Keypair, ComputeBudgetProgram } from "@solana/web3.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -114,16 +114,22 @@ async function connect_lb_pair() {
     console.log("🔍 Call updateReserveLbpair...");
     let stateAccount: any = null;
     let stableCoinStruct: any = null;
-    let reserveSymbol = "devUSDC";
-    let pairAddress = "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP"; // Example pair
+    // let reserveSymbol = "devUSDC";
+    // let pairAddress = "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP"; // Example pair
+    let reserveSymbol = "devUSDT";
+    let pairAddress = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; // Example pair
 
     const remainingKeys: string[] = [
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1 = devUSDC
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair 2 = devUSDT
       "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // position
       "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // token x mint (IRMA)
       "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k", // token y mint (devUSDC)
+      "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // token y mint (devUSDT)
       "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // reserve x vault
       "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // reserve y vault
+      "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // reserve x vault (devUSDT)
+      "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj"  // reserve y vault (devUSDT)
     ];
 
     try {
@@ -142,6 +148,15 @@ async function connect_lb_pair() {
             isSigner: false,
           }))
         )
+        .preInstructions([
+          // Add compute budget instructions to increase CU limit
+          ComputeBudgetProgram.setComputeUnitLimit({
+            units: 1_000_000, // Request 1M compute units (5x the default)
+          }),
+          ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: 1000, // Set higher priority fee for faster processing
+          })
+        ])
         .rpc();
         // .simulate();
       console.log("✅ updateReserveLbpair updated stablecoin mint signature:", updateTxId);

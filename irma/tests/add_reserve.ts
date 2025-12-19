@@ -104,12 +104,13 @@ async function add_reserve() {
     const owner = payer.toBase58();
     const configKeys = [
       // Add some example pair addresses - this is not needed for add_reserve
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1
-      // "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1 = devUSDC
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair 2 = devUSDT
     ];
     
     const tx = await program.methods
-      .addReserve("devUSDC", new PublicKey("BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"), 6)
+      // .addReserve("devUSDC", new PublicKey("BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"), 6)
+      .addReserve("devUSDT", new PublicKey("J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"), 6)
       .accounts({
         state: statePda,
         irmaAdmin: payer,
