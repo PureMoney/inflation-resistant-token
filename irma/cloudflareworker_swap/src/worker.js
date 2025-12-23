@@ -38,9 +38,9 @@ const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
 const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 
 // CONSTANTS
-const RESERVE_MINT_STR = "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"; 
-const RESERVE_SYMBOL = "devUSDC";
-const POOL_ADDRESS = "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP"; 
+const RESERVE_MINT_STR = "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"; 
+const RESERVE_SYMBOL = "devUSDT";
+const POOL_ADDRESS = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; 
 
 // ==================================================================
 // HELPER FUNCTIONS
@@ -115,6 +115,7 @@ async function handleRequest(request, env, ctx) {
     // --- BASIC CHECKS ---
     if (!tx) return new Response("Ignored", { status: 200 });
 
+    console.log(`🔔 tx.meta: ${tx.meta}`);
     // --- LOOP PREVENTION ---
     // Check for our specific Memo tag in the logs
     const logs = tx.meta.logMessages || [];
@@ -124,6 +125,7 @@ async function handleRequest(request, env, ctx) {
       return new Response("Ignored (Worker Swap)", { status: 200 });
     }
 
+    console.log(`🔍 Is there an error? ${tx.meta.err}`);
     if (!tx.meta || tx.meta.err !== null) return new Response("Ignored", { status: 200 });
 
     const isSwapInstruction = logs.some(log => 
@@ -166,6 +168,7 @@ async function processRebalance(tx, env) {
       const secretKey = new Uint8Array(JSON.parse(secretString));
       const connection = new Connection(HELIUS_RPC_URL, "confirmed");
       const adminKeypair = Keypair.fromSecretKey(secretKey);
+      console.log(`🔑 Admin Public Key: ${adminKeypair.publicKey.toBase58()}`);
       
       // Use anchor.Wallet if available, otherwise CustomWallet
       const wallet = Wallet ? new Wallet(adminKeypair) : new CustomWallet(adminKeypair);
