@@ -31,6 +31,7 @@ declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 
 use commons::dlmm::accounts::*;
 use commons::fetch_lb_pair_state;
+use commons::BIN_ARRAY_BITMAP_SEED;
 
 // Re-export types for IDL generation
 pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, TokenEntry};
@@ -121,6 +122,24 @@ pub struct GetCoreData<'info> {
     pub core: Account<'info, Core>,
     pub signer: Signer<'info>,
 }
+
+#[derive(Accounts)]
+#[instruction(lb_pair: Pubkey)]
+pub struct CreateBitmapExtension<'a> {
+    #[account(
+        init,
+        space=8 + size_of::<BinArrayBitmapExtension>(),
+        payer=irma_admin,
+        seeds=[BIN_ARRAY_BITMAP_SEED, lb_pair.as_ref()],
+        bump
+    )]
+    /// CHECK: This account will be initialized as a BinArrayBitmapExtension
+    pub bitmap_extension: AccountInfo<'a>,
+    #[account(mut)]
+    pub irma_admin: Signer<'a>,
+    pub system_program: Program<'a, System>,
+}
+
 
 
 // Declare your modules (NOTE: already declared above)
@@ -312,6 +331,35 @@ pub mod irma {
         core.refresh_position_data_with_accounts(state, &remaining_accounts, sold_token, irma_amount, false)
     }
 
+    pub fn swap<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, amount: u64, swap_for_reserve: bool
+    ) -> Result<()> {
+        // Extract references to avoid double mutable borrow
+        let corei = &mut ctx.accounts.core.clone();
+        let core = &mut ctx.accounts.core;
+        let payer = &mut ctx.accounts.irma_admin;
+        let reserves = &mut ctx.accounts.state.reserves;
+        let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
+
+        let lb_pair_key = reserves.iter().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+
+        // look for positions matching the symbol
+        let position = corei.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
+            .ok_or(error!(CustomError::PositionNotFound))?;
+        Core::swap(
+            core,
+            payer,
+            remaining_accounts,
+            position,
+            amount,
+            swap_for_reserve,
+        )?;
+        msg!("swap called for symbol: {}, amount: {}, swap_for_reserve: {}", symbol, amount, swap_for_reserve);
+        Ok(())
+    }
+
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions.
     pub fn check_shift_price_ranges<'info>(
@@ -334,6 +382,21 @@ pub mod irma {
             )?;
         }
         msg!("check_shift_price_ranges called");
+        Ok(())
+    }
+
+    pub fn init_bitmap_extension<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CreateBitmapExtension<'info>>,
+        lb_pair: Pubkey,
+    ) -> Result<()> {
+        let bitmap_extension_acct = &mut ctx.accounts.bitmap_extension;
+        // let bitmap_extension: &mut BinArrayBitmapExtension = get_bytemuck_account_ref::<BinArrayBitmapExtension>(
+        //     bitmap_extension_acct).ok_or(error!(CustomError::InvalidAccountData))?;
+        // bitmap_extension.lb_pair = lb_pair.clone();
+
+        msg!("Initializing bitmap extension for LB pair: {}", lb_pair.clone());
+        // the bitmap extension should already be initialized by anchor at this point
+        msg!("Bitmap extension account key: {:?}", bitmap_extension_acct.key());
         Ok(())
     }
 
