@@ -164,6 +164,7 @@ impl Core {
                     key.as_ref(),
                     &[bump],
                 ];
+                msg!("Invoking signed instruction: {:?}", instruction);
                 invoke_signed(&instruction, remaining_accounts, &[seeds])?;
             }
             else {
@@ -736,7 +737,7 @@ impl Core {
         }
         .to_account_metas(None);
 
-        msg!("    main accounts.bin_array_bitmap_extension: {:?}", main_accounts.bin_array_bitmap_extension);
+        // msg!("    main accounts.token_y_mint: {:?}", main_accounts.token_y_mint);
 
         let data = dlmm::client::args::Swap2 {
             amount_in,
