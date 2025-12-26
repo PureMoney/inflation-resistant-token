@@ -28,6 +28,7 @@ use anchor_lang::solana_program::{
     clock::Clock,
     program::{invoke, invoke_signed},
     sysvar::Sysvar,
+    // system_instruction,
     // compute_budget::ComputeBudgetInstruction
 };
 use anchor_lang::InstructionData;
@@ -142,6 +143,7 @@ impl Core {
         msg!("==> Finished get_multiple_anchor_accounts");
         Ok(data)
     }
+
 
     fn execute_meteora_instruction(
         payer: &mut Signer,
@@ -346,7 +348,7 @@ impl Core {
             }
             let lb_pair_state = fetch_lb_pair_state(
                 remaining_accounts, &position_entry.lb_pair
-            ).ok_or(error!(CustomError::MissingLbPairState))?;
+            )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -605,17 +607,16 @@ impl Core {
     /// If not, according to Taha, we can use withdraw() above instead.
     pub fn swap<'a>(
         &self,
-        payer: &mut Signer,
+        payer: &mut Signer<'a>,
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &SinglePosition,
         amount_in: u64,
         swap_for_y: bool
     ) -> Result<()> {
 
-        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts, &state.lb_pair)
-            .ok_or(error!(CustomError::MissingLbPairState))?;
-
         msg!("==> Swapping on pair: {}", state.lb_pair);
+
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
         let lb_pair = state.lb_pair;
@@ -624,7 +625,14 @@ impl Core {
 
         msg!("    event authority: {}", event_authority);
 
-        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
+        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair, &dlmm::ID); // &IRMA_ID);
+
+        // let accounts = dlmm::client::accounts::InitializeBinArrayBitmapExtension {
+        //     lb_pair,
+        //     bin_array_bitmap_extension,
+        //     program: DLMM_ID,
+        // }
+        // .to_account_metas(None);
 
         let bitmap_extension: &BinArrayBitmapExtension;
         let default_bitmap_extension = BinArrayBitmapExtension::default();
@@ -639,12 +647,16 @@ impl Core {
             bitmap_extension = &default_bitmap_extension;
         }
 
-        // msg!("    bin array bitmap extension: {}", bitmap_extension);
+        // let bitmap_extension = get_bytemuck_account::<BinArrayBitmapExtension>(
+        //     remaining_accounts,
+        //     &bin_array_bitmap_extension,
+        // );
+        // msg!("    bin array bitmap extension: {:?}", bitmap_extension);
 
         let bin_arrays_account_meta = get_bin_array_pubkeys_for_swap(
             lb_pair,
             &lb_pair_state,
-            Some(&bitmap_extension),
+            Some(bitmap_extension),
             swap_for_y,
             3,
         )?
@@ -652,7 +664,7 @@ impl Core {
         .map(|key| AccountMeta::new(key, false))
         .collect::<Vec<_>>();
 
-        msg!("    bin arrays account meta: {}", bin_arrays_account_meta.len());
+        msg!("    bin arrays account meta: {:?}", bin_arrays_account_meta[0]);
 
         let (user_token_in, user_token_out) = if swap_for_y {
             (
@@ -681,6 +693,8 @@ impl Core {
                 ),
             )
         };
+        msg!("    user token in: {}", user_token_in);
+        msg!("    user token out: {}", user_token_out);
 
         let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
         let mut remaining_accounts_vec = vec![];
@@ -704,7 +718,7 @@ impl Core {
 
         let main_accounts = dlmm::client::accounts::Swap2 {
             lb_pair,
-            bin_array_bitmap_extension: Some(bin_array_bitmap_extension),
+            bin_array_bitmap_extension: None, // bitmap_extension.lb_pair),
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
             token_x_mint: lb_pair_state.token_x_mint,
@@ -721,6 +735,8 @@ impl Core {
             memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
         }
         .to_account_metas(None);
+
+        msg!("    main accounts.bin_array_bitmap_extension: {:?}", main_accounts.bin_array_bitmap_extension);
 
         let data = dlmm::client::args::Swap2 {
             amount_in,

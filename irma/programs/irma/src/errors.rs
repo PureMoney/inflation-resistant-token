@@ -80,4 +80,14 @@ pub enum CustomError {
     MissingPositionState,
     #[msg("Found BinArray in remaining_accounts, but it is invalid")]
     InvalidBinArrayState,
+    #[msg("Account deserialization failed")]
+    AccountDeserializationFailed,
+    #[msg("Account borrowing failed")]
+    AccountBorrowFailed,
+    #[msg("Invalid account data length")]
+    InvalidAccountDataLength, // InvalidAccountData
+    #[msg("Missing bitmap extension")]
+    MissingBitmapExtension,
+    #[msg("Invalid account data")]
+    InvalidAccountData,
 }
