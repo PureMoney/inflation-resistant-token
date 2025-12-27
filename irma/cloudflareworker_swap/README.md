@@ -24,6 +24,8 @@ The worker:
 ### 1. Install Dependencies
 
 ```bash
+npm install -g wrangler
+
 npm install
 ```
 
@@ -45,12 +47,7 @@ npx wrangler secret put ADMIN_PRIVATE_KEY
 # Paste: [123,45,67,...] (your secret key array)
 ```
 
-Retrieve your [Helius API Key](https://dashboard.helius.dev/api-keys) and push it to Cloudflare as a secret:
-
-```bash
-npx wrangler secret put HELIUS_PRIVATE_KEY
-# Paste: fc123456-123a-1b23...
-```
+Retrieve your [Helius API Key](https://dashboard.helius.dev/api-keys) and add it to the `.env` file in this directory.
 
 ### 4. Update Configuration
 
@@ -79,8 +76,8 @@ Your worker will be deployed to: `https://<worker-name>.<your-subdomain>.workers
 1. Go to [Helius Dashboard](https://dashboard.helius.dev)
 2. Navigate to **Webhooks** → **Create Webhook**
 3. Configure:
-   - **Type**: Enhanced Transactions
-   - **Webhook URL**: `https://irma-client.<your-subdomain>.workers.dev`
+   - **Type**: Raw Transactions
+   - **Webhook URL**: `https://<worker-name>.<your-subdomain>.workers.dev`
    - **Transaction Types**: Select "Swap"
    - **Accounts**: Add the corresponding Meteora `POOL_ADDRESS` used in `src/worker.js
    - **Network**: Devnet/Mainnet-beta
