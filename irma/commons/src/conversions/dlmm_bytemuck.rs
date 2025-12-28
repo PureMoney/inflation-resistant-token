@@ -16,6 +16,17 @@ pub fn fetch_lb_pair_state<'a>(
         .ok_or(error!(CustomError::MissingLbPairState))
 }
 
+/// Fetch a single position using zero-copy
+pub fn fetch_one_position<'a>(
+    acct_infos: &'a [AccountInfo<'a>], position_pk: &Pubkey
+) -> Result<&'a PositionV2> {
+    let account_info = acct_infos.iter()
+        .find(|acc| acc.key == position_pk)
+        .ok_or(error!(CustomError::MissingPositionState))?;
+    get_bytemuck_account_ref::<PositionV2>(account_info)
+        .ok_or(error!(CustomError::MissingPositionState))
+}
+
 /// Fetch bin arrays dynamically when needed
 pub fn fetch_bin_arrays<'a>(
     acct_infos: &'a [AccountInfo<'a>], bin_array_keys: &[Pubkey]
@@ -93,22 +104,17 @@ pub fn get_multiple_bytemuck_accounts<T: bytemuck::Pod>(
 pub fn get_bytemuck_account_ref<'a, T: bytemuck::Pod>(
     account_info: &'a AccountInfo,
 ) -> Option<&'a T> {
-    // Check if account has enough data
-    let data_len = account_info.data.borrow().len();
-    if data_len < 8 + std::mem::size_of::<T>() {
+    // Check if account has enough data    
+    let borrowed_data = account_info.data.borrow();
+    if borrowed_data.len() < 8 + std::mem::size_of::<T>() {
         return None;
     }
     
-    // SAFETY: We need to use unsafe to get a stable reference to the account data
-    // This bypasses RefCell's runtime borrowing and gives us direct access
+    let data_slice = &borrowed_data[8..];
     unsafe {
-        let data_ptr = account_info.data.as_ptr();
-        let data_slice = std::slice::from_raw_parts(data_ptr, data_len);
-        let account_data_slice = &data_slice[8..8 + std::mem::size_of::<T>()];
-        
         // Ensure alignment and create reference
-        if account_data_slice.as_ptr() as usize % std::mem::align_of::<T>() == 0 {
-            Some(&*(account_data_slice.as_ptr() as *const T))
+        if data_slice.as_ptr() as usize % std::mem::align_of::<T>() == 0 {
+            Some(&*(data_slice.as_ptr() as *const T))
         } else {
             // If not properly aligned, we can't safely create a reference
             None

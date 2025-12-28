@@ -76,4 +76,18 @@ pub enum CustomError {
     InvalidMarketMakingModeForIRMA,
     #[msg("Price not found in LB pair")]
     PriceNotFoundInLBPair,
+    #[msg("Position missing in remaining_accounts")]
+    MissingPositionState,
+    #[msg("Found BinArray in remaining_accounts, but it is invalid")]
+    InvalidBinArrayState,
+    #[msg("Account deserialization failed")]
+    AccountDeserializationFailed,
+    #[msg("Account borrowing failed")]
+    AccountBorrowFailed,
+    #[msg("Invalid account data length")]
+    InvalidAccountDataLength, // InvalidAccountData
+    #[msg("Missing bitmap extension")]
+    MissingBitmapExtension,
+    #[msg("Invalid account data")]
+    InvalidAccountData,
 }

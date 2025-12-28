@@ -5,11 +5,12 @@ use commons::{
     *,
 };
 use commons::{
-    fetch_lb_pair_state,
+    fetch_lb_pair_state, get_bytemuck_account,
     conversions::fetch_positions,
     get_matching_positions,
     get_bytemuck_account_ref,
-    derive_event_authority_pda
+    derive_event_authority_pda,
+    price_math::get_price_from_id,
 };
 
 use crate::position_manager::*;
@@ -27,6 +28,7 @@ use anchor_lang::solana_program::{
     clock::Clock,
     program::{invoke, invoke_signed},
     sysvar::Sysvar,
+    // system_instruction,
     // compute_budget::ComputeBudgetInstruction
 };
 use anchor_lang::InstructionData;
@@ -142,6 +144,7 @@ impl Core {
         Ok(data)
     }
 
+
     fn execute_meteora_instruction(
         payer: &mut Signer,
         remaining_accounts: &[AccountInfo],
@@ -161,6 +164,7 @@ impl Core {
                     key.as_ref(),
                     &[bump],
                 ];
+                msg!("Invoking signed instruction: {:?}", instruction);
                 invoke_signed(&instruction, remaining_accounts, &[seeds])?;
             }
             else {
@@ -292,6 +296,7 @@ impl Core {
 
     /// Fetch token info for all tokens in the positions
     pub fn fetch_token_info<'a>(&mut self, remaining_accounts: &'a [AccountInfo<'a>]) -> Result<()> {
+        msg!("==> Fetching token info for all tokens in positions");
         let token_mints_with_program: Vec<(Pubkey, Pubkey)> = 
             self.get_all_token_mints_with_program_id(remaining_accounts)?;
 
@@ -299,6 +304,7 @@ impl Core {
             .iter()
             .map(|(key, _program_id)| *key)
             .collect::<Vec<Pubkey>>();
+        msg!("==> Token keys count: {}", token_keys.len());
 
         let accounts: HashMap<Pubkey, Option<Mint>> = Core::get_multiple_anchor_accounts::<Mint>(
             remaining_accounts, &token_keys)?;
@@ -335,9 +341,15 @@ impl Core {
         let mut token_mints_with_program = vec![];
 
         for position_entry in state.all_positions.iter() {
+            msg!("    Fetching token mints for position on pair: {}, rem count: {}", 
+                position_entry.lb_pair, remaining_accounts.len());
+            if remaining_accounts.iter().all(|acc| acc.key != &position_entry.lb_pair) {
+                msg!("    Missing LB pair state for position on pair");
+                continue;
+            }
             let lb_pair_state = fetch_lb_pair_state(
                 remaining_accounts, &position_entry.lb_pair
-            )?;
+            )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -439,7 +451,8 @@ impl Core {
         let (event_authority, _bump) = derive_event_authority_pda();
 
         let lb_pair = state.lb_pair;
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, &state.lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts_in, &state.lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -595,16 +608,16 @@ impl Core {
     /// If not, according to Taha, we can use withdraw() above instead.
     pub fn swap<'a>(
         &self,
-        payer: &mut Signer,
+        payer: &mut Signer<'a>,
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &SinglePosition,
         amount_in: u64,
         swap_for_y: bool
     ) -> Result<()> {
 
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
-
         msg!("==> Swapping on pair: {}", state.lb_pair);
+
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
         let lb_pair = state.lb_pair;
@@ -613,7 +626,14 @@ impl Core {
 
         msg!("    event authority: {}", event_authority);
 
-        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair);
+        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair, &dlmm::ID); // &IRMA_ID);
+
+        // let accounts = dlmm::client::accounts::InitializeBinArrayBitmapExtension {
+        //     lb_pair,
+        //     bin_array_bitmap_extension,
+        //     program: DLMM_ID,
+        // }
+        // .to_account_metas(None);
 
         let bitmap_extension: &BinArrayBitmapExtension;
         let default_bitmap_extension = BinArrayBitmapExtension::default();
@@ -628,12 +648,16 @@ impl Core {
             bitmap_extension = &default_bitmap_extension;
         }
 
-        // msg!("    bin array bitmap extension: {}", bitmap_extension);
+        // let bitmap_extension = get_bytemuck_account::<BinArrayBitmapExtension>(
+        //     remaining_accounts,
+        //     &bin_array_bitmap_extension,
+        // );
+        // msg!("    bin array bitmap extension: {:?}", bitmap_extension);
 
         let bin_arrays_account_meta = get_bin_array_pubkeys_for_swap(
             lb_pair,
             &lb_pair_state,
-            Some(&bitmap_extension),
+            Some(bitmap_extension),
             swap_for_y,
             3,
         )?
@@ -641,7 +665,7 @@ impl Core {
         .map(|key| AccountMeta::new(key, false))
         .collect::<Vec<_>>();
 
-        msg!("    bin arrays account meta: {}", bin_arrays_account_meta.len());
+        msg!("    bin arrays account meta: {:?}", bin_arrays_account_meta[0]);
 
         let (user_token_in, user_token_out) = if swap_for_y {
             (
@@ -670,6 +694,8 @@ impl Core {
                 ),
             )
         };
+        msg!("    user token in: {}", user_token_in);
+        msg!("    user token out: {}", user_token_out);
 
         let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
         let mut remaining_accounts_vec = vec![];
@@ -693,7 +719,7 @@ impl Core {
 
         let main_accounts = dlmm::client::accounts::Swap2 {
             lb_pair,
-            bin_array_bitmap_extension: Some(bin_array_bitmap_extension),
+            bin_array_bitmap_extension: None, // bitmap_extension.lb_pair),
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
             token_x_mint: lb_pair_state.token_x_mint,
@@ -710,6 +736,8 @@ impl Core {
             memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
         }
         .to_account_metas(None);
+
+        // msg!("    main accounts.token_y_mint: {:?}", main_accounts.token_y_mint);
 
         let data = dlmm::client::args::Swap2 {
             amount_in,
@@ -758,6 +786,7 @@ impl Core {
         amount_y: u64, // must zero if amount_x > 0 and vice versa
         new_price_bin_id: i32 // this is not the lb_pair active bin id; this is the bin we want to deposit to
     ) -> Result<Pubkey> {
+        msg!("==> Depositing liquidity into position for bin: {}", new_price_bin_id);
         // enforce exclusive OR condition
         require!(
             (amount_x == 0) != (amount_y == 0),
@@ -775,34 +804,22 @@ impl Core {
 
         let mut instructions = vec![/* ComputeBudgetInstruction::set_compute_unit_limit(1_400_000) */];
 
-        // Initialize bin array if not exists
+        // Initialize bin array where the bin belongs, if not exists
         let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
-        let dummy_pubkey = Pubkey::default();
+        msg!("    Checking bin array at index: {}", bin_array_idx);
 
-        let bin_array_instance = BinArray {
-            lb_pair: dummy_pubkey,
-            version: 0u8,
-            index: 0i64,
-            bins: [Bin::default(); 70],
-            _padding: [0u8; 7],
-        };
-
-        let bin_array_ref: &BinArray;
         let acct_info = remaining_accounts.iter()
             .find(|acc| acc.key == &bin_array);
         if let Some(acct_info) = acct_info {
-            bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
+            let _bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
                 Some(bin_array_state) => bin_array_state,
-                None => &bin_array_instance,
+                None => Err(error!(CustomError::InvalidBinArrayState))?,
             };
         } else {
-            bin_array_ref = &bin_array_instance;
-        }
-
-        if bin_array_ref.lb_pair == dummy_pubkey {
+            msg!("    Bin array account not found, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
-                bin_array,
+                bin_array, // derived
                 funder: payer.key(),
                 lb_pair,
                 system_program: system_program::ID,
@@ -816,8 +833,9 @@ impl Core {
                 accounts: accounts.to_vec(),
                 data,
             };
+            msg!("    Initializing bin array {}.", bin_array);
 
-            instructions.push(instruction)
+            instructions.push(instruction);
         }
 
         if state.position_pks.len() > 2 {
@@ -861,6 +879,7 @@ impl Core {
             accounts: accounts.to_vec(),
             data,
         };
+        msg!("    Initializing position: {}", position);
 
         instructions.push(instruction);
 
@@ -873,7 +892,8 @@ impl Core {
 
         let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts, &lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
         let user_token_x = get_associated_token_address_with_program_id(
@@ -955,6 +975,7 @@ impl Core {
             accounts,
             data,
         };
+        msg!("    Adding liquidity instruction created: x {} y {}", amount_x, amount_y );
 
         instructions.push(instruction);
 
@@ -983,7 +1004,8 @@ impl Core {
         amount_x: u64,
         amount_y: u64,
     ) -> Result<(u64, u64)> {
-        let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &position.lb_pair)?;
+        let lb_pair_state = get_bytemuck_account::<LbPair>(context.remaining_accounts, &position.lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
 
         // let rpc_client = self.rpc_client();
         let payer = context.accounts.irma_admin.clone();
@@ -1078,8 +1100,34 @@ impl Core {
             remaining_accounts, 
             &core_position.lb_pair
         )?;
-        let mut mint_price_bin_id = SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128)?;
-        let redemption_price_bin_id = SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128)?;
+        msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
+        let bin_step = lb_pair_state.bin_step;
+        let min_bin_id = lb_pair_state.parameters.min_bin_id;
+        let max_bin_id = lb_pair_state.parameters.max_bin_id;
+        msg!("    --> lb pair bin step: {}, min bin id: {}, max bin id: {}", bin_step, min_bin_id, max_bin_id);
+        let mut mint_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128) {
+            Ok(bin_id) => bin_id,
+            Err(_) => {
+                // if out of range, set to max or min bin id
+                if mint_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                    min_bin_id
+                } else {
+                    max_bin_id
+                }
+            }
+        };
+        let redemption_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128) {
+            Ok(bin_id) => bin_id,
+            Err(_) => {
+                // if out of range, set to max or min bin id
+                if redemption_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                    min_bin_id
+                } else {
+                    max_bin_id
+                }
+            }
+        };
+        msg!("    --> mint price bin id: {}, redemption price bin id: {}", mint_price_bin_id, redemption_price_bin_id);
         // ensure that mint bin id is higher than redemption bin id
         if mint_price_bin_id <= redemption_price_bin_id {
             // adjust mint price bin id by one to ensure they are different
@@ -1251,5 +1299,24 @@ impl Core {
         }
         return Ok(position_infos);
     }
-}
 
+    pub fn clean_up_config_and_positions(&mut self) -> Result<()> {
+        let bad_pair = "11111111111111111111111111111111";
+        if self.config.iter().any(|pair| bad_pair == pair.pair_address) {
+            // remove extraneous dummy entry
+            for i in (0..self.config.len()).rev() {
+                let pair_config = &self.config[i];
+                if pair_config.pair_address == bad_pair {
+                    self.config.remove(i);
+                }
+            }
+            for i in (0..self.position_data.all_positions.len()).rev() {
+                let position_entry = &self.position_data.all_positions[i];
+                if position_entry.lb_pair.to_string() == bad_pair {
+                    self.position_data.all_positions.remove(i);
+                }
+            }
+        }
+        Ok(())
+    }
+}

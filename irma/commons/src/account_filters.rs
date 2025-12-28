@@ -1,8 +1,6 @@
 use anchor_lang::prelude::*;
-use std::collections::HashMap;
 use crate::anyhow;
 use crate::dlmm::accounts::*;
-use crate::conversions::*;
 
 /// Check if a position account matches the given wallet and pair
 /// For on-chain usage where we have direct access to account data

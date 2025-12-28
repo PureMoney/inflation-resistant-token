@@ -136,7 +136,7 @@ pub fn set_mint_price(ctx: Context<Maint>, quote_token: &str, mint_price: f64) -
 /// Input amount therefore is an unsigned integer suitable for on-chain processing, not for 
 /// human consumption.
 pub fn mint_irma(state_map: &mut Account<StateMap>, quote_token: &str, amount: u64) -> Result<()> {
-    require!(amount >= 100_000_000u64, CustomError::InvalidAmount);
+    // require!(amount >= 100_000_000u64, CustomError::InvalidAmount);
     validate_params(&state_map.reserves, quote_token)?;
 
     if amount == 0u64 { return Ok(()); };
