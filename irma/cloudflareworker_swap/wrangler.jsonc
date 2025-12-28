@@ -4,9 +4,17 @@
   "workers_dev": true,
   "preview_urls": false,
   "compatibility_flags": [
-    "nodejs_compat"
+    "nodejs_compat_v2"
   ],
   "compatibility_date": "2025-11-21",
+  
+  // Scheduled trigger - runs once daily at 6:00 AM UTC to update mint price from Truflation
+  // Cron format: minute hour day-of-month month day-of-week
+  // "0 6 * * *" = Every day at 06:00 UTC
+  "triggers": {
+    "crons": ["0 6 * * *"]
+  },
+  
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
@@ -21,5 +29,11 @@
       "persist": true,
       "head_sampling_rate": 1
     }
+  },
+  
+  // Truflation proxy URL - set via deploy script from truflation-proxy/.vercel-url
+  // This gets populated when you run: ./deploy.sh
+  "vars": {
+    "TRUFLATION_PROXY_URL": "https://truflation-proxy.vercel.app"
   }
 }

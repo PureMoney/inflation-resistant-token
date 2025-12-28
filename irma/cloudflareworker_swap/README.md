@@ -24,6 +24,10 @@ The worker:
 ### 1. Install Dependencies
 
 ```bash
+npm install -g wrangler
+
+npm install -g vercel
+
 npm install
 ```
 
@@ -41,15 +45,15 @@ Push your admin account's private key in array format to Cloudflare:
 
 ```bash
 # Your Solana admin keypair as JSON array
-npx wrangler secret put ADMIN_PRIVATE_KEY
-# Paste: [123,45,67,...] (your secret key array)
+$ npx wrangler secret put ADMIN_PRIVATE_KEY
+$ Enter a secret value: > # Paste: [123,45,67,...] (your secret key array)
 ```
 
-Retrieve your [Helius API Key](https://dashboard.helius.dev/api-keys) and push it to Cloudflare as a secret:
+Retrieve your [Helius API Key](https://dashboard.helius.dev/api-keys) and push it to wrangler:.
 
 ```bash
-npx wrangler secret put HELIUS_PRIVATE_KEY
-# Paste: fc123456-123a-1b23...
+$ npx wrangler secret put HELIUS_API_KEY
+$ Enter a secret value: > # Paste: fc123456-789a...
 ```
 
 ### 4. Update Configuration
@@ -79,8 +83,8 @@ Your worker will be deployed to: `https://<worker-name>.<your-subdomain>.workers
 1. Go to [Helius Dashboard](https://dashboard.helius.dev)
 2. Navigate to **Webhooks** → **Create Webhook**
 3. Configure:
-   - **Type**: Enhanced Transactions
-   - **Webhook URL**: `https://irma-client.<your-subdomain>.workers.dev`
+   - **Type**: Raw Transactions
+   - **Webhook URL**: `https://<worker-name>.<your-subdomain>.workers.dev`
    - **Transaction Types**: Select "Swap"
    - **Accounts**: Add the corresponding Meteora `POOL_ADDRESS` used in `src/worker.js
    - **Network**: Devnet/Mainnet-beta
@@ -101,6 +105,128 @@ You should see:
 ✅ Liquidity addition sent to redemption bin: <signature>
 ✅ Sale trade event recorded
 ```
+
+## Truflation Integration
+
+The worker integrates with [TRUF.NETWORK](https://truf.network) to fetch real-time US inflation data and automatically update the IRMA mint price.
+
+### Architecture
+
+Due to Cloudflare Workers' limitations with axios (used by the Truflation SDK), we use a **Vercel serverless proxy**:
+
+```
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│  Cloudflare Worker  │ ───► │   Vercel Proxy      │ ───► │   TRUF.NETWORK      │
+│  (fetch only)       │      │   (Node.js/axios)   │      │   (Truflation SDK)  │
+└─────────────────────┘      └─────────────────────┘      └─────────────────────┘
+```
+
+The proxy is located in `truflation-proxy/` and handles the SDK complexity.
+
+### Data Source: Truflation US Inflation Index
+
+| Property | Value |
+|----------|-------|
+| **Stream Name** | Truflation US Inflation Index |
+| **Stream ID** | `st1e321de22ece39a258bc2588dd2871` |
+| **Data Provider** | `0x4710a8d8f0d845da110086812a32de6d90d7ff5c` |
+| **Network** | TRUF.NETWORK Mainnet |
+
+> Explore streams at [explorer.truf.network](https://explorer.truf.network)
+
+### Deployment
+
+Deploy in this order:
+
+**1. Sign in to Vercel (first time only):**
+```bash
+npx vercel login
+```
+
+Follow the prompts to create a free Vercel account or sign in with an existing one. You'll visit a URL and enter a code to authenticate.
+
+**2. Deploy the Truflation Proxy (Vercel):**
+```bash
+cd truflation-proxy
+npm install
+chmod +x deploy.sh
+./deploy.sh
+```
+
+This saves the Vercel URL to `.vercel-url` (gitignored).
+
+**3. Deploy the Cloudflare Worker:**
+```bash
+cd ..
+chmod +x deploy.sh
+./deploy.sh
+```
+
+This reads the URL from `.vercel-url` and updates `wrangler.jsonc` before deploying.
+
+### How Mint Price is Calculated
+
+The mint price adjusts based on inflation above the 2% target:
+
+```javascript
+if (inflationRate > 2.0) {
+  mintPrice = (1.00 + (inflationRate - 2.0) / 100.0) / quoteTokenPriceUSD;
+} else {
+  mintPrice = 1.00 / quoteTokenPriceUSD;
+}
+```
+
+**Example**: If inflation is 2.169% and USDC is $1.00:
+- Adjustment = (2.169 - 2.0) / 100 = 0.00169
+- Mint price = (1.00 + 0.00169) / 1.00 = **1.00169**
+
+### Automatic Daily Updates (Cron)
+
+The worker runs automatically once per day at **6:00 AM UTC** via Cloudflare's scheduled triggers:
+
+```json
+"triggers": {
+  "crons": ["0 6 * * *"]
+}
+```
+
+**What happens during the scheduled run:**
+1. Fetches the latest US inflation rate from the Truflation proxy
+2. Calculates the new mint price based on the inflation-adjustment formula
+3. Updates the IRMA program's mint price on-chain via the `set_mint_price` instruction
+4. Logs the update for monitoring
+
+This ensures the IRMA stablecoin's mint price automatically tracks real-world inflation data.
+
+### Manual Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /?action=health` | Health check and list available endpoints |
+| `GET /?action=fetch-inflation` | Test: Fetch current inflation rate from Truflation |
+| `GET /?action=update-mint-price` | Update mint price using current Truflation data |
+
+**Example**:
+```bash
+# Test fetching inflation data
+curl "https://your-worker.workers.dev/?action=fetch-inflation"
+# Response: {"success":true,"inflationRate":2.169056,"message":"Current inflation rate: 2.169056%"}
+
+# Update mint price
+curl "https://your-worker.workers.dev/?action=update-mint-price"
+```
+
+### Configuration
+
+The Truflation proxy URL is set in `wrangler.jsonc`:
+
+```jsonc
+"vars": {
+  "TRUFLATION_PROXY_URL": "https://truflation-proxy.vercel.app"
+}
+```
+
+This is automatically updated by `./deploy.sh` when you deploy.
 
 ## Development
 
