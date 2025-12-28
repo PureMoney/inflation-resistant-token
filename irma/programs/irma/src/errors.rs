@@ -46,6 +46,8 @@ pub enum CustomError {
     SymbolNotFound,
     #[msg("Lb pair state not found")]
     LbPairStateNotFound,
+    #[msg("Missing required account for instruction")]
+    MissingRequiredAccount,
     #[msg("Ordering of stablecoins does not match LbPair order in remaining_accounts.")]
     LbPairOrderingMismatch,
     #[msg("Goodbye USD: Reserve stablecoin price too high.")]

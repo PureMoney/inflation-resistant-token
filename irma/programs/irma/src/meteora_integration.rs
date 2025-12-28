@@ -12,6 +12,7 @@ use commons::{
     derive_event_authority_pda,
     price_math::get_price_from_id,
 };
+use commons::u64x64_math::pow;
 
 use crate::position_manager::*;
 use crate::pair_config::*;
@@ -152,6 +153,23 @@ impl Core {
         sign: bool
     ) -> Result<()> {
         let key = payer.key();
+        
+        // Pre-validate that all required accounts are available
+        let mut missing_accounts = Vec::new();
+        for instruction in instructions.iter() {
+            for account_meta in &instruction.accounts {
+                if remaining_accounts.iter().all(|acc| acc.key != &account_meta.pubkey) {
+                    missing_accounts.push(account_meta.pubkey);
+                }
+            }
+        }
+        
+        if !missing_accounts.is_empty() {
+            msg!("Missing required accounts: {:?}", missing_accounts);
+            msg!("Available accounts: {:?}", remaining_accounts.iter().map(|acc| acc.key).collect::<Vec<_>>());
+            return Err(error!(CustomError::MissingRequiredAccount));
+        }
+        
         for instruction in instructions.iter() {
             if sign {
                 // If PDA signing needed - manually derive bump
@@ -781,9 +799,9 @@ impl Core {
         &self,
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
-        state: &mut SinglePosition,
-        amount_x: u64, // must zero if amount_y > 0 and vice versa
-        amount_y: u64, // must zero if amount_x > 0 and vice versa
+        state: &mut SinglePosition, // modify only position_pks, bin_array_pks
+        amount_x: u64, // must be zero if amount_y > 0 and vice versa
+        amount_y: u64, // must be zero if amount_x > 0 and vice versa
         new_price_bin_id: i32 // this is not the lb_pair active bin id; this is the bin we want to deposit to
     ) -> Result<Pubkey> {
         msg!("==> Depositing liquidity into position for bin: {}", new_price_bin_id);
@@ -809,14 +827,17 @@ impl Core {
 
         msg!("    Checking bin array at index: {}", bin_array_idx);
 
+        let position: Some<SinglePosition> = None;
+
         let acct_info = remaining_accounts.iter()
             .find(|acc| acc.key == &bin_array);
         if let Some(acct_info) = acct_info {
             let _bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
                 Some(bin_array_state) => bin_array_state,
-                None => Err(error!(CustomError::InvalidBinArrayState))?,
+                None => None, // Err(error!(CustomError::InvalidBinArrayState))?,
             };
-        } else {
+        }
+        if Some(acct_info) == None {
             msg!("    Bin array account not found, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
                 bin_array, // derived
@@ -837,8 +858,38 @@ impl Core {
 
             instructions.push(instruction);
         }
+        else {
+            msg!("    Bin array account found.");
+            position = self.position_data.all_positions.get_position(lb_pair);
+            if position.is_none() || position.unwrap() != *state {
+                return Err(error!(CustomError::PositionNotFound));
+            }
+        }
 
-        if state.position_pks.len() > 2 {
+        // if we have to push this bin array, then we may also have to create a new DLMM position
+        // it depends on whether the new bin price is located within the current bin arrays.
+        if !state.bin_array_pks.contains(&bin_array) {
+            // first, close the old dlmm position in state.position_pks if exists
+            let mut old_index = 0;
+            if state.position_pks.len() > 1 {
+                if state.position_pks.len() > 2 {
+                    return Err(error!(CustomError::TooManyPositionsForPair));
+                }
+                msg!("    Removing old position to make room for new one...");
+                let position1 = *state.position_pks[0]?;
+            }
+            msg!("    Closing old position: {}", old_position);
+            let old_position = state.position_pks.remove(old_index);
+            instructions.push(dlmm::client::accounts::ClosePosition {
+                position: old_position,
+                owner: payer.key(),
+                system_program: system_program::ID,
+            });
+            msg!("    Adding bin array to position state.");
+            state.bin_array_pks.push(bin_array);
+        }
+
+        if state.bin_array_pks.len() > 2 {
             return Err(error!(CustomError::TooManyPositionsForPair));
         }
 
@@ -848,40 +899,45 @@ impl Core {
         //         Error::from(CustomError::PositionNotFound)
         //     )?;
 
-        // Initialize new position
-        let (position, _bump) = derive_position_pda(
-            payer.key(),
-            lb_pair,
-            new_price_bin_id,
-            new_price_bin_id,
-        );
+        if Some(acct_info) == None || state.position_pks.len() < 1 {
+            msg!("    Position account not found, initializing new position...");
+            // proceed to initialize new position
 
-        let accounts = dlmm::client::accounts::InitializePosition {
-            lb_pair,
-            payer: payer.key(),
-            position,
-            owner: payer.key(),
-            rent: rent::ID,
-            system_program: system_program::ID,
-            event_authority,
-            program: DLMM_ID,
+            // Initialize new position
+            let (position, _bump) = derive_position_pda(
+                payer.key(),
+                lb_pair,
+                new_price_bin_id,
+                new_price_bin_id,
+            );
+
+            let accounts = dlmm::client::accounts::InitializePosition {
+                lb_pair,
+                payer: payer.key(),
+                position,
+                owner: payer.key(),
+                rent: rent::ID,
+                system_program: system_program::ID,
+                event_authority,
+                program: DLMM_ID,
+            }
+            .to_account_metas(None);
+
+            let data = dlmm::client::args::InitializePosition {
+                lower_bin_id: new_price_bin_id,
+                width: 1i32, // single bin position
+            }
+            .data();
+
+            let instruction = Instruction {
+                program_id: DLMM_ID,
+                accounts: accounts.to_vec(),
+                data,
+            };
+            msg!("    Initializing position: {}", position);
+
+            instructions.push(instruction);
         }
-        .to_account_metas(None);
-
-        let data = dlmm::client::args::InitializePosition {
-            lower_bin_id: new_price_bin_id,
-            width: 1i32, // single bin position
-        }
-        .data();
-
-        let instruction = Instruction {
-            program_id: DLMM_ID,
-            accounts: accounts.to_vec(),
-            data,
-        };
-        msg!("    Initializing position: {}", position);
-
-        instructions.push(instruction);
 
         // TODO implement bitmap extension fetching
         let bin_array_bitmap_extension = None;
@@ -889,8 +945,6 @@ impl Core {
         // let bin_array_bitmap_extension = get_account(&bin_array_bitmap_extension)
         //     .map(|_| bin_array_bitmap_extension)
         //     .unwrap_or(DLMM_ID);
-
-        let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
         let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts, &lb_pair)
             .ok_or(error!(CustomError::MissingLbPairState))?;
@@ -1066,7 +1120,7 @@ impl Core {
         state.tokens.clone()
     }
 
-    /// For each reserve coin, check how far the two current prices are from those set by pricing.rs
+    /// For a reserve coin, check how far the two current prices are from those set by pricing.rs
     /// If the difference is at least a bin away, we shift to another bin.
     /// Note that each position in IRMA is single-sided and single-bin.
     /// In other words, min_bin_id == max_bin_id for each position, and 
@@ -1093,8 +1147,8 @@ impl Core {
             reserves, &reserve_symbol)?;
 
         // convert prices from f64 to u128 using token decimals
-        let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals as i32)) as u128;
-        let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals as i32)) as u128;
+        let mint_price_u128 = pow(mint_price as u128, backing_decimals as i32);
+        let redemption_price_u128 = pow(redemption_price as u128, backing_decimals as i32);
 
         let lb_pair_state = fetch_lb_pair_state(
             remaining_accounts, 
@@ -1154,12 +1208,14 @@ impl Core {
     /// Shift mint position
     /// For IRMA, we should deposit first, then withdraw from the old, single bin position.
     /// Note: this can involve shifting to the right or left, depending on the new_price_bin_id.
+    /// Note: the "state" (SinglePosition) stays the same, but state.position_pks can change
+    /// and must be updated accordingly.
     fn shift_mint_position<'a>(
         &mut self,
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &Vec<StableState>,
-        state: &mut SinglePosition,
+        state: &mut SinglePosition, // this struct can stay the same (tied to lb_pair)
         new_price_bin_id: i32, // new mint price bin id
     ) -> Result<()> {
         // validate that y amount is zero because this position must be for x:
