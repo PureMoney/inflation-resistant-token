@@ -152,9 +152,19 @@ async function test_check_shift_price() {
       "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
       "EH42NiHFWBsR4p2CPqzskrsyCksqz6DW5bo79V4dwJVj",
       "Eb1fKdV6wVVyoVQAdRC7bP6TxutGTDrSerwL1zYgtDpu",
-      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR",
       "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm",
-      "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"
+      "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+      "63zASrAr6ByHWoBP9osdXRyWnbEhKP2DdKZ86TZc9aoe", // new bin array account
+      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
+      "8zPSZs9xoV7V1XewdvpZF7sDJxrY9qEYbzrcc7n1YpnS", // new position account
+      "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
+      "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
+      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // ?
+      "DtYtYAbfPrWD3B81wKvwkynuVjoiEBBSj3ReYMuPSdcK", // ?
+      "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // ?
+      "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // ?
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
     ];
 
         // Call check_shift_price_ranges
