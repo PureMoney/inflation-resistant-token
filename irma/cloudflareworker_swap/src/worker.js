@@ -1,17 +1,15 @@
 // 1. IMPORTS
-import * as anchor from "@coral-xyz/anchor";
+import { Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
 import DLMM, { StrategyType } from "@meteora-ag/dlmm";
 import IDL from "../../target/idl/irma.json";
-
-const { Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction } = anchor.web3;
-const { Program, AnchorProvider, BN, Wallet } = anchor;
 
 const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
 
 // --- CUSTOM WALLET ---
-// (Kept for fallback if needed, but we will try to use anchor.Wallet)
+// Used as wallet adapter for AnchorProvider in Cloudflare Workers environment
 class CustomWallet {
   constructor(payer) {
     this.payer = payer;
@@ -34,17 +32,186 @@ class CustomWallet {
 // ==================================================================
 // CONFIGURATION
 // ==================================================================
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
-const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 
 // CONSTANTS
 const RESERVE_MINT_STR = "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"; 
 const RESERVE_SYMBOL = "devUSDT";
 const POOL_ADDRESS = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; 
 
+// TRUFLATION CONFIGURATION
+// Inflation data is fetched via our Vercel proxy (truflation-proxy)
+// The proxy URL is set in wrangler.jsonc vars.TRUFLATION_PROXY_URL
+// Deploy the proxy first: cd truflation-proxy && ./deploy.sh
+
+// Target inflation rate (below this, mint price = 1.0 / quote_token_price)
+const TARGET_INFLATION_RATE = 2.0;
+
 // ==================================================================
 // HELPER FUNCTIONS
 // ==================================================================
+
+/**
+ * Fetch current inflation rate from our Truflation Vercel proxy
+ * The proxy handles the SDK/axios complexity in a Node.js environment
+ * Returns inflation rate as a percentage (e.g., 2.169 for 2.169%)
+ */
+async function fetchTruflationRate(env) {
+  console.log("📊 Fetching inflation data from Truflation proxy...");
+
+  const proxyUrl = env.TRUFLATION_PROXY_URL;
+  if (!proxyUrl) {
+    throw new Error("TRUFLATION_PROXY_URL not configured. Deploy truflation-proxy first.");
+  }
+
+  const apiUrl = `${proxyUrl}/api/inflation`;
+  console.log(`📡 Querying: ${apiUrl}`);
+
+  try {
+    const res = await fetch(apiUrl, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errorText}`);
+    }
+
+    const data = await res.json();
+
+    if (!data.success || !data.data || typeof data.data.inflationRate !== "number") {
+      throw new Error(`Invalid response from proxy: ${JSON.stringify(data)}`);
+    }
+
+    const inflationRate = data.data.inflationRate;
+    console.log(`📈 Truflation US Inflation Index: ${inflationRate}%`);
+    console.log(`📅 Data timestamp: ${new Date(data.data.timestamp).toISOString()}`);
+    
+    return inflationRate;
+  } catch (error) {
+    console.error("❌ Failed to fetch Truflation data:", error.message);
+    throw error;
+  }
+}
+
+
+/**
+ * Calculate the IRMA mint price based on Truflation inflation rate
+ * Formula:
+ *   if (truflation > 2.0) {
+ *     mint_price = (1.00 + (truflation - 2.0) / 100.0) / quote_token_price_in_usd;
+ *   } else {
+ *     mint_price = 1.00 / quote_token_price_in_usd;
+ *   }
+ */
+function calculateMintPrice(inflationRate, quoteTokenPriceUsd) {
+  let mintPrice;
+  
+  if (inflationRate > TARGET_INFLATION_RATE) {
+    // Inflation above target: adjust mint price upward
+    const inflationAdjustment = (inflationRate - TARGET_INFLATION_RATE) / 100.0;
+    mintPrice = (1.00 + inflationAdjustment) / quoteTokenPriceUsd;
+    console.log(`📊 Inflation ${inflationRate}% > ${TARGET_INFLATION_RATE}%: adjustment = ${inflationAdjustment}`);
+  } else {
+    // Inflation at or below target: mint price = 1.0 / quote token price
+    mintPrice = 1.00 / quoteTokenPriceUsd;
+    console.log(`📊 Inflation ${inflationRate}% <= ${TARGET_INFLATION_RATE}%: no adjustment`);
+  }
+  
+  console.log(`💰 Calculated mint price: ${mintPrice} (quote token price: ${quoteTokenPriceUsd} USD)`);
+  return mintPrice;
+}
+
+/**
+ * Fetch the quote token (stablecoin) price in USD
+ * For now, we assume it's ~1.0 USD for stablecoins
+ * TODO: Integrate with Meteora pool or oracle for real price
+ */
+async function getQuoteTokenPriceUsd(connection, poolAddress) {
+  // For stablecoins like USDC, the price is typically very close to $1
+  // In production, you might want to:
+  // 1. Query Meteora pool for the actual price
+  // 2. Use an oracle like Pyth or Switchboard
+  // 3. Average across multiple DEXs
+  
+  // For now, return 1.0 as a reasonable assumption for devUSDC
+  console.log("📊 Assuming quote token price = $1.00 USD (stablecoin)");
+  return 1.0;
+}
+
+/**
+ * Update the IRMA mint price on-chain using Truflation data
+ */
+async function updateMintPriceFromTruflation(env) {
+  console.log("🔄 Starting mint price update from Truflation...");
+  
+  const HELIUS_API_KEY = env.HELIUS_API_KEY;
+  const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+
+  try {
+    // 1. Fetch inflation rate from Truflation
+    const inflationRate = await fetchTruflationRate(env);
+    
+    // 2. Setup Solana connection and program
+    const secretString = env.ADMIN_PRIVATE_KEY;
+    const secretKey = new Uint8Array(JSON.parse(secretString));
+    const connection = new Connection(HELIUS_RPC_URL, "confirmed");
+    const adminKeypair = Keypair.fromSecretKey(secretKey);
+    
+    const wallet = new CustomWallet(adminKeypair);
+    const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
+    const program = new Program(IDL, provider);
+    
+    // Derive PDAs
+    const programId = new PublicKey(IDL.address);
+    const [statePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("state_v5")],
+      programId
+    );
+    const [corePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("core_v5")],
+      programId
+    );
+    
+    // 3. Get quote token price (USD price of the reserve stablecoin)
+    const quoteTokenPriceUsd = await getQuoteTokenPriceUsd(connection, POOL_ADDRESS);
+    
+    // 4. Calculate new mint price
+    const newMintPrice = calculateMintPrice(inflationRate, quoteTokenPriceUsd);
+    
+    // 5. Convert to the format expected by the on-chain program (f64 as fixed-point)
+    // The program expects price as f64, we'll pass it directly
+    const priceAsNumber = newMintPrice;
+    
+    console.log(`📝 Setting mint price for ${RESERVE_SYMBOL} to ${priceAsNumber}...`);
+    
+    // 6. Call setMintPrice on the IRMA program
+    // Increase timeout to 60 seconds to handle network congestion
+    const tx = await program.methods
+      .setMintPrice(RESERVE_SYMBOL, priceAsNumber)
+      .accounts({
+        state: statePda,
+        irmaAdmin: wallet.publicKey,
+        core: corePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    console.log(`✅ Mint price updated! Transaction: ${tx}`);
+    
+    return {
+      success: true,
+      inflationRate,
+      quoteTokenPriceUsd,
+      newMintPrice,
+      transaction: tx,
+    };
+  } catch (error) {
+    console.error("❌ Failed to update mint price:", error.message);
+    throw error;
+  }
+}
 
 /**
  * Get both mint and redemption prices from IRMA program
@@ -100,13 +267,112 @@ async function getPrices(program, statePda, corePda, adminPublicKey, quoteToken)
 // ==================================================================
 
 export default {
+  // Handle HTTP requests (webhooks from Helius, manual triggers, etc.)
   async fetch(request, env, ctx) {
     return handleRequest(request, env, ctx);
+  },
+  
+  // Handle scheduled triggers (cron jobs) - runs once daily to update mint price
+  async scheduled(event, env, ctx) {
+    console.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
+    ctx.waitUntil(handleScheduledMintPriceUpdate(env));
   }
 };
 
+/**
+ * Handle scheduled mint price update (called by cron trigger)
+ */
+async function handleScheduledMintPriceUpdate(env) {
+  try {
+    const result = await updateMintPriceFromTruflation(env);
+    console.log("✅ Scheduled mint price update completed:", result);
+  } catch (error) {
+    console.error("❌ Scheduled mint price update failed:", error.message);
+  }
+}
+
 async function handleRequest(request, env, ctx) {
-  if (request.method !== 'POST') return new Response("Method not allowed", { status: 405 });
+  const url = new URL(request.url);
+  
+  // ============================================================
+  // ACTION ENDPOINTS - Triggered via query parameter or GET request
+  // ============================================================
+  
+  // GET /update-mint-price - Manually trigger mint price update
+  // Also supports: GET /?action=update-mint-price
+  if (request.method === 'GET') {
+    const action = url.searchParams.get('action') || url.pathname.slice(1);
+    
+    if (action === 'update-mint-price') {
+      console.log("🔧 Manual trigger: Update mint price from Truflation");
+      try {
+        const result = await updateMintPriceFromTruflation(env);
+        return new Response(JSON.stringify({
+          success: true,
+          message: "Mint price updated successfully",
+          ...result
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    
+    if (action === 'fetch-inflation') {
+      console.log("🔧 Manual trigger: Fetch Truflation inflation rate (test)");
+      try {
+        const inflationRate = await fetchTruflationRate(env);
+        return new Response(JSON.stringify({
+          success: true,
+          inflationRate,
+          message: `Current inflation rate: ${inflationRate}%`
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    
+    if (action === 'health' || action === '') {
+      return new Response(JSON.stringify({
+        status: "ok",
+        endpoints: [
+          "GET /?action=health - Health check", 
+          "GET /?action=fetch-inflation - Test fetching Truflation inflation rate",
+          "GET /?action=update-mint-price - Update mint price from Truflation",
+          "POST / - Helius webhook for swap events"
+        ]
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    
+    return new Response("Unknown action", { status: 400 });
+  }
+  
+  // ============================================================
+  // POST ENDPOINT - Helius webhook for swap events
+  // ============================================================
+  if (request.method !== 'POST') {
+    return new Response("Method not allowed", { status: 405 });
+  }
 
   try {
     const data = await request.json();
@@ -145,6 +411,8 @@ async function handleRequest(request, env, ctx) {
 }
 
 async function processRebalance(tx, env) {
+  const HELIUS_API_KEY = env.HELIUS_API_KEY;
+  const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
   try {
     // --- DELTA CALC ---
     const preBalanceEntry = tx.meta.preTokenBalances.find(b => b.mint === RESERVE_MINT_STR && b.owner === POOL_ADDRESS);
@@ -170,9 +438,7 @@ async function processRebalance(tx, env) {
       const adminKeypair = Keypair.fromSecretKey(secretKey);
       console.log(`🔑 Admin Public Key: ${adminKeypair.publicKey.toBase58()}`);
       
-      // Use anchor.Wallet if available, otherwise CustomWallet
-      const wallet = Wallet ? new Wallet(adminKeypair) : new CustomWallet(adminKeypair);
-      
+      const wallet = new CustomWallet(adminKeypair);
       const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
       
       // Mimic script: const program = new Program(idl, provider);
@@ -195,11 +461,11 @@ async function processRebalance(tx, env) {
       const amountAtomic = new BN(atomicValueString);
 
       // Check minimum amount (e.g., 10 USDC = 10_000_000 atomic units)
-      const MIN_AMOUNT = new BN(10_000_000); // 10 USDC minimum
+      /*const MIN_AMOUNT = new BN(9_000_000); // 10 USDC minimum
       if (amountAtomic.lt(MIN_AMOUNT)) {
         console.log(`⏭️ Amount too small (${amountAtomic.toString()} < ${MIN_AMOUNT.toString()}), skipping`);
-        return;
-      }
+        return; 
+      }*/
 
       // --- GET PRICES FROM IRMA PROGRAM ---
       console.log(`📊 Fetching prices from IRMA program...`);
@@ -410,11 +676,11 @@ async function processRebalance(tx, env) {
             core: corePda,
             systemProgram: SystemProgram.programId,
           })
-          .remainingAccounts({
-            pubkey: PublicKey(POOL_ADDRESS),
+          .remainingAccounts([{
+            pubkey: new PublicKey(POOL_ADDRESS),
             isSigner: false,
             isWritable: false,
-          })
+          }])
           .rpc();
 
         console.log(`✅ Sale trade event recorded`);
@@ -544,11 +810,11 @@ async function processRebalance(tx, env) {
             core: corePda,
             systemProgram: SystemProgram.programId,
           })
-          .remainingAccounts({
-            pubkey: PublicKey(POOL_ADDRESS),
+          .remainingAccounts([{
+            pubkey: new PublicKey(POOL_ADDRESS),
             isSigner: false,
             isWritable: false,
-          })
+          }])
           .rpc();
 
         console.log(`✅ Buy trade event recorded`);

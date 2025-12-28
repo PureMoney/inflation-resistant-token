@@ -1,0 +1,14 @@
+{
+  "name": "truflation-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@trufnetwork/sdk-js": "^0.5.8",
+    "ethers": "^6.13.4"
+  }
+}
