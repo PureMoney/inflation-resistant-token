@@ -384,7 +384,7 @@ mod core_test {
             "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
         ).unwrap();
 
-        let state = {
+        let mut state = {
             let mut_state = core.get_mut_position_state(lb_pair);
             let lb_pair_data = &lb_pair_account_info.data.borrow()[8..];
             // let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
@@ -395,7 +395,7 @@ mod core_test {
         };
 
         // withdraw - now we can borrow core immutably
-        core.withdraw(&mut irma_admin_account, remaining_accounts, &state, Pubkey::default()).unwrap();
+        core.withdraw(&mut irma_admin_account, remaining_accounts, &mut state, Pubkey::default()).unwrap();
     }
 
     #[test]
