@@ -459,12 +459,23 @@ impl Core {
         &self,
         payer: &mut Signer,
         remaining_accounts_in: &'a [AccountInfo<'a>],
-        state: &SinglePosition,
+        state: &mut SinglePosition,
         old_position_key: Pubkey, // we should not withdraw from the new position
     ) -> Result<()> {
         if state.position_pks.len() == 0 {
             return Ok(());
         }
+        msg!("==> Withdrawing and closing old position: {}", old_position_key);
+        // note that the old position has been closed at this point.
+        let mut old_index = 0;
+        for (i, pos_key) in state.position_pks.iter().enumerate() {
+            if *pos_key == old_position_key {
+                old_index = i;
+                break;
+            }
+        }        
+        msg!("    Closing old position index: {}", old_index);
+        let _old_position = state.position_pks.remove(old_index);
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
@@ -507,12 +518,10 @@ impl Core {
             &token_y_program,
         );
 
-        let mut instructions = vec![];
-
         let main_accounts = dlmm::client::accounts::RemoveLiquidityByRange2 {
             position: old_position_key,
             lb_pair,
-            bin_array_bitmap_extension: Some(DLMM_ID),
+            bin_array_bitmap_extension: None,
             user_token_x,
             user_token_y,
             reserve_x: lb_pair_state.reserve_x,
@@ -549,6 +558,8 @@ impl Core {
             accounts,
             data,
         };
+
+        let mut instructions = vec![];
 
         instructions.push(remove_all_ix);
 
@@ -788,7 +799,7 @@ impl Core {
     /// At any given time, we have at most two single-bin positions per pair
     /// (one for each side of the stablecoin pair).
     /// This function deposits liquidity into one of those positions.
-    /// This is not about changing the price. It's all about adding liquidity.
+    /// This changes the price. It also adds liquidity.
     /// Note that "SinglePosition" here refers to the position state for a given LbPair,
     /// which may contain one or two actual position data accounts.
     /// 1. Initialize bin arrays if they do not exist.
@@ -811,6 +822,10 @@ impl Core {
             CustomError::InvalidDepositAmounts
         );
 
+        if state.position_pks.len() > 2 {
+            return Err(error!(CustomError::TooManyPositionsForPair));
+        }
+
         // for IRMA, the lower bin id is always equal to the upper bin id
         // since we only provide liquidity in one bin at any time;
         // we don't really care where the market is, so we don't use active_id.
@@ -827,17 +842,17 @@ impl Core {
 
         msg!("    Checking bin array at index: {}", bin_array_idx);
 
-        let position: Some<SinglePosition> = None;
-
+        // it's possible that the new price bin is within the current bin array.
         let acct_info = remaining_accounts.iter()
             .find(|acc| acc.key == &bin_array);
         if let Some(acct_info) = acct_info {
             let _bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
-                Some(bin_array_state) => bin_array_state,
+                Some(bin_array_state) => Some(bin_array_state),
                 None => None, // Err(error!(CustomError::InvalidBinArrayState))?,
             };
         }
-        if Some(acct_info) == None {
+        msg!("    Bin array account found: {:?}", acct_info.is_some());
+        if acct_info.is_none() && !state.bin_array_pks.contains(&bin_array) {
             msg!("    Bin array account not found, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
                 bin_array, // derived
@@ -858,86 +873,48 @@ impl Core {
 
             instructions.push(instruction);
         }
-        else {
-            msg!("    Bin array account found.");
-            position = self.position_data.all_positions.get_position(lb_pair);
-            if position.is_none() || position.unwrap() != *state {
-                return Err(error!(CustomError::PositionNotFound));
-            }
+
+        // no matter what, we need to create a new DLMM position because price has changed.
+
+        msg!("    Adding bin array to position state.");
+        state.bin_array_pks.push(bin_array);
+
+        msg!("    BinArray updated, initializing new position...");
+
+        // Initialize new position
+        let (position, _bump) = derive_position_pda(
+            payer.key(),
+            lb_pair,
+            new_price_bin_id,
+            new_price_bin_id,
+        );
+
+        let accounts = dlmm::client::accounts::InitializePosition {
+            lb_pair,
+            payer: payer.key(),
+            position,
+            owner: payer.key(),
+            rent: rent::ID,
+            system_program: system_program::ID,
+            event_authority,
+            program: DLMM_ID,
         }
+        .to_account_metas(None);
 
-        // if we have to push this bin array, then we may also have to create a new DLMM position
-        // it depends on whether the new bin price is located within the current bin arrays.
-        if !state.bin_array_pks.contains(&bin_array) {
-            // first, close the old dlmm position in state.position_pks if exists
-            let mut old_index = 0;
-            if state.position_pks.len() > 1 {
-                if state.position_pks.len() > 2 {
-                    return Err(error!(CustomError::TooManyPositionsForPair));
-                }
-                msg!("    Removing old position to make room for new one...");
-                let position1 = *state.position_pks[0]?;
-            }
-            msg!("    Closing old position: {}", old_position);
-            let old_position = state.position_pks.remove(old_index);
-            instructions.push(dlmm::client::accounts::ClosePosition {
-                position: old_position,
-                owner: payer.key(),
-                system_program: system_program::ID,
-            });
-            msg!("    Adding bin array to position state.");
-            state.bin_array_pks.push(bin_array);
+        let data = dlmm::client::args::InitializePosition {
+            lower_bin_id: new_price_bin_id,
+            width: 1i32, // single bin position
         }
+        .data();
 
-        if state.bin_array_pks.len() > 2 {
-            return Err(error!(CustomError::TooManyPositionsForPair));
-        }
+        let instruction = Instruction {
+            program_id: DLMM_ID,
+            accounts: accounts.to_vec(),
+            data,
+        };
+        msg!("    Initializing position: {}", position);
 
-        // we only have two positions per pair at any time
-        // and we need to determine which one to deposit into 
-        // let position = *state.position_pks.first().ok_or(
-        //         Error::from(CustomError::PositionNotFound)
-        //     )?;
-
-        if Some(acct_info) == None || state.position_pks.len() < 1 {
-            msg!("    Position account not found, initializing new position...");
-            // proceed to initialize new position
-
-            // Initialize new position
-            let (position, _bump) = derive_position_pda(
-                payer.key(),
-                lb_pair,
-                new_price_bin_id,
-                new_price_bin_id,
-            );
-
-            let accounts = dlmm::client::accounts::InitializePosition {
-                lb_pair,
-                payer: payer.key(),
-                position,
-                owner: payer.key(),
-                rent: rent::ID,
-                system_program: system_program::ID,
-                event_authority,
-                program: DLMM_ID,
-            }
-            .to_account_metas(None);
-
-            let data = dlmm::client::args::InitializePosition {
-                lower_bin_id: new_price_bin_id,
-                width: 1i32, // single bin position
-            }
-            .data();
-
-            let instruction = Instruction {
-                program_id: DLMM_ID,
-                accounts: accounts.to_vec(),
-                data,
-            };
-            msg!("    Initializing position: {}", position);
-
-            instructions.push(instruction);
-        }
+        instructions.push(instruction);
 
         // TODO implement bitmap extension fetching
         let bin_array_bitmap_extension = None;
@@ -981,11 +958,6 @@ impl Core {
                 .into_iter()
                 .map(|k| AccountMeta::new(k, false)),
         );
-
-        // fake it for now - position should not have changed
-        // let position = *state.position_pks.first().ok_or(
-        //         Error::from(CustomError::PositionNotFound)
-        //     )?;
 
         let main_accounts = dlmm::client::accounts::AddLiquidityByStrategy2 {
             lb_pair,
@@ -1147,8 +1119,8 @@ impl Core {
             reserves, &reserve_symbol)?;
 
         // convert prices from f64 to u128 using token decimals
-        let mint_price_u128 = pow(mint_price as u128, backing_decimals as i32);
-        let redemption_price_u128 = pow(redemption_price as u128, backing_decimals as i32);
+        let mint_price_u128 = pow(mint_price as u128, backing_decimals as i32).unwrap();
+        let redemption_price_u128 = pow(redemption_price as u128, backing_decimals as i32).unwrap();
 
         let lb_pair_state = fetch_lb_pair_state(
             remaining_accounts, 
@@ -1227,6 +1199,20 @@ impl Core {
             return Err(Error::from(CustomError::AmountYNotZero));
         }
 
+        // must withdraw first, before depositing to new position
+        if position_raw != PositionRaw::default() {
+            let positions = fetch_positions(remaining_accounts, &state.position_pks)?;
+            // withdraw from previous position
+            for (i, pos) in positions.iter().enumerate() {
+                if pos.lower_bin_id == position_raw.min_bin_id {
+                    let poskey = state.position_pks[i];
+                    msg!("mint position {} withdraw", poskey.to_string());
+                    self.withdraw(payer, remaining_accounts, state, poskey)?;
+                    break;
+                }
+            }
+        }
+
         // retry if error, amount_y should be zero
         // this also creates a new position and returns its key
         msg!("mint deposit for {}", state.lb_pair);
@@ -1239,22 +1225,7 @@ impl Core {
             Ok(pos_key) => pos_key,
         };
 
-        msg!("redemption position created: {}", new_position_key.to_string());
-
-        if position_raw != PositionRaw::default() {
-    
-            let positions = fetch_positions(remaining_accounts, &state.position_pks)?;
-
-            // withdraw from previous position
-            for (i, pos) in positions.iter().enumerate() {
-                if pos.lower_bin_id == position_raw.min_bin_id {
-                    let poskey = state.position_pks[i];
-                    msg!("mint position {} withdraw", poskey.to_string());
-                    self.withdraw(payer, remaining_accounts, state, poskey)?;
-                    break;
-                }
-            }
-        }
+        msg!("mint position created: {}", new_position_key.to_string());
 
         msg!("refresh state {}", state.lb_pair);
         // fetch positions again (Note: token y is the reserve stablecoin)
@@ -1288,6 +1259,20 @@ impl Core {
             return Err(Error::from(CustomError::AmountXNotZero));
         }
 
+        // must withdraw first, before depositing to new position
+        if position_raw != PositionRaw::default() {    
+            let positions = fetch_positions(remaining_accounts, &state.position_pks)?;
+            // withdraw from previous position
+            for (i, pos) in positions.iter().enumerate() {
+                if pos.lower_bin_id == position_raw.min_bin_id {
+                    let poskey = state.position_pks[i];
+                    msg!("mint position {} withdraw", poskey.to_string());
+                    self.withdraw(payer, remaining_accounts, state, poskey)?;
+                    break;
+                }
+            }
+        }
+
         // sanity check with real balances
         // let (amount_x, amount_y) = self.get_deposit_amount(context, state, amount_x, amount_y)?;
         msg!("redemption deposit for {}", state.lb_pair);
@@ -1301,21 +1286,6 @@ impl Core {
         };
 
         msg!("redemption position created: {}", new_position_key.to_string());
-
-        if position_raw != PositionRaw::default() {
-    
-            let positions = fetch_positions(remaining_accounts, &state.position_pks)?;
-
-            // withdraw from previous position
-            for (i, pos) in positions.iter().enumerate() {
-                if pos.lower_bin_id == position_raw.min_bin_id {
-                    let poskey = state.position_pks[i];
-                    msg!("mint position {} withdraw", poskey.to_string());
-                    self.withdraw(payer, remaining_accounts, state, poskey)?;
-                    break;
-                }
-            }
-        }
 
         msg!("refresh state {}", state.lb_pair);
         // fetch positions again (Note: token y is the reserve stablecoin)
