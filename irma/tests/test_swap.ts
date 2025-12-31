@@ -29,17 +29,18 @@ const PROGRAM_ID = new PublicKey(idl.address);
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
 
-// Get prices for USDC
-async function get_prices_for_usdc(
+// Get prices for a reserve
+async function get_prices_for_reserve(
+    reserve: string,
     program: Program,
     statePda: PublicKey,
     corePda: PublicKey,
     payer: PublicKey
 ) {
-  console.log("\nGet both mint and redemption prices for USDC");
+  console.log("\nGet both mint and redemption prices for ", reserve);
   console.log("======\n");
     const pricesResult = await program.methods
-    .getPrices("devUSDC")
+    .getPrices(reserve)
     .accounts({
         state: statePda,
         irmaAdmin: payer,
@@ -66,7 +67,7 @@ async function get_prices_for_usdc(
             if (decodedData.length >= 16) {
             const mintPrice = decodedData.readDoubleLE(0);
             const redemptionPrice = decodedData.readDoubleLE(8);
-            console.log("📊 Get prices for USDC - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
+            console.log("📊 Get prices for ", reserve, " - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
             } else {
             console.log("❌ Insufficient data length. Expected 16 bytes, got", decodedData.length);
             }
@@ -148,15 +149,17 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
 
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair
-      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair
+      "GqYCNoYqc61fj22LuJty2eqMFHSpcNjiD6JdjYnNHpSs",
+      "5Lay7YxaK1yNfTcnwymiCQCZUdoxUKn2AK3dbvh2MEKM",
+      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // signer
     ];
 
     if (mintOnly) {
         // Sale Trade Event
         console.log("🔄 Calling sale_trade_event() instruction...");
         const tx_sell = await program.methods
-        .saleTradeEvent("devUSDC", new BN(110_000_000))
+        .saleTradeEvent("devUSDT", new BN(110_000_000))
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -200,7 +203,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
 
     console.log();
 
-    await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
+    await get_prices_for_reserve("devUSDT", program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 
@@ -208,7 +211,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
         // Buy Trade Event
         console.log("🔄 Calling buy_trade_event() instruction...");
         const tx_buy = await program.methods
-        .buyTradeEvent("devUSDC", new BN(10_000_000))
+        .buyTradeEvent("devUSDT", new BN(10_000_000))
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -250,7 +253,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
         console.log();
     }
 
-    await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
+    await get_prices_for_reserve("devUSDT", program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 
