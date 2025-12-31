@@ -29,17 +29,18 @@ const PROGRAM_ID = new PublicKey(idl.address);
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
 
-// Get prices for USDC
-async function get_prices_for_usdc(
-    program: Program,
-    statePda: PublicKey,
-    corePda: PublicKey,
-    payer: PublicKey
+// Get prices for a reserve stablecoin (e.g., USDC)
+async function get_prices_for_reserve(
+  reserve: string,
+  program: Program,
+  statePda: PublicKey,
+  corePda: PublicKey,
+  payer: PublicKey
 ) {
-  console.log("\nGet both mint and redemption prices for USDC");
+  console.log("\nGet both mint and redemption prices for ", reserve);
   console.log("======\n");
     const pricesResult = await program.methods
-    .getPrices("devUSDC")
+    .getPrices(reserve)
     .accounts({
         state: statePda,
         irmaAdmin: payer,
@@ -66,7 +67,7 @@ async function get_prices_for_usdc(
             if (decodedData.length >= 16) {
             const mintPrice = decodedData.readDoubleLE(0);
             const redemptionPrice = decodedData.readDoubleLE(8);
-            console.log("📊 Get prices for USDC - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
+            console.log("📊 Get prices for ", reserve, " - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
             } else {
             console.log("❌ Insufficient data length. Expected 16 bytes, got", decodedData.length);
             }
@@ -155,8 +156,11 @@ async function test_check_shift_price() {
       "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm",
       "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
       "63zASrAr6ByHWoBP9osdXRyWnbEhKP2DdKZ86TZc9aoe", // new bin array account
-      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
+      "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
+      "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
       "8zPSZs9xoV7V1XewdvpZF7sDJxrY9qEYbzrcc7n1YpnS", // new position account
+      // "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
+      "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP",
       "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
       "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
       "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // ?
@@ -165,6 +169,7 @@ async function test_check_shift_price() {
       "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // ?
       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
     ];
 
         // Call check_shift_price_ranges
@@ -177,11 +182,18 @@ async function test_check_shift_price() {
             core: corePda,
             systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(configKeys.map((key) => ({
-            pubkey: new PublicKey(key),
-            isSigner: false,
-            isWritable: false,
-        })))
+        .remainingAccounts(configKeys.map((key, index) => {
+            const pubkey = new PublicKey(key);
+            // Position accounts and bin arrays need to be writable for DLMM operations
+            // First few accounts are LB pairs, positions, bin arrays - make them writable
+            const isWritable = index < 10; // Adjust this based on your account ordering
+            
+            return {
+                pubkey: pubkey,
+                isSigner: index == 10,
+                isWritable: isWritable,
+            };
+        }))
         .transaction();
 
         // Add compute budget instructions to increase CU limit
@@ -225,12 +237,12 @@ async function test_check_shift_price() {
 
     console.log();
 
-    await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
+    await get_prices_for_reserve("devUSDC", program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 
 
-    await get_prices_for_usdc(program, statePda, corePda, payer).then(() => {
+    await get_prices_for_reserve("devUSDT", program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 

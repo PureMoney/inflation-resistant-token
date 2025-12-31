@@ -96,7 +96,7 @@ impl BinExtension for Bin {
     }
 
     fn calculate_out_amount(&self, liquidity_share: u128) -> Result<(u64, u64)> {
-        msg!("share: {}, x: {}, y: {}, supply: {}", 
+        msg!("      share: {}, x: {}, y: {}, supply: {}", 
             liquidity_share, self.amount_x, self.amount_y, self.liquidity_supply);
         if self.liquidity_supply == 0 {
             return Ok((0, 0));
