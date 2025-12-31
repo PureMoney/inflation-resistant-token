@@ -148,15 +148,16 @@ impl SinglePosition {
     }
 
     /// Calculate total position amounts and fees across all positions
+    /// Note: this does not distinguish between mint and redeem positions.
     pub fn get_positions_total<'a>(
         &self,
         acct_infos: &'a [AccountInfo<'a>],
     ) -> Result<PositionRaw> {
-        msg!("Fetching total position for LB Pair {}", self.lb_pair);
+        // msg!("Fetching total position for LB Pair {}", self.lb_pair);
 
         // Fetch positions
         let positions = fetch_positions(acct_infos, &self.position_pks)?;
-        msg!("    fetched {} positions", positions.len());
+         // msg!("    --> fetched {} positions", positions.len());
 
         if positions.len() == 0 {
             return Ok(PositionRaw::default());
@@ -164,7 +165,7 @@ impl SinglePosition {
         
         // Fetch bin arrays
         let bin_arrays = fetch_bin_arrays(acct_infos, &self.bin_array_pks)?;
-        msg!("    fetched {} bin arrays", bin_arrays.len());
+        // msg!("    --> fetched {} bin arrays", bin_arrays.len());
 
         // bin arrays must be present because positions exist
         if bin_arrays.len() == 0 {
@@ -181,8 +182,8 @@ impl SinglePosition {
             let bin_array_keys = position.get_bin_array_keys_coverage()?;
             let mut bin_arrays_for_position = vec![];
 
-            msg!("    position lower_bin_id: {}, liquidity_shares len: {}",
-                position.lower_bin_id, position.liquidity_shares.len());
+            // msg!("    --> position lower_bin_id: {}, liquidity_shares len: {}",
+            //     position.lower_bin_id, position.liquidity_shares.len());
 
             for key in bin_array_keys {
                 let bin_array_state = bin_arrays.iter()
@@ -205,9 +206,9 @@ impl SinglePosition {
                     .lower_bin_id
                     .checked_add(i as i32).unwrap();
 
-                msg!("    getting bin_id: {}", bin_id);
+                msg!("    --> getting bin_id: {}", bin_id);
                 let bin = bin_array_manager.get_bin(bin_id)?;
-                msg!("    bin found: price {}", bin.price);
+                msg!("    --> bin found: price {}", bin.price);
                 let (bin_amount_x, bin_amount_y) = bin.calculate_out_amount(*liquidity_share)?;
 
                 amount_x = amount_x
@@ -225,12 +226,12 @@ impl SinglePosition {
             fee_y = fee_y
                 .checked_add(fee_y_pending).unwrap();
         }
-        msg!("    total fees - x: {}, y: {}", fee_x, fee_y);
+        msg!("    --> total fees - x: {}, y: {}", fee_x, fee_y);
 
         // Fetch lb pair state
-        let lb_pair_state = get_bytemuck_account::<LbPair>(acct_infos, &self.lb_pair)
-            .ok_or(error!(CustomError::MissingLbPairState))?;
-        msg!("    lb_pair_state fetched");
+        let lb_pair_state = fetch_lb_pair_state(acct_infos, &self.lb_pair)?;
+
+        msg!("    --> lb_pair_state fetched");
 
         Ok(PositionRaw {
             position_len: self.position_pks.len(),
@@ -279,8 +280,11 @@ impl SinglePosition {
             let mid_price = PositionRaw::get_price_from_id(mid_bin_id, bin_step)?;
             // msg!("  mid_bin_id: {}, mid_price: {}", mid_bin_id, mid_price);
 
-            if (mid_price - half_step_u128) < target_price && 
-                (mid_price + half_step_u128) > target_price {
+            if mid_price < target_price && 
+               mid_price.checked_add(half_step_u128).unwrap() > target_price {
+                return Ok(mid_bin_id);
+            } else if mid_price > target_price && 
+                      mid_price.checked_sub(half_step_u128).unwrap() < target_price {
                 return Ok(mid_bin_id);
             } else if mid_price < target_price {
                 lower_bin_id = mid_bin_id + 1;

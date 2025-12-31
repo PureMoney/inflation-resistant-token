@@ -267,10 +267,10 @@ pub mod irma {
                 position_manager::SinglePosition::new(lb_pair_key.clone())
             );
         }
-        else {
-            msg!("LB pair already in core config, clean up core config and position data");
-            core_mut.clean_up_config_and_positions()?;
-        }
+        // else {
+        //     msg!("LB pair already in core config, clean up core config and position data");
+        //     core_mut.clean_up_config_and_positions()?;
+        // }
         let _ = core_mut.fetch_token_info(&ctx.remaining_accounts)?;
         // msg!("Core config length after update: {}", core_mut.config.len());
         // finally, update the pool_id for the given stablecoin symbol
@@ -307,28 +307,38 @@ pub mod irma {
     /// Let pricing know about a sale trade event
     /// Note that IRMA is what we are selling (minting).
     /// bought_amount is the amount of bought_token we received from the sale.
-    pub fn sale_trade_event(
-        ctx: Context<Maint>, bought_token: String, bought_amount: u64
+    pub fn sale_trade_event<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, bought_token: String, bought_amount: u64
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
-        let core = &mut ctx.accounts.core;
+        let core = ctx.accounts.core.clone();
+        let reserves = &ctx.accounts.state.reserves;
+        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == bought_token)
+            .ok_or(Error::from(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+        let position = &mut ctx.accounts.core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key).ok_or(error!(CustomError::PositionNotFound))?;
         let state = &mut ctx.accounts.state;
         let remaining_accounts = ctx.remaining_accounts;
 
-        core.refresh_position_data_with_accounts(state, &remaining_accounts, bought_token, bought_amount, true)
+        core.refresh_position_data_with_accounts(state, position, &remaining_accounts, bought_token, bought_amount, true)
     }
 
     /// Let pricing know about a buy-back trade event
     /// Note that IRMA is what we are buying back (burning) and we just sold the backing token.
-    pub fn buy_trade_event(
-        ctx: Context<Maint>, sold_token: String, irma_amount: u64
+    pub fn buy_trade_event<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, sold_token: String, irma_amount: u64
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
-        let core = &mut ctx.accounts.core;
+        let core = ctx.accounts.core.clone();
+        let reserves = &ctx.accounts.state.reserves;
+        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == sold_token)
+            .ok_or(Error::from(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+        let position = &mut ctx.accounts.core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key).ok_or(error!(CustomError::PositionNotFound))?;
         let state = &mut ctx.accounts.state;
         let remaining_accounts = ctx.remaining_accounts;
 
-        core.refresh_position_data_with_accounts(state, &remaining_accounts, sold_token, irma_amount, false)
+        core.refresh_position_data_with_accounts(state, position, &remaining_accounts, sold_token, irma_amount, false)
     }
 
     pub fn swap<'info>(
@@ -365,21 +375,28 @@ pub mod irma {
     pub fn check_shift_price_ranges<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>
     ) -> Result<()> {
-        // Extract references to avoid double mutable borrow
-        let corei = &mut ctx.accounts.core.clone();
-        let core = &mut ctx.accounts.core;
+        // Get position count first
+        let position_count = ctx.accounts.core.position_data.all_positions.len();
+        
+        // Process this position - borrow everything we need in one go
+        let core = ctx.accounts.core.clone();
         let payer = &mut ctx.accounts.irma_admin;
         let reserves = &mut ctx.accounts.state.reserves;
-        let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
+        let remaining_accounts: &[AccountInfo] = &ctx.remaining_accounts;
 
-        for position in corei.position_data.all_positions.iter_mut() {
-            Core::check_shift_price_range(
-                core,
+        for index in 0..position_count {
+            // Clone the position we need to work on
+            let mut position = core.position_data.all_positions[index].clone();
+            
+            core.check_shift_price_range(
                 payer,
                 remaining_accounts,
                 reserves,
-                position,
+                &mut position,
             )?;
+            
+            // Update the position back in core (same mutable borrow)
+            ctx.accounts.core.position_data.all_positions[index] = position;
         }
         msg!("check_shift_price_ranges called");
         Ok(())

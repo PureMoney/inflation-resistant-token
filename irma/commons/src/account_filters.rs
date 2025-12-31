@@ -1,6 +1,9 @@
 use anchor_lang::prelude::*;
 use crate::anyhow;
 use crate::dlmm::accounts::*;
+use crate::dlmm::ID;
+use crate::conversions::dlmm_bytemuck::get_bytemuck_account_ref;
+use crate::CustomError;
 
 /// Check if a position account matches the given wallet and pair
 /// For on-chain usage where we have direct access to account data
@@ -66,36 +69,24 @@ pub fn filter_positions_by_wallet_and_pair(
 
 /// Extract position data from accounts that match the given criteria
 /// Returns tuples of (pubkey, position_data) for matching accounts
-pub fn get_matching_positions(
-    position_accounts: &[AccountInfo],
+pub fn get_matching_positions<'a>(
+    position_accounts: &'a [AccountInfo<'a>],
     wallet: &Pubkey,
     pair: &Pubkey,
-) -> anyhow::Result<Vec<(Pubkey, PositionV2)>> {
+) -> anyhow::Result<Vec<(Pubkey, &'a PositionV2)>> {
     let mut matching_positions = Vec::new();
     
     for account in position_accounts.iter() {
         if account.data.borrow().is_empty() {
             return Err(anyhow!("Invalid position {} found in input list", account.key()))?;
         }
-        let discriminator = &account.data.borrow()[0..8];
-        msg!("Discriminator: {:?}", discriminator);
-        if position_matches_wallet_and_pair(account, wallet, pair)? {
-            // The position_matches_wallet_and_pair already validated the data,
-            // so we can safely read it here
-            let data_borrow = account.data.borrow();
-            let position_data = &data_borrow[8..];
-            let position_size = std::mem::size_of::<PositionV2>();
-            let position_bytes = &position_data[..position_size];
-            
-            match bytemuck::try_from_bytes::<PositionV2>(position_bytes) {
-                Ok(position) => {
-                    matching_positions.push((account.key(), *position));
-                }
-                Err(e) => {
-                    msg!("Failed to parse position data for {}: {:?}", account.key(), e);
-                    // Skip this position instead of failing completely
-                    continue;
-                }
+        if is_position_account(account, &ID) {
+            if position_matches_wallet_and_pair(account, wallet, pair)? {
+                // The position_matches_wallet_and_pair already validated the data,
+                // so we can safely read it here
+                let position = get_bytemuck_account_ref::<PositionV2>(account)
+                    .ok_or(error!(CustomError::MissingPositionState))?;
+                matching_positions.push((account.key(), position));
             }
         }
     }
@@ -116,10 +107,17 @@ pub fn is_position_account(account: &AccountInfo, program_id: &Pubkey) -> bool {
         return false;
     }
     
-    // Could add discriminator check here if needed
-    // let discriminator = &account.data.borrow()[0..8];
+    // Discriminator check
+    let discriminator = &account.data.borrow()[0..8];
+    msg!("    Discriminator: {:?}", discriminator);
     // Check if discriminator matches Position account type
-    
+    // Note: can't figure out how to reference the discriminator constant directly from the IDL,
+    // so using the raw bytes for now (very bad kludge)
+    // if discriminator != PositionV2::discriminator {
+    if discriminator != [117, 176, 212, 199, 245, 180, 133, 182] {
+        return false;
+    }
+
     true
 }
 

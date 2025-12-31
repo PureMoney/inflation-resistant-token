@@ -92,4 +92,12 @@ pub enum CustomError {
     MissingBitmapExtension,
     #[msg("Invalid account data")]
     InvalidAccountData,
+    #[msg("Reserve coin missing decimals")]
+    ReserveCoinMissingDecimals,
+    #[msg("Invalid number of positions")]
+    InvalidNumberOfPositions,
+    #[msg("Duplicate positions found for either minting or redeeming")]
+    DuplicatePositions,
+    #[msg("Too many positions for pair.")]
+    TooManyPositions,
 }
