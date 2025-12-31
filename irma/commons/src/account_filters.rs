@@ -78,7 +78,8 @@ pub fn get_matching_positions<'a>(
     
     for account in position_accounts.iter() {
         if account.data.borrow().is_empty() {
-            return Err(anyhow!("Invalid position {} found in input list", account.key()))?;
+            msg!("Invalid position {} found in input list", account.key());
+            continue;
         }
         if is_position_account(account, &ID) {
             if position_matches_wallet_and_pair(account, wallet, pair)? {
