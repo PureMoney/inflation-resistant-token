@@ -311,7 +311,7 @@ pub mod irma {
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, bought_token: String, bought_amount: u64
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
-        let core = ctx.accounts.core.clone();
+        let core = &ctx.accounts.core.clone();
         let reserves = &ctx.accounts.state.reserves;
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == bought_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
@@ -329,7 +329,7 @@ pub mod irma {
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, sold_token: String, irma_amount: u64
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
-        let core = ctx.accounts.core.clone();
+        let core = &ctx.accounts.core.clone();
         let reserves = &ctx.accounts.state.reserves;
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == sold_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
@@ -345,7 +345,7 @@ pub mod irma {
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, amount: u64, swap_for_reserve: bool
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
-        let corei = &mut ctx.accounts.core.clone();
+        let corei = &ctx.accounts.core.clone();
         let core = &mut ctx.accounts.core;
         let payer = &mut ctx.accounts.irma_admin;
         let reserves = &mut ctx.accounts.state.reserves;
@@ -356,10 +356,9 @@ pub mod irma {
             .pool_id.clone();
 
         // look for positions matching the symbol
-        let position = corei.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
+        let position = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
             .ok_or(error!(CustomError::PositionNotFound))?;
-        Core::swap(
-            core,
+        corei.swap(
             payer,
             remaining_accounts,
             position,
