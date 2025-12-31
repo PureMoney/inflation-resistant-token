@@ -192,9 +192,10 @@ impl Core {
         Ok(())
     }
 
+
     /// Refresh internal state by fetching positions and bin arrays using provided accounts
     pub fn refresh_position_data_with_accounts<'a>(
-        &'a self, // must be immutable
+        &self, // must be immutable
         state: &mut Account<StateMap>,
         position: &mut SinglePosition,
         remaining_accounts: &'a [AccountInfo<'a>],
@@ -220,7 +221,7 @@ impl Core {
     /// Instead of parameters, it uses context to fetch necessary accounts
     /// and the config Vec in Core to go through the pairs.
     pub fn refresh_position_data<'a>(
-        &'a self, // must be immutable
+        &self, // must be immutable
         reserves: &[StableState], // Changed to slice reference
         remaining_accounts: &'a [AccountInfo<'a>],
         token: String, // symbol of the stablecoin
@@ -1109,7 +1110,7 @@ impl Core {
     /// In other words, min_bin_id == max_bin_id for each position, and 
     /// there are two positions: one for each side of the stablecoin pair.
     pub fn check_shift_price_range<'a>(
-        &'a self, // immutable (can be a copy)
+        &self, // immutable (can be a copy)
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &mut Vec<StableState>,
@@ -1220,7 +1221,7 @@ impl Core {
     /// Note: the "state" (SinglePosition) stays the same, but state.position_pks can change
     /// and must be updated accordingly.
     fn shift_mint_position<'a>(
-        &'a self, // must be immutable
+        &self, // must be immutable
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &Vec<StableState>,
@@ -1296,7 +1297,7 @@ impl Core {
     /// Shift redeem position
     /// For IRMA, we deposit first, then withdraw from the old bin.
     fn shift_redeem_position<'a>(
-        &'a self, // must be immutable
+        &self, // must be immutable
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &Vec<StableState>,

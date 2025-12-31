@@ -378,10 +378,13 @@ mod core_test {
             MaintBumps::default(), // Use default bumps if not needed
         );
 
+        let mut position = core.position_data.all_positions[0].clone();
+
         core.refresh_position_data(
             &state_account.reserves,
             remaining_accounts,
-            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
+            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
+            &mut position
         ).unwrap();
 
         let mut state = {
@@ -429,10 +432,13 @@ mod core_test {
             MaintBumps::default(), // Use default bumps if not needed
         );
 
+        let mut position = core.position_data.all_positions[0].clone();
+
         core.refresh_position_data(
             &state_account.reserves,
             remaining_accounts,
-            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string() // devUSDC
+            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
+            &mut position
         ).unwrap();
 
         let state = {
