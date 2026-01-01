@@ -47,6 +47,15 @@ pub enum AccountData<T> {
 const MAX_POSITIONS: usize = 2; // allow only 2 positions per pair
 const MINTING_POSITION_AMOUNT: u64 = 1_100_000_000; // 1.1 billion units for minting positions
 const REDEMPTION_POSITION_AMOUNT: u64 = 100_000_000; // 100 million units for redemption positions
+// We should have one position manager per reserve (it should be difficult to compromise all)
+const POSITION_MANAGERS: [&str; 6] = [
+    "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP",
+    "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95",
+    "PositionManager3",
+    "PositionManager4",
+    "PositionManager5",
+    "PositionManager6",
+];
 
 impl<T> AccountData<T> {
     pub fn into_inner(self) -> T {
@@ -229,7 +238,19 @@ impl Core {
     ) -> Result<()> {
 
         // search for lbpair matching the token
-        let quote_token = reserves.iter().find(|stablecoin| stablecoin.symbol == token);
+        let mut quote_token: Option<StableState> = None;
+        // all_positions contains SinglePosition entries, one for each reserve stablecoin.
+        // One of these therefore represents the current mint or redemption SinglePosition.
+        // The sequence number of the position in all_positions should be the same
+        // sequence number in POSITION_MANAGERS.
+        let mut pos_manager: &str = "";
+        for (index, stablecoin) in reserves.iter().enumerate() {
+            if stablecoin.symbol == token {
+                quote_token = Some(stablecoin.clone());
+                pos_manager = &POSITION_MANAGERS[index];
+                break;
+            }
+        }
         require!(quote_token.is_some(), CustomError::InvalidReserveList);
 
         let pair_address = quote_token.unwrap().pool_id; // DLMM LbPair address
@@ -238,15 +259,11 @@ impl Core {
 
         msg!("==> Refreshing state for pair: {}", pair_address.to_string());
 
-        // all_positions should contain all relevant position accounts
-        // for the current mint or redemption swap
-        // this function now modifies
-
         // get all DLMM PositionV2's by the same user, for this trade pair.
         // there should only be two positions, at most - one for minting, one for redemption
         let mut position_keys_with_states = get_matching_positions(
             remaining_accounts,
-            &self.owner, 
+            &Pubkey::from_str(pos_manager).unwrap(), // must be owner of SinglePosition position_pks
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
 
