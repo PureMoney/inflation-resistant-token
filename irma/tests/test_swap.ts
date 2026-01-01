@@ -150,6 +150,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
       "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair
+      "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // position owned by the-fed
       "GqYCNoYqc61fj22LuJty2eqMFHSpcNjiD6JdjYnNHpSs",
       "5Lay7YxaK1yNfTcnwymiCQCZUdoxUKn2AK3dbvh2MEKM",
       "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // signer
@@ -166,11 +167,13 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
             core: corePda,
             systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(configKeys.map((key) => ({
+        .remainingAccounts(configKeys.map((key, index) => {
+          return {
             pubkey: new PublicKey(key),
-            isSigner: false,
-            isWritable: false,
-        })))
+            isSigner: index === 4,
+            isWritable: index < 4,
+          };
+        }))
         .transaction();
 
         // Send transaction

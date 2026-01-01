@@ -31,12 +31,11 @@ pub fn position_matches_wallet_and_pair(
         return Ok(false);
     }
     
-    // Safely read the position struct using bytemuck with bounds checking
-    let position_bytes = &position_data[..position_size];
-    let position = match bytemuck::try_from_bytes::<PositionV2>(position_bytes) {
-        Ok(pos) => *pos,
-        Err(e) => {
-            msg!("Failed to parse position data: {:?}", e);
+    // Safely read the position struct using bytemuck with zerocopy
+    let position = match get_bytemuck_account_ref::<PositionV2>(position_account) {
+        Some(pos) => pos,
+        None => {
+            msg!("Failed to parse position data");
             return Ok(false);
         }
     };

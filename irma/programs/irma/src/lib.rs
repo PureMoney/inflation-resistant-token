@@ -316,9 +316,24 @@ pub mod irma {
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == bought_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
             .pool_id.clone();
-        let position = &mut ctx.accounts.core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key).ok_or(error!(CustomError::PositionNotFound))?;
+        let positions = &mut ctx.accounts.core.position_data.all_positions
+                                    .iter_mut()
+                                    .filter(|p| p.lb_pair == lb_pair_key)
+                                    .collect::<Vec<&mut SinglePosition>>();
         let state = &mut ctx.accounts.state;
         let remaining_accounts = ctx.remaining_accounts;
+
+        let position = match positions.len() {
+            0 => {
+                ctx.accounts.core.position_data.all_positions.push(
+                    SinglePosition::new(lb_pair_key.clone())
+                );
+                &mut ctx.accounts.core.position_data.all_positions.last_mut().unwrap()
+            },
+            1 => &mut positions[0],
+            2 => &mut positions[0], // pick the first one if there are two
+            _ => return Err(error!(CustomError::InconsistentPositionsFound)),
+        };
 
         core.refresh_position_data_with_accounts(state, position, &remaining_accounts, bought_token, bought_amount, true)
     }
@@ -334,9 +349,23 @@ pub mod irma {
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == sold_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
             .pool_id.clone();
-        let position = &mut ctx.accounts.core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key).ok_or(error!(CustomError::PositionNotFound))?;
+        let positions = &mut ctx.accounts.core.position_data.all_positions
+                                    .iter_mut()
+                                    .filter(|p| p.lb_pair == lb_pair_key)
+                                    .collect::<Vec<&mut SinglePosition>>();
         let state = &mut ctx.accounts.state;
         let remaining_accounts = ctx.remaining_accounts;
+
+        let position = match positions.len() {
+            1 => {
+                ctx.accounts.core.position_data.all_positions.push(
+                    SinglePosition::new(lb_pair_key.clone())
+                );
+                &mut ctx.accounts.core.position_data.all_positions.last_mut().unwrap()
+            },
+            2 => &mut positions[1], // pick the second one if there are two already
+            _ => return Err(error!(CustomError::InconsistentPositionsFound)),
+        };
 
         core.refresh_position_data_with_accounts(state, position, &remaining_accounts, sold_token, irma_amount, false)
     }
@@ -347,7 +376,7 @@ pub mod irma {
         // Extract references to avoid double mutable borrow
         let corei = &ctx.accounts.core.clone();
         let core = &mut ctx.accounts.core;
-        let payer = &mut ctx.accounts.irma_admin;
+        let payer = &mut ctx.accounts.irma_admin; // this is wrong; payer should be the trader
         let reserves = &mut ctx.accounts.state.reserves;
         let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
 
@@ -379,7 +408,7 @@ pub mod irma {
         
         // Process this position - borrow everything we need in one go
         let core = ctx.accounts.core.clone();
-        let payer = &mut ctx.accounts.irma_admin;
+        let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
         let reserves = &mut ctx.accounts.state.reserves;
         let remaining_accounts: &[AccountInfo] = &ctx.remaining_accounts;
 

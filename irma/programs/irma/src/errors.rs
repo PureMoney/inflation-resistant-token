@@ -100,4 +100,6 @@ pub enum CustomError {
     DuplicatePositions,
     #[msg("Too many positions for pair.")]
     TooManyPositions,
+    #[msg("Inconsistent positions found.")]
+    InconsistentPositionsFound,
 }
