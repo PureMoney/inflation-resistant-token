@@ -446,9 +446,6 @@ pub mod irma {
     pub fn check_shift_price_ranges<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, reserve_token: String
     ) -> Result<()> {
-        // Get position count first
-        let position_count = ctx.accounts.core.position_data.all_positions.len();
-        
         // Process this position - borrow everything we need in one go
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
         let reserves = &mut ctx.accounts.state.reserves;
