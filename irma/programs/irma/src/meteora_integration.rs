@@ -1155,19 +1155,7 @@ impl Core {
 
         let lb_pair = core_position.lb_pair;
 
-        // Find the reserve coin for this position
-        // {
-        //     let mut reserve_coin = &mut reserves[0];
-        //     for i in 0..2 {
-        //         reserve_coin = &mut reserves[i];
-        //         let decimals = reserve_coin.backing_decimals;
-        //         msg!("    --> symbol: {}, decimals: {}", reserve_coin.symbol, decimals);
-        //         if decimals == 0 {
-        //             msg!("    --> fixing missing decimals for reserve coin: {}", reserve_coin.symbol);
-        //             reserve_coin.backing_decimals = 6; // temporary code to fix missing decimals
-        //         }
-        //     }
-        // };
+        // Find the reserve coin for this LBPair
         let (reserve_symbol, backing_decimals) = {
             let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair);
             require!(reserve_coin.is_some(), CustomError::ReserveListPositionListMismatch);
