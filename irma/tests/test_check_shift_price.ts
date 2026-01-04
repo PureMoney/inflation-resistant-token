@@ -163,10 +163,10 @@ async function test_check_shift_price() {
       "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP", // phantom1 wallet
       "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
       "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
-      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // ?
-      "DtYtYAbfPrWD3B81wKvwkynuVjoiEBBSj3ReYMuPSdcK", // ?
-      "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // ?
-      "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // ?
+      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // IRMA token account owned by the-fed
+      // "DtYtYAbfPrWD3B81wKvwkynuVjoiEBBSj3ReYMuPSdcK", // does not exist
+      "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // IRMA token account owned by HfQQYJT
+      "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // devUSDC token account owned by HfQQYJT
       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
@@ -175,7 +175,7 @@ async function test_check_shift_price() {
         // Call check_shift_price_ranges
         console.log("🔄 Calling check_shift_price_ranges() instruction...");
         const tx_sell = await program.methods
-        .checkShiftPriceRanges()
+        .checkShiftPriceRanges("devUSDC")
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -184,9 +184,16 @@ async function test_check_shift_price() {
         })
         .remainingAccounts(configKeys.map((key, index) => {
             const pubkey = new PublicKey(key);
-            // Position accounts and bin arrays need to be writable for DLMM operations
-            // First few accounts are LB pairs, positions, bin arrays - make them writable
-            const isWritable = index < 10; // Adjust this based on your account ordering
+            
+            // Make most accounts writable for DLMM operations  
+            // Only read-only accounts: programs and mints
+            const keyString = key;
+            const isProgram = keyString.includes('LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo') ||
+                             keyString.includes('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') ||
+                             keyString.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') ||
+                             keyString.includes('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+            
+            const isWritable = !isProgram; // Most accounts need to be writable
             
             return {
                 pubkey: pubkey,

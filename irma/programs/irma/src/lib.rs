@@ -311,31 +311,53 @@ pub mod irma {
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, bought_token: String, bought_amount: u64
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
-        let core = &ctx.accounts.core.clone();
         let reserves = &ctx.accounts.state.reserves;
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == bought_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
             .pool_id.clone();
-        let positions = &mut ctx.accounts.core.position_data.all_positions
-                                    .iter_mut()
-                                    .filter(|p| p.lb_pair == lb_pair_key)
-                                    .collect::<Vec<&mut SinglePosition>>();
+        
+        // Get the core reference and work with it consistently
+        let core = &mut ctx.accounts.core;
+        
+        // Find positions for this lb_pair and clone them to avoid borrowing conflicts
+        let mut filtered_positions: Vec<SinglePosition> = core.position_data.all_positions
+            .iter()
+            .filter(|p| p.lb_pair == lb_pair_key)
+            .cloned()
+            .collect();
+    
+        // if there are zero positions, warn and return
+        if filtered_positions.is_empty() {
+            msg!("Warning: No SinglePositions found for lb_pair: {}", lb_pair_key);
+            msg!("Please call update_reserve_lbpair to link the reserve to its LbPair.");
+            return Ok(());
+        }
+        if filtered_positions.len() > 1 {
+            msg!("Warning: Found {} SinglePositions for lb_pair: {}, keeping only the non-empty one", 
+                 filtered_positions.len(), lb_pair_key);
+            // Keep only non-empty position
+            filtered_positions.retain(|p| !p.position_pks.is_empty());
+            // note: the following can remove SinglePositions from other LbPairs
+            core.position_data.all_positions.retain(
+                |p: &SinglePosition| !p.position_pks.is_empty()
+            );
+        }
+        msg!("   position_pks.len(): {}", core.position_data.all_positions[0].position_pks.len());
+        
         let state = &mut ctx.accounts.state;
         let remaining_accounts = ctx.remaining_accounts;
 
-        let position = match positions.len() {
-            0 => {
-                ctx.accounts.core.position_data.all_positions.push(
-                    SinglePosition::new(lb_pair_key.clone())
-                );
-                &mut ctx.accounts.core.position_data.all_positions.last_mut().unwrap()
-            },
-            1 => &mut positions[0],
-            2 => &mut positions[0], // pick the first one if there are two
-            _ => return Err(error!(CustomError::InconsistentPositionsFound)),
-        };
-
-        core.refresh_position_data_with_accounts(state, position, &remaining_accounts, bought_token, bought_amount, true)
+        core.refresh_position_data_with_accounts(state, &mut filtered_positions, &remaining_accounts, bought_token, bought_amount, true)?;
+        
+        // Update the positions back in core
+        if !filtered_positions.is_empty() {
+            msg!("   filtered_positions[0].position_pks.len(): {}", filtered_positions[0].position_pks.len());
+            if let Some(existing_pos) = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key) {
+                *existing_pos = filtered_positions[0].clone();
+            }
+        }
+        
+        Ok(())
     }
 
     /// Let pricing know about a buy-back trade event
@@ -343,33 +365,54 @@ pub mod irma {
     pub fn buy_trade_event<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, sold_token: String, irma_amount: u64
     ) -> Result<()> {
-        // Extract references to avoid double mutable borrow
-        let core = &ctx.accounts.core.clone();
         let reserves = &ctx.accounts.state.reserves;
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == sold_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
             .pool_id.clone();
-        let positions = &mut ctx.accounts.core.position_data.all_positions
-                                    .iter_mut()
-                                    .filter(|p| p.lb_pair == lb_pair_key)
-                                    .collect::<Vec<&mut SinglePosition>>();
+        
+        // Get the core reference and work with it consistently
+        let core = &mut ctx.accounts.core;
+        
+        // Find positions for this lb_pair and clone them to avoid borrowing conflicts
+        let mut filtered_positions: Vec<SinglePosition> = core.position_data.all_positions
+            .iter()
+            .filter(|p| p.lb_pair == lb_pair_key)
+            .cloned()
+            .collect();
+
+        // if there are zero positions, warn and return
+        if filtered_positions.is_empty() {
+            msg!("Warning: No SinglePositions found for lb_pair: {}", lb_pair_key);
+            msg!("Please call update_reserve_lbpair to link the reserve to its LbPair.");
+            return Ok(());
+        }
+        if filtered_positions.len() > 1 {
+            msg!("Warning: Found {} SinglePositions for lb_pair: {}, keeping only the non-empty one", 
+                 filtered_positions.len(), lb_pair_key);
+            // Keep only non-empty position
+            filtered_positions.retain(|p| !p.position_pks.is_empty());
+            // note: the following can remove SinglePositions from other LbPairs
+            core.position_data.all_positions.retain(
+                |p: &SinglePosition| !p.position_pks.is_empty()
+            );
+        }
+        
         let state = &mut ctx.accounts.state;
         let remaining_accounts = ctx.remaining_accounts;
 
-        let position = match positions.len() {
-            1 => {
-                ctx.accounts.core.position_data.all_positions.push(
-                    SinglePosition::new(lb_pair_key.clone())
-                );
-                &mut ctx.accounts.core.position_data.all_positions.last_mut().unwrap()
-            },
-            2 => &mut positions[1], // pick the second one if there are two already
-            _ => return Err(error!(CustomError::InconsistentPositionsFound)),
-        };
-
-        core.refresh_position_data_with_accounts(state, position, &remaining_accounts, sold_token, irma_amount, false)
+        core.refresh_position_data_with_accounts(state, &mut filtered_positions, &remaining_accounts, sold_token, irma_amount, false)?;
+        
+        // Update the positions back in core
+        if !filtered_positions.is_empty() {
+            if let Some(existing_pos) = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key) {
+                *existing_pos = filtered_positions[0].clone();
+            }
+        }
+        
+        Ok(())
     }
 
+    /// Send swap instruction to Meteora DLMM
     pub fn swap<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, amount: u64, swap_for_reserve: bool
     ) -> Result<()> {
@@ -401,31 +444,41 @@ pub mod irma {
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions.
     pub fn check_shift_price_ranges<'info>(
-        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, reserve_token: String
     ) -> Result<()> {
         // Get position count first
         let position_count = ctx.accounts.core.position_data.all_positions.len();
         
         // Process this position - borrow everything we need in one go
-        let core = ctx.accounts.core.clone();
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
         let reserves = &mut ctx.accounts.state.reserves;
         let remaining_accounts: &[AccountInfo] = &ctx.remaining_accounts;
 
-        for index in 0..position_count {
-            // Clone the position we need to work on
-            let mut position = core.position_data.all_positions[index].clone();
+        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == reserve_token)
+            .ok_or(Error::from(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+        
+        // Get the core reference and work with it consistently
+        let core = &mut ctx.accounts.core;
+        
+        // Find the position index for this lb_pair
+        let pos_index = core.position_data.all_positions.iter()
+            .position(|p| p.lb_pair == lb_pair_key)
+            .ok_or(error!(CustomError::SinglePositionNotFound))?;
+        
+        // Clone the position to avoid borrowing conflicts
+        let mut position = core.position_data.all_positions[pos_index].clone();
             
-            core.check_shift_price_range(
-                payer,
-                remaining_accounts,
-                reserves,
-                &mut position,
-            )?;
-            
-            // Update the position back in core (same mutable borrow)
-            ctx.accounts.core.position_data.all_positions[index] = position;
-        }
+        core.check_shift_price_range(
+            payer,
+            remaining_accounts,
+            reserves,
+            &mut position,
+        )?;
+        
+        // Update the position back in core
+        core.position_data.all_positions[pos_index] = position;
+
         msg!("check_shift_price_ranges called");
         Ok(())
     }

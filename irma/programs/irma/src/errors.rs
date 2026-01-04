@@ -102,4 +102,6 @@ pub enum CustomError {
     TooManyPositions,
     #[msg("Inconsistent positions found.")]
     InconsistentPositionsFound,
+    #[msg("Single position not found for the given LB pair.")]
+    SinglePositionNotFound,
 }

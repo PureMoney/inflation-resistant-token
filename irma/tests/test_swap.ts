@@ -75,7 +75,7 @@ async function get_prices_for_reserve(
     }
 }
 
-async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
+async function test_swap(mintOnly: boolean, redeemOnly: boolean, reserve_token: string) {
   console.log("\n🚀 Test Swap Effect on redemption price");
   console.log("==========================================\n");
 
@@ -146,21 +146,35 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
+    let signer = null;
+    switch (reserve_token) {
+      case "devUSDC":
+        signer = "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP";
+        break;
+      case "devUSDT":
+        signer = "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95";
+        break;
+      default:
+        console.log("❌ Unknown reserve token:", reserve_token);
+        return;
+    }
 
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
-      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // devUSDT pair
       "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // position owned by the-fed
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // devUSDC pair
+      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // devUSDC position owned by phantom1
       "GqYCNoYqc61fj22LuJty2eqMFHSpcNjiD6JdjYnNHpSs",
       "5Lay7YxaK1yNfTcnwymiCQCZUdoxUKn2AK3dbvh2MEKM",
-      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // signer
+      signer,
     ];
 
     if (mintOnly) {
         // Sale Trade Event
         console.log("🔄 Calling sale_trade_event() instruction...");
         const tx_sell = await program.methods
-        .saleTradeEvent("devUSDT", new BN(110_000_000))
+        .saleTradeEvent(reserve_token, new BN(110_000_000))
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -170,8 +184,8 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
         .remainingAccounts(configKeys.map((key, index) => {
           return {
             pubkey: new PublicKey(key),
-            isSigner: index === 4,
-            isWritable: index < 4,
+            isSigner: index === configKeys.length - 1,
+            isWritable: index < configKeys.length - 1,
           };
         }))
         .transaction();
@@ -206,7 +220,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
 
     console.log();
 
-    await get_prices_for_reserve("devUSDT", program, statePda, corePda, payer).then(() => {
+    await get_prices_for_reserve(reserve_token, program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 
@@ -214,7 +228,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
         // Buy Trade Event
         console.log("🔄 Calling buy_trade_event() instruction...");
         const tx_buy = await program.methods
-        .buyTradeEvent("devUSDT", new BN(10_000_000))
+        .buyTradeEvent(reserve_token, new BN(10_000_000))
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -256,7 +270,7 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
         console.log();
     }
 
-    await get_prices_for_reserve("devUSDT", program, statePda, corePda, payer).then(() => {
+    await get_prices_for_reserve(reserve_token, program, statePda, corePda, payer).then(() => {
       console.log("\n");
     });
 
@@ -291,9 +305,9 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean) {
 }
 
 const args = process.argv.slice(2);
-if (args.length > 1) {
+if (args.length > 2) {
   console.error("❌ Too many arguments. Usage:");
-  console.error("   npx ts-node tests/test_swap.ts mo | ro");
+  console.error("   npx ts-node tests/test_swap.ts [mo | ro] reserve_token");
   console.error("   mo = mint only, ro = redeem only");
   console.error("   Either mo or ro exclusive, or no argument for both");
   process.exit(1);
@@ -308,6 +322,12 @@ if (option && option === "mo") {
   mintOnly = false;
   redeemOnly = true;
 }
+let reserve_token = "";
+if (mintOnly && redeemOnly) {
+  reserve_token = args[0];
+} else {
+  reserve_token = args[1];
+}
 
 // Run the function (removed catch so it doesn't display the error twice)
-test_swap(mintOnly, redeemOnly); // .catch(console.error);
+test_swap(mintOnly, redeemOnly, reserve_token); // .catch(console.error);
