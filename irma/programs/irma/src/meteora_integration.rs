@@ -194,7 +194,7 @@ impl Core {
                 invoke_signed(&instruction, remaining_accounts, &[seeds])?;
             }
             else {
-                msg!("Invoking instruction without signing, instruction: {:?}", instruction);
+                msg!("Invoking instruction without signing");
                 invoke(&instruction, remaining_accounts)?;
             }
         }
@@ -1178,12 +1178,18 @@ impl Core {
         // Convert prices to token units (multiply by 10^decimals)
         let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals as i32)) as u128;
         let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals as i32)) as u128;
+        let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
+                                .checked_div(1_000_000u128)
+                                .ok_or(Error::from(CustomError::PriceConversionError))?;
+        let redemption_price_u128 = (redemption_price_u128 << SCALE_OFFSET)
+                                .checked_div(1_000_000u128)
+                                .ok_or(Error::from(CustomError::PriceConversionError))?;
+        msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
 
         let lb_pair_state = fetch_lb_pair_state(
             remaining_accounts, 
             &lb_pair
         )?;
-        msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
         let bin_step = lb_pair_state.bin_step;
         let min_bin_id = lb_pair_state.parameters.min_bin_id;
         let max_bin_id = lb_pair_state.parameters.max_bin_id;
