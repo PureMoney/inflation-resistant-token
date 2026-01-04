@@ -384,7 +384,8 @@ mod core_test {
             &state_account.reserves,
             remaining_accounts,
             "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
-            &mut position
+            &mut position,
+            false
         ).unwrap();
 
         let mut state = {
@@ -438,7 +439,8 @@ mod core_test {
             &state_account.reserves,
             remaining_accounts,
             "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
-            &mut position
+            &mut position,
+            true
         ).unwrap();
 
         let state = {
