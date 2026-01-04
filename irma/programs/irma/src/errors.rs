@@ -104,4 +104,6 @@ pub enum CustomError {
     InconsistentPositionsFound,
     #[msg("Single position not found for the given LB pair.")]
     SinglePositionNotFound,
+    #[msg("Price conversion error.")]
+    PriceConversionError,
 }
