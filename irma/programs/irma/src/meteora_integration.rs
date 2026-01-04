@@ -183,7 +183,7 @@ impl Core {
                 let key = payer.key();
                 let (_pda, bump) = Pubkey::find_program_address(
                     &[b"irma", key.as_ref()],
-                    &crate::IRMA_ID,
+                    &IRMA_ID,
                 );
                 let seeds: &[&[u8]] = &[
                     b"irma",
@@ -206,7 +206,7 @@ impl Core {
     pub fn refresh_position_data_with_accounts<'a>(
         &self, // must be immutable
         state: &mut Account<StateMap>,
-        position: &mut SinglePosition,
+        positions: &mut Vec<SinglePosition>, // Changed to owned positions
         remaining_accounts: &'a [AccountInfo<'a>],
         token: String, // symbol of the stablecoin
         amount: u64,
@@ -219,8 +219,14 @@ impl Core {
             pricing::redeem_irma(state, &token, amount)?;
         }
 
+        if positions.len() != 1 {
+            return Err(error!(CustomError::InconsistentPositionsFound));
+        }
+        let position = &mut positions[0];
+        msg!("==> position_pks.len(): {}", position.position_pks.len());
+
         // Call the core position refresh logic without needing a full context
-        self.refresh_position_data(&state.reserves, remaining_accounts, token, position)?;
+        self.refresh_position_data(&state.reserves, remaining_accounts, token, position, is_sale)?;
         
         Ok(())
     }
@@ -235,6 +241,7 @@ impl Core {
         remaining_accounts: &'a [AccountInfo<'a>],
         token: String, // symbol of the stablecoin
         state: &mut SinglePosition, // for particular lb_pair with this token
+        is_sale: bool,
     ) -> Result<()> {
 
         // search for lbpair matching the token
@@ -270,13 +277,13 @@ impl Core {
         require!(position_keys_with_states.len() <= MAX_POSITIONS, CustomError::TooManyPositions);
 
         let mut position_pks = vec![];
-        // Note: We'll fetch positions and bin_arrays dynamically when needed
+        // Note: We'll fetch PositionV2 positions and bin_arrays dynamically when needed
         // let mut positions = vec![];
         let mut min_bin_id = 0;
         let mut max_bin_id = 0;
         // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
-        msg!("    Found {} positions", position_keys_with_states.len());
+        msg!("    Found {} PositionV2 positions", position_keys_with_states.len());
         let mut bin_array_keys = vec![];
         if position_keys_with_states.len() > 0 {
             // sort position by bin id
@@ -299,13 +306,21 @@ impl Core {
                 // positions.push(state.to_owned());
             }
 
-            bin_array_keys = position_keys_with_states
-                .iter()
-                .filter_map(|(_key, state)| state.get_bin_array_keys_coverage().ok())
-                .flatten()
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+            let pos_v2 = match position_keys_with_states.len() {
+                0 => return Ok(()), // new SinglePosition, no PositionV2s yet
+                1 => match is_sale {
+                    true => &mut position_keys_with_states[0].1, // mint position comes first
+                    false => return Ok(()), // only one position, and it's not the one we want
+                },
+                2 => match is_sale {
+                    true => &mut position_keys_with_states[1].1,
+                    false => &mut position_keys_with_states[0].1, // pick the first one if there are two
+                },
+                _ => return Err(error!(CustomError::InconsistentPositionsFound)),
+            };
+
+            // from here on we should have to deal only with a single PositionV2
+            bin_array_keys = pos_v2.get_bin_array_keys_coverage()?;
 
             // Note: We'll fetch bin arrays dynamically when needed, not store them
             // let bin_arrays_raw: HashMap::<Pubkey, Option<BinArray>> 
@@ -540,7 +555,7 @@ impl Core {
         let is_pda_owned = {
             let (irma_authority, _) = Pubkey::find_program_address(
                 &[b"irma_authority"],
-                &crate::IRMA_ID,
+                &IRMA_ID,
             );
             position_owner == irma_authority
         };
@@ -684,7 +699,7 @@ impl Core {
 
         msg!("    event authority: {}", event_authority);
 
-        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair, &dlmm::ID); // &IRMA_ID);
+        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair, &dlmm::ID);
 
         // let accounts = dlmm::client::accounts::InitializeBinArrayBitmapExtension {
         //     lb_pair,
@@ -1304,7 +1319,7 @@ impl Core {
         let symbol = stablecoin.symbol.to_string();
         
         // Only refresh position data - let caller handle rebalance time increment
-        self.refresh_position_data(reserves, remaining_accounts, symbol, state)?;
+        self.refresh_position_data(reserves, remaining_accounts, symbol, state, true)?;
         
         // Return the lb_pair so caller can increment rebalance time
         Ok(())
@@ -1379,7 +1394,7 @@ impl Core {
         let symbol = stablecoin.symbol.to_string();
 
         // Only refresh position data - let caller handle rebalance time increment
-        self.refresh_position_data(reserves, remaining_accounts, symbol, state)?;
+        self.refresh_position_data(reserves, remaining_accounts, symbol, state, false)?;
 
         // Return the lb_pair so caller can increment rebalance time
         Ok(())
