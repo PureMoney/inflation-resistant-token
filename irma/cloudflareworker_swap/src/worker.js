@@ -192,6 +192,20 @@ async function getActiveBins(db) {
 function updateActiveBins(db, binsData) {
   if (!db) return Promise.resolve();
   
+  // Validate that all required fields are present
+  if (binsData.mintBinId === undefined || binsData.mintBinId === null ||
+      binsData.redemptionBinId === undefined || binsData.redemptionBinId === null ||
+      binsData.mintPrice === undefined || binsData.mintPrice === null ||
+      binsData.redemptionPrice === undefined || binsData.redemptionPrice === null) {
+    console.error('Failed to update active bins: missing required fields', {
+      mintBinId: binsData.mintBinId,
+      redemptionBinId: binsData.redemptionBinId,
+      mintPrice: binsData.mintPrice,
+      redemptionPrice: binsData.redemptionPrice
+    });
+    return Promise.resolve();
+  }
+  
   return db.prepare(`
       INSERT INTO active_bins (id, mint_bin_id, redemption_bin_id, mint_price, redemption_price, updated_at)
       VALUES (1, ?, ?, ?, ?, ?)
