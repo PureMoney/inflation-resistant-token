@@ -51,7 +51,7 @@ async function get_prices_for_one(
         console.log("📊 Existing core:", existingCore);
         try {
           const pricesResult = await program.methods
-            .getPrices("devUSDC")
+            .getPrices(stablecoin)
             .accounts({
               state: statePda,
               irmaAdmin: payer,
