@@ -26,8 +26,8 @@ const PROGRAM_ID = new PublicKey(idl.address);
 
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
-async function readProtocolState() {
-  console.log("\n🚀 Reading IRMA Protocol State");
+async function add_reserve() {
+  console.log("\n🚀 Adding reserve to IRMA Protocol");
   console.log("===============================\n");
 
   // Use environment variables from .env file
@@ -97,44 +97,20 @@ async function readProtocolState() {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    // Check if already initialized
-    let existingCore, existingState;
-    try {
-      existingCore = await (program.account as any).core.fetch(corePda);
-      console.log("ℹ️ Protocol already initialized!");
-      console.log("📊 Existing core:", existingCore);
-      existingState = await (program.account as any).stateMap.fetch(statePda);
-      console.log("📊 Existing state:", existingState);
-      return { state: existingState, core: existingCore };
-    } catch (error: unknown) {
-      // Safely handle unknown errors without assuming they have a `message` property
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-          ? error
-          : JSON.stringify(error);
-      if (!existingCore) {
-        console.log("📝 Core not found, error:", errMsg, ", proceeding with initialization...");
-      }
-      else if (!existingState) {
-        console.log("📝 State not found, error:", errMsg);
-        return { state: null, core: existingCore };
-      }
-    }
 
     // Initialize the protocol
-    console.log("🔄 Calling initialize instruction...");
+    console.log("🔄 Calling add_reserve()...");
     
     const owner = payer.toBase58();
     const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1
-      // "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
+      // Add some example pair addresses - this is not needed for add_reserve
+      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1 = devUSDC
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair 2 = devUSDT
     ];
     
     const tx = await program.methods
-      .initialize(owner, configKeys)
+      // .addReserve("devUSDC", new PublicKey("BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"), 6)
+      .addReserve("devUSDT", new PublicKey("J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"), 6)
       .accounts({
         state: statePda,
         irmaAdmin: payer,
@@ -146,23 +122,23 @@ async function readProtocolState() {
     console.log("✅ Initialize transaction signature:", tx);
     console.log("⏳ Waiting for confirmation...");
 
-    // Wait for confirmation
-    await connection.confirmTransaction(tx);
-    console.log("✅ Transaction confirmed!");
+    // // Wait for confirmation
+    // await connection.confirmTransaction(tx);
+    // console.log("✅ Transaction confirmed!");
 
-    // Fetch the initialized state
-    console.log("📖 Fetching initialized state...");
+    // Fetch the post-add state
+    console.log("📖 Fetching post-add state...");
     const state = await (program.account as any).stateMap.fetch(statePda);
     const core = await (program.account as any).core.fetch(corePda);
 
-    console.log("🎉 Protocol successfully initialized!\n");
+    console.log("🎉 Protocol successfully added the token!\n");
     console.log("📊 State Data:", JSON.stringify(state, null, 2));
     console.log("📊 Core Data:", JSON.stringify(core, null, 2));
 
     return { state, core };
 
   } catch (error: any) {
-    console.error("❌ Error during initialization:");
+    console.error("❌ Error during add_reserve:");
     console.error(error);
     
     if (error.message.includes("insufficient funds")) {
@@ -174,5 +150,12 @@ async function readProtocolState() {
   }
 }
 
+console.log("Starting add_reserve script...");
+console.log("=================================");
+console.log("NOTE: This just adds the reserve stablecoin to the pricing.rs state map data account.");
+console.log("To get the IRMA program to work with this new stablecoin, its DLMM pair must be connected to it.");
+console.log("There is another test script, connect_lb_pair.ts, that needs to run after this one.");
+console.log("=================================\n");
+
 // Run the function
-readProtocolState().catch(console.error);
+add_reserve(); // .catch(console.error);

@@ -26,8 +26,9 @@ const PROGRAM_ID = new PublicKey(idl.address);
 
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
-async function readProtocolState() {
-  console.log("\n🚀 Reading IRMA Protocol State");
+async function initializeProtocol() {
+  console.log("\n🚀 Initializing IRMA Protocol, no matter its current state");
+  console.log("  This for use right after an upgrade to re-initialize accounts.");
   console.log("===============================\n");
 
   // Use environment variables from .env file
@@ -97,40 +98,13 @@ async function readProtocolState() {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    // Check if already initialized
-    let existingCore, existingState;
-    try {
-      existingCore = await (program.account as any).core.fetch(corePda);
-      console.log("ℹ️ Protocol already initialized!");
-      console.log("📊 Existing core:", existingCore);
-      existingState = await (program.account as any).stateMap.fetch(statePda);
-      console.log("📊 Existing state:", existingState);
-      return { state: existingState, core: existingCore };
-    } catch (error: unknown) {
-      // Safely handle unknown errors without assuming they have a `message` property
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-          ? error
-          : JSON.stringify(error);
-      if (!existingCore) {
-        console.log("📝 Core not found, error:", errMsg, ", proceeding with initialization...");
-      }
-      else if (!existingState) {
-        console.log("📝 State not found, error:", errMsg);
-        return { state: null, core: existingCore };
-      }
-    }
 
     // Initialize the protocol
     console.log("🔄 Calling initialize instruction...");
     
     const owner = payer.toBase58();
-    const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair 1
-      // "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6", // Example pair 2
+    const configKeys: string[] = [
+      // No config keys for now
     ];
     
     const tx = await program.methods
@@ -141,6 +115,11 @@ async function readProtocolState() {
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
+      .remainingAccounts(configKeys.map((key) => ({
+        pubkey: new PublicKey(key),
+        isWritable: false,
+        isSigner: false,
+      })))
       .rpc();
 
     console.log("✅ Initialize transaction signature:", tx);
@@ -175,4 +154,4 @@ async function readProtocolState() {
 }
 
 // Run the function
-readProtocolState().catch(console.error);
+initializeProtocol().catch(console.error);

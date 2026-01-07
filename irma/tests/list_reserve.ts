@@ -26,9 +26,9 @@ const PROGRAM_ID = new PublicKey(idl.address);
 
 console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
-async function readProtocolState() {
-  console.log("\n🚀 Reading IRMA Protocol State");
-  console.log("===============================\n");
+async function list_reserve() {
+  console.log("\n🚀 List all reserve stablecoins for IRMA Protocol");
+  console.log("====================================================\n");
 
   // Use environment variables from .env file
   const rpcUrl = process.env.ANCHOR_PROVIDER_URL || process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
@@ -97,34 +97,9 @@ async function readProtocolState() {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    // Check if already initialized
-    let existingCore, existingState;
-    try {
-      existingCore = await (program.account as any).core.fetch(corePda);
-      console.log("ℹ️ Protocol already initialized!");
-      console.log("📊 Existing core:", existingCore);
-      existingState = await (program.account as any).stateMap.fetch(statePda);
-      console.log("📊 Existing state:", existingState);
-      return { state: existingState, core: existingCore };
-    } catch (error: unknown) {
-      // Safely handle unknown errors without assuming they have a `message` property
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-          ? error
-          : JSON.stringify(error);
-      if (!existingCore) {
-        console.log("📝 Core not found, error:", errMsg, ", proceeding with initialization...");
-      }
-      else if (!existingState) {
-        console.log("📝 State not found, error:", errMsg);
-        return { state: null, core: existingCore };
-      }
-    }
 
     // Initialize the protocol
-    console.log("🔄 Calling initialize instruction...");
+    console.log("🔄 Calling list_reserve instruction...");
     
     const owner = payer.toBase58();
     const configKeys = [
@@ -134,28 +109,29 @@ async function readProtocolState() {
     ];
     
     const tx = await program.methods
-      .initialize(owner, configKeys)
+      .listReserves()
       .accounts({
         state: statePda,
         irmaAdmin: payer,
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .simulate();
+      // .rpc();
 
-    console.log("✅ Initialize transaction signature:", tx);
-    console.log("⏳ Waiting for confirmation...");
+    console.log("✅ ListReserves transaction results:", tx);
+    // console.log("⏳ Waiting for confirmation...");
 
-    // Wait for confirmation
-    await connection.confirmTransaction(tx);
-    console.log("✅ Transaction confirmed!");
+    // // Wait for confirmation
+    // await connection.confirmTransaction(tx);
+    // console.log("✅ Transaction confirmed!");
 
     // Fetch the initialized state
-    console.log("📖 Fetching initialized state...");
+    console.log("📖 Fetching current state...");
     const state = await (program.account as any).stateMap.fetch(statePda);
     const core = await (program.account as any).core.fetch(corePda);
 
-    console.log("🎉 Protocol successfully initialized!\n");
+    console.log("🎉 Protocol data fetched successfully!\n");
     console.log("📊 State Data:", JSON.stringify(state, null, 2));
     console.log("📊 Core Data:", JSON.stringify(core, null, 2));
 
@@ -175,4 +151,4 @@ async function readProtocolState() {
 }
 
 // Run the function
-readProtocolState().catch(console.error);
+list_reserve().catch(console.error);

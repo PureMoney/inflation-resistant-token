@@ -7,54 +7,112 @@
 #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
-use anchor_lang::context::CpiContext;
-use anchor_lang::prelude::borsh::{BorshSerialize, BorshDeserialize};
 use anchor_spl::token_interface::Mint;
-use crate::bin_array_manager::BinArrayManager;
 use rust_decimal::{prelude::FromPrimitive, prelude::ToPrimitive, Decimal, MathematicalOps};
-use std::collections::HashMap;
-pub type MintWithProgramId = (Mint, Pubkey);
+use std::str::FromStr;
 
-use crate::pricing::{StateMap, StableState};
 use crate::pair_config::PairConfig;
-use crate::meteora_integration::*;
-use commons::dlmm::errors::Error;
+use crate::bin_array_manager::BinArrayManager;
+use crate::errors::CustomError;
+
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::Bin;
-use commons::dlmm::accounts::{LbPair, PositionV2};
-use commons::dlmm::constants::*;
-use commons::u64x64_math::pow;
+// use commons::u64x64_math::pow;
 use commons::bin::*;
 use commons::position::*;
+use commons::ONE;
+use commons::conversions::*;
+use commons::math::*;
 
-// Code below is from state.rs in Meteora SDK, adapted for our use case.
-
-pub struct AllPosition {
-    pub all_positions: HashMap<Pubkey, SinglePosition>, // hashmap of pool pubkey and a position
-    pub tokens: HashMap<Pubkey, MintWithProgramId>,     // cached token info
+// Serializable version of Mint info
+#[account]
+#[derive(Debug)]
+pub struct MintInfo {
+    pub mint_authority: Option<Pubkey>,
+    pub supply: u64,
+    pub decimals: u8,
+    pub is_initialized: bool,
+    pub freeze_authority: Option<Pubkey>,
 }
 
-impl AllPosition {
-    pub fn new(config: &Vec<PairConfig>) -> Self {
-        let mut all_positions = HashMap::new();
-        for pair in config.iter() {
-            let pool_pk = Pubkey::from(&pair.pair_address).unwrap();
-            all_positions.insert(pool_pk, SinglePosition::new(pool_pk));
-        }
-        AllPosition {
-            all_positions,
-            tokens: HashMap::new(),
+impl From<&Mint> for MintInfo {
+    fn from(mint: &Mint) -> Self {
+        MintInfo {
+            mint_authority: mint.mint_authority.into(),
+            supply: mint.supply,
+            decimals: mint.decimals,
+            is_initialized: mint.is_initialized,
+            freeze_authority: mint.freeze_authority.into(),
         }
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[account]
+#[derive(Debug)]
+pub struct MintWithProgramId {
+    pub mint_info: MintInfo,
+    pub program_id: Pubkey,
+}
+
+#[account]
+#[derive(Debug)]
+pub struct TokenEntry {
+    pub pubkey: Pubkey,
+    pub mint_with_program: MintWithProgramId,
+}
+
+// Code below is from state.rs in Meteora SDK, adapted for our use case.
+
+#[account]
+#[derive(Debug)]
+pub struct AllPosition {
+    pub all_positions: Vec<SinglePosition>,  // Use struct instead of tuple
+    pub tokens: Vec<TokenEntry>,            // Use struct instead of tuple
+}
+
+impl AllPosition {
+    pub fn new(config: &Vec<PairConfig>) -> Result<Self> {
+        let mut all_positions = Vec::new();
+        for pair in config.iter() {
+            let pool_pk = Pubkey::from_str(&pair.pair_address).unwrap();
+            let position_entry = SinglePosition::new(pool_pk);
+            all_positions.push(position_entry);
+        }
+        Ok(AllPosition {
+            all_positions,
+            tokens: Vec::new(),
+        })
+    }
+    
+    // Helper methods to work with Vec like HashMap
+    pub fn get_position(&self, pubkey: &Pubkey) -> Option<&SinglePosition> {
+        self.all_positions.iter()
+            .find(|entry| &entry.lb_pair == pubkey)
+    }
+    
+    pub fn get_position_mut(&mut self, pubkey: &Pubkey) -> Option<&mut SinglePosition> {
+        self.all_positions.iter_mut()
+            .find(|entry| &entry.lb_pair == pubkey)
+    }
+    
+    // Helper methods for tokens
+    pub fn get_token(&self, pubkey: &Pubkey) -> Option<&MintWithProgramId> {
+        self.tokens.iter()
+            .find(|entry| &entry.pubkey == pubkey)
+            .map(|entry| &entry.mint_with_program)
+    }
+}
+
+#[account]
+#[derive(Default, Debug)]
 pub struct SinglePosition {
     pub lb_pair: Pubkey,
-    pub lb_pair_state: Option<LbPair>,
-    pub bin_arrays: HashMap<Pubkey, BinArray>, // only store relevant bin arrays
-    pub positions: Vec<PositionV2>,
-    pub position_pks: Vec<Pubkey>,
+    // Remove non-serializable types - these will be fetched dynamically
+    // pub lb_pair_state: Option<LbPair>,
+    // pub bin_arrays: Vec<(Pubkey, BinArray)>,
+    // pub positions: Vec<PositionV2>,
+    pub bin_array_pks: Vec<Pubkey>, // Keep bin array keys to fetch dynamically
+    pub position_pks: Vec<Pubkey>,  // Keep pubkeys to fetch positions dynamically
     pub rebalance_time: u64,
     pub min_bin_id: i32,
     pub max_bin_id: i32,
@@ -73,22 +131,44 @@ impl SinglePosition {
         &self,
         amount_in: u64,
         swap_for_y: bool,
+        lb_pair_state: &LbPair,  // Pass as parameter instead of storing
     ) -> Result<u64> {
-        let lb_pair_state = self.lb_pair_state.as_ref().ok_or(Error("Lb pair state not found"))?;
         let price = PositionRaw::get_price_from_id(lb_pair_state.active_id, lb_pair_state.bin_step)?;
         let out_amount = Bin::get_amount_out(amount_in, price, swap_for_y)?;
 
-        let min_out_amount = out_amount
-            .checked_mul(BASIC_POINT_MAX - SLIPPAGE_RATE)
-            .unwrap()
-            .checked_div(BASIC_POINT_MAX)
-            .unwrap();
+        let min_out_amount =
+            match out_amount.checked_mul(BASIC_POINT_MAX - SLIPPAGE_RATE) {
+                Some(val) => val.checked_div(BASIC_POINT_MAX).unwrap(),
+                None => out_amount.checked_div(BASIC_POINT_MAX).unwrap().checked_mul(BASIC_POINT_MAX - SLIPPAGE_RATE).unwrap(),
+            };
+
+        msg!("    min_out_amount {}", min_out_amount);
+
         Ok(min_out_amount)
     }
 
-    pub fn get_positions(&self) -> Result<PositionRaw> {
-        if self.positions.len() == 0 {
+    /// Calculate total position amounts and fees across all positions
+    pub fn get_positions_total<'a>(
+        &self,
+        acct_infos: &'a [AccountInfo<'a>],
+    ) -> Result<PositionRaw> {
+        msg!("Fetching total position for LB Pair {}", self.lb_pair);
+
+        // Fetch positions
+        let positions = fetch_positions(acct_infos, &self.position_pks)?;
+        msg!("    fetched {} positions", positions.len());
+
+        if positions.len() == 0 {
             return Ok(PositionRaw::default());
+        }
+        
+        // Fetch bin arrays
+        let bin_arrays = fetch_bin_arrays(acct_infos, &self.bin_array_pks)?;
+        msg!("    fetched {} bin arrays", bin_arrays.len());
+
+        // bin arrays must be present because positions exist
+        if bin_arrays.len() == 0 {
+            Err(Error::from(CustomError::FailedToFetchBinArrays))?;
         }
 
         let mut amount_x = 0u64;
@@ -97,50 +177,63 @@ impl SinglePosition {
         let mut fee_x = 0u64;
         let mut fee_y = 0u64;
 
-        for position in self.positions.iter() {
+        for position in positions.iter() {
             let bin_array_keys = position.get_bin_array_keys_coverage()?;
-            let mut bin_arrays = vec![];
+            let mut bin_arrays_for_position = vec![];
+
+            msg!("    position lower_bin_id: {}, liquidity_shares len: {}",
+                position.lower_bin_id, position.liquidity_shares.len());
 
             for key in bin_array_keys {
-                let bin_array_state = self
-                    .bin_arrays
-                    .get(&key)
-                    .ok_or(Error("Cannot get binarray"))?;
-                bin_arrays.push(*bin_array_state);
+                let bin_array_state = bin_arrays.iter()
+                    .find(|(array_key, _)| array_key == &key)
+                    .map(|(_, array)| array)
+                    .ok_or(error!(CustomError::CannotGetBinArray))?;
+                bin_arrays_for_position.push(*bin_array_state);
             }
 
             let bin_array_manager = BinArrayManager {
-                bin_arrays: &bin_arrays,
+                bin_arrays: &bin_arrays_for_position,
             };
 
             for (i, liquidity_share) in position.liquidity_shares.iter().enumerate() {
+                if *liquidity_share == 0 {
+                    continue;
+                }
+
                 let bin_id = position
                     .lower_bin_id
-                    .checked_add(i as i32);
+                    .checked_add(i as i32).unwrap();
 
+                msg!("    getting bin_id: {}", bin_id);
                 let bin = bin_array_manager.get_bin(bin_id)?;
+                msg!("    bin found: price {}", bin.price);
                 let (bin_amount_x, bin_amount_y) = bin.calculate_out_amount(*liquidity_share)?;
 
                 amount_x = amount_x
-                    .checked_add(bin_amount_x);
+                    .checked_add(bin_amount_x).unwrap();
 
                 amount_y = amount_y
-                    .checked_add(bin_amount_y);
+                    .checked_add(bin_amount_y).unwrap();
             }
 
             let (fee_x_pending, fee_y_pending) =
                 bin_array_manager.get_total_fee_pending(position)?;
 
             fee_x = fee_x
-                .checked_add(fee_x_pending);
+                .checked_add(fee_x_pending).unwrap();
             fee_y = fee_y
-                .checked_add(fee_y_pending);
+                .checked_add(fee_y_pending).unwrap();
         }
+        msg!("    total fees - x: {}, y: {}", fee_x, fee_y);
 
-        let lb_pair_state = self.lb_pair_state;
+        // Fetch lb pair state
+        let lb_pair_state = get_bytemuck_account::<LbPair>(acct_infos, &self.lb_pair)
+            .ok_or(error!(CustomError::MissingLbPairState))?;
+        msg!("    lb_pair_state fetched");
 
         Ok(PositionRaw {
-            position_len: self.positions.len(),
+            position_len: self.position_pks.len(),
             bin_step: lb_pair_state.bin_step,
             rebalance_time: self.rebalance_time,
             min_bin_id: self.min_bin_id,
@@ -153,9 +246,41 @@ impl SinglePosition {
             last_update_timestamp: self.last_update_timestamp,
         })
     }
+
+    /// Binary search to find the bin id for a given price
+    pub fn search_bin_given_price(
+        lb_pair_state: &LbPair,
+        target_price: u128,
+    ) -> Result<i32> {
+        // msg!("Searching for bin id for target price: {}", target_price);
+        let bin_step = lb_pair_state.bin_step;
+        let half_step = bin_step.checked_mul(50).unwrap() + 16;
+        let half_step_u128: u128 = <u16 as Into<u128>>::into(half_step);
+        msg!("    search bin, target price: {}", target_price);
+
+        let mut lower_bin_id = lb_pair_state.parameters.min_bin_id;
+        let mut upper_bin_id = lb_pair_state.parameters.max_bin_id;
+
+        while lower_bin_id <= upper_bin_id {
+            let mid_bin_id = lower_bin_id + (upper_bin_id - lower_bin_id) / 2;
+            let mid_price = PositionRaw::get_price_from_id(mid_bin_id, bin_step)?;
+            // msg!("  mid_bin_id: {}, mid_price: {}", mid_bin_id, mid_price);
+
+            if (mid_price - half_step_u128) < target_price && 
+                (mid_price + half_step_u128) > target_price {
+                return Ok(mid_bin_id);
+            } else if mid_price < target_price {
+                lower_bin_id = mid_bin_id + 1;
+            } else {
+                upper_bin_id = mid_bin_id - 1;
+            }
+        }
+
+        Err(Error::from(CustomError::PriceNotFoundInLBPair))
+    }
 }
 
-#[derive(Default, PartialEq, Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Default, PartialEq, Debug, Clone)]
 pub struct PositionRaw {
     pub position_len: usize,
     pub rebalance_time: u64,
@@ -186,30 +311,30 @@ impl PositionRaw {
 
         let min_price_fp = PositionRaw::get_price_from_id(self.min_bin_id, bin_step)?;
         let min_price =
-            Decimal::from_u128(min_price_fp) / Decimal::from(ONE);
+            Decimal::from_u128(min_price_fp).unwrap() / Decimal::from(ONE);
         let adjusted_min_price = min_price
             .checked_mul(ui_price_adjustment_factor.into())
-            .context("Math is overflow")?
+            .unwrap()
             .to_f64()
-            .context("Math is overflow")?;
+            .unwrap();
 
         let max_price_fp = PositionRaw::get_price_from_id(self.max_bin_id, bin_step)?;
         let max_price =
-            Decimal::from_u128(max_price_fp) / Decimal::from(ONE);
+            Decimal::from_u128(max_price_fp).unwrap() / Decimal::from(ONE);
         let adjusted_max_price = max_price
             .checked_mul(ui_price_adjustment_factor.into())
-            .context("Math is overflow")?
+            .unwrap()
             .to_f64()
-            .context("Math is overflow")?;
+            .unwrap();
 
         let current_price_fp = PositionRaw::get_price_from_id(self.active_id, bin_step)?;
         let current_price =
-            Decimal::from_u128(current_price_fp).context("Math is overflow")? / Decimal::from(ONE);
+            Decimal::from_u128(current_price_fp).unwrap() / Decimal::from(ONE);
         let adjusted_current_price = current_price
             .checked_mul(ui_price_adjustment_factor.into())
-            .context("Math is overflow")?
+            .unwrap()
             .to_f64()
-            .context("Math is overflow")?;
+            .unwrap();
 
         let amount_x = self.amount_x as f64 / token_x_ui_adjustment_factor;
         let amount_y = self.amount_y as f64 / token_y_ui_adjustment_factor;
@@ -232,17 +357,11 @@ impl PositionRaw {
     }
 
     pub fn get_price_from_id(active_id: i32, bin_step: u16) -> Result<u128> {
-        let bps = u128::from(bin_step)
-            .checked_shl(SCALE_OFFSET.into())
-            .checked_div(BASIS_POINT_MAX as u128);
-
-        let base = ONE.checked_add(bps).context("overflow")?;
-
-        pow(base, active_id)
+        Ok(price_math::get_price_from_id(active_id, bin_step).unwrap())
     }
 }
 
-#[derive(Default, PartialEq, Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Default, PartialEq, Debug, Clone)]
 pub struct PositionInfo {
     pub position_len: usize,
     pub rebalance_time: u64,
@@ -261,9 +380,7 @@ impl SinglePosition {
         SinglePosition {
             lb_pair,
             rebalance_time: 0,
-            lb_pair_state: None,
-            bin_arrays: HashMap::new(),
-            positions: vec![],
+            bin_array_pks: vec![],
             position_pks: vec![],
             min_bin_id: 0,
             max_bin_id: 0,
@@ -272,7 +389,9 @@ impl SinglePosition {
     }
 }
 
-pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &HashMap<Pubkey, MintWithProgramId>) -> u8 {
-    let token = all_tokens.get(&token_mint_pk).unwrap();
-    return token.0.decimals;
+pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &[TokenEntry]) -> u8 {
+    let token = all_tokens.iter()
+        .find(|entry| entry.pubkey == token_mint_pk)
+        .unwrap();
+    return token.mint_with_program.mint_info.decimals;
 }

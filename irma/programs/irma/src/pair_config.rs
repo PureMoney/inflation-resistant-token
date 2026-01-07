@@ -1,10 +1,8 @@
+use anchor_lang::prelude::*;
 use crate::MarketMakingMode;
-use anchor_lang::prelude::Pubkey;
-use borsh::BorshDeserialize;
-use std::fs::File;
-use std::io::Read;
 
-#[derive(Debug, BorshDeserialize, Clone, Default)]
+#[account]
+#[derive(Debug)]
 pub struct PairConfig {
     pub pair_address: String,
     pub x_amount: u64,
@@ -27,10 +25,16 @@ pub fn get_pair_config(config: &Vec<PairConfig>, pair_addr: Pubkey) -> PairConfi
             return pair_config.clone();
         }
     }
-    return PairConfig::default();
+    return PairConfig {
+        pair_address: pair_addr.to_string(),
+        x_amount: 0,
+        y_amount: 0,
+        mode: MarketMakingMode::ModeView,
+    };
 }
 
-pub fn get_config() -> Result<Vec<PairConfig>, Error> {
+/// The following function is used only for testing purposes to provide a default configuration.
+pub fn get_config() -> Result<Vec<PairConfig>> {
     let config: Vec<PairConfig> = vec![
         PairConfig {
             pair_address: "DLmm".to_string(),
@@ -57,6 +61,6 @@ mod config_test {
         owned_string.push_str(borrowed_string);
 
         let config = get_config().unwrap();
-        msg!("{:?}", config);
+        println!("{:?}", config);
     }
 }
