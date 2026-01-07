@@ -1,0 +1,40 @@
+[package]
+name = "commons"
+version = "0.3.1"
+edition = "2021"
+description = "Common libraries for DLMM"
+authors = ["tian <tian@racoons.dev>"]
+
+[lib]
+crate-type = ["lib"]
+
+[features]
+default = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+no-idl = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anchor-lang = { workspace = true }
+# anchor-client = { workspace = true, features = ["async"] }
+anchor-spl = { workspace = true }
+anyhow = { workspace = true }
+# tokio = { workspace = true, features = ["full", "parking_lot"] }
+bincode = { workspace = true }
+# solana-sdk = { workspace = true }
+ruint = { workspace = true }
+num-traits = { workspace = true }
+num-integer = { workspace = true }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+# async-trait = { workspace = true }
+spl-transfer-hook-interface = { workspace = true }
+
+[dev-dependencies]
+spl-associated-token-account = { workspace = true }
+solana-program-test = "2.2.1"
+assert_matches = "1.5.0"
+solana-program = "2.2.1"
+solana-sdk = "2.3.1"
+spl-memo = { workspace = true, features = ["no-entrypoint"] }

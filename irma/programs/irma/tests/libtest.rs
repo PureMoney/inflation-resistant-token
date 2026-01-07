@@ -4,27 +4,22 @@ mod tests {
 
     use anchor_lang::prelude::*;
     use anchor_lang::prelude::Pubkey;
-    use anchor_lang::prelude::Clock;
-    use anchor_lang::prelude::Sysvar;
+    // use anchor_lang::prelude::Clock;
+    // use anchor_lang::prelude::Sysvar;
     use anchor_lang::prelude::Signer;
     // use anchor_lang::prelude::Account;
     use anchor_lang::prelude::Program;
     use anchor_lang::context::Context;
-    use anchor_lang::solana_program::sysvar::clock::ID as CLOCK_ID;
+    // use anchor_lang::solana_program::sysvar::clock::ID as CLOCK_ID;
     use anchor_lang::system_program;
-    use anchor_lang::Accounts;
-
-    use openbook_v2::state::EventHeap; // {EventHeap, Market};
-    use openbook_v2::typedefs::{EventHeapHeader, EventNode, AnyEvent, OracleConfig};
-    use openbook_v2::ix_accounts::{ConsumeEvents, PlaceOrder};
-    use openbook_v2::ID as OPENBOOKV2_ID;
+    // use anchor_lang::Accounts;
 
     use irma::irma as money;
     use irma::pricing::{StateMap, StableState};
     use irma::IRMA_ID;
     use irma::pricing::MAX_BACKING_COUNT;
-    use irma::Maint;
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
+    use irma::{Init, Maint, InitBumps, MaintBumps};
     // use irma::State;
 
 
@@ -38,7 +33,7 @@ mod tests {
             // Create a buffer for StateMap and wrap it in AccountInfo
             let lamports: &mut u64 = Box::leak(Box::new(100000u64));
             let mut state: StateMap = allocate_state();
-            let _ = state.init_reserves(); // Add initial stablecoins to the state
+            // let _ = state.init_reserves(); // Add initial stablecoins to the state
 
             // Prepare the account data with the correct discriminator
             let mut state_data_vec: Vec<u8> = Vec::with_capacity(120*MAX_BACKING_COUNT);
@@ -93,7 +88,7 @@ mod tests {
 
         fn allocate_state() -> StateMap {
             let mut state: StateMap = StateMap::new();
-            state.init_reserves().unwrap(); // Initialize reserves
+            // state.init_reserves().unwrap(); // Initialize reserves
             state
         }
         msg!("Starting crank test...");
@@ -104,18 +99,23 @@ mod tests {
         let state_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(state_account_info));
         let irma_admin_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(irma_admin_account_info));
         let sys_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(sys_account_info));
-        let mut accounts: Maint<'_> = Maint {
+        let mut accounts = Init {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
+            core: Account::try_from(state_account_static).unwrap(), // Placeholder
         };
-        let ctx: Context<Maint> = Context::new(
+        let mut accounts_static: &mut Init = Box::leak(Box::new(accounts));
+        let ctx: Context<Init> = Context::new(
             program_id,
-            &mut accounts,
+            accounts_static, // &mut accounts,
             &[],
-            BTreeMap::<String, u8>::default(), // Use default bumps if not needed
+            InitBumps::default(), // Use default bumps if not needed
         );
-        let crank_result: std::result::Result<(), Error> = money::crank(ctx);
+        let crank_result: std::result::Result<(), Error> = money::initialize(ctx,
+            "OwnerPubkeyString".to_string(),
+            vec![]
+        );
         assert!(crank_result.is_ok());
         msg!("Crank executed successfully");
 

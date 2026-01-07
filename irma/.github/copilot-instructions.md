@@ -1,7 +1,7 @@
 # Copilot Instructions for the Inflation-Resistant Stablecoin Project
 
 ## Overview
-This project implements an inflation-resistant stablecoin using the Solana blockchain. It leverages the Anchor framework for program development and integrates with OpenBook V2 for market operations. The project is organized into multiple components, with a focus on modularity and scalability.
+This project implements an inflation-resistant stablecoin using the Solana blockchain. It leverages the Anchor framework for program development and integrates with Meteora DLMM for market operations. The project is organized into multiple components, with a focus on modularity and scalability.
 
 ### Key Components
 - **`programs/irma/src/lib.rs`**: The main entry point for the IRMA program. Contains program instructions such as `initialize`, `add_reserve`, `remove_reserve`, and `crank`.
@@ -11,7 +11,7 @@ This project implements an inflation-resistant stablecoin using the Solana block
 
 ### External Dependencies
 - **Anchor Framework**: Used for Solana program development.
-- **OpenBook V2**: Integrated for market operations.
+- **Meteora DLMM**: Integrated for market operations.
 - **Borsh**: Used for serialization and deserialization of program data.
 
 ## Developer Workflows

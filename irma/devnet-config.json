@@ -1,0 +1,22 @@
+{
+  "network": "devnet",
+  "tokens": {
+    "irma": {
+      "mint": "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm",
+      "name": "IRMA",
+      "symbol": "IRMA",
+      "decimals": 6,
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    },
+    "usdc": {
+      "mint": "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+      "name": "devUSDC",
+      "symbol": "USDC",
+      "decimals": 6,
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    }
+  },
+  "program": {
+    "programId": "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
+  }
+}

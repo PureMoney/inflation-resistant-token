@@ -1,6 +1,6 @@
 # Inflation-Resistant Medium of Account (IRMA)
 
-This a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using OpenBook. Switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
+This is a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using DEX (Meteora) and switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
 
 IRMA Token: irmaN9bozBo9nnTqu1RBuoK7imbvBiFJTtdm6c7tC9f
 
@@ -16,7 +16,7 @@ Programming directly on Solana involves lots of complicated details. Using the A
 
 ## 0. Run Ubuntu 24.04
 
-The problem with previous versions of Ubuntu is that the glibc version that comes with those are not compatible with anchor version 0.31.1. You can save time by starting with the Ubuntu 24.04 distribution. If you are running Ubuntu undel WSL in Windows, you can terminate any previous running version and simply issue the following wsl command:
+The problem with previous versions of Ubuntu is that the glibc version that comes with those are not compatible with anchor version 0.31.1. You can save time by starting with the Ubuntu 24.04 distribution. If you are running Ubuntu undel WSL in Windows, you can terminate any previously running version and simply issue the following wsl command:
 
 wsl --install Ubuntu-24.04
 
@@ -83,30 +83,30 @@ The tsc config file tsconfig.json must be used, and the only way I found to do t
 
 ## 3. Possible Issues
 
-If your contract increases in size as you develop it, "anchor deploy" can fail with "Error: Deploying program failed: RPC response error -32002: Transaction simulation failed: Error processing Instruction 0: account data too small for instruction [3 log messages]". Anchor deploy calculates the necessary data size, but if you modify the contract, memory size requirement of your contract can increase. This is the reason for this error. Another error that can come up during testing is "Error: failed to send transaction: Transaction simulation failed: Error processing Instruction 0: incorrect program id for instruction".
+If your contract increases in size as you develop it, "anchor deploy" can fail with "Error: Deploying program failed: RPC response error -32002: Transaction simulation failed: Error processing Instruction 0: account data too small for instruction [3 log messages]". Anchor deploy calculates the necessary data size, but if you modify the contract, the memory size requirement of your contract can increase. This is the reason for this error. Another error that can come up during testing is "Error: failed to send transaction: Transaction simulation failed: Error processing Instruction 0: incorrect program ID for instruction".
 
 To fix:
 
 Delete the target folder
 
-Run "anchor build --solana-version 1.18.4" this will add a new keypair to target/deploy
+Run "anchor build --solana-version 1.18.4", this will add a new keypair to target/deploy
 
 Start localnet solana-test-validator in another WSL instance
 
 Run "anchor deploy" in the first WSL instance
 
-Run "anchor keys list", this will give you the new program ids
+Run "anchor keys list"; this will give you the new program IDs
 
 Delete the target folder again
 
-Run anchor build again to get the correct id(s) in target/types folder
+Run anchor build again to get the correct ID (s) in the target/types folder
 
-Stop the solana-test-validator, then run "anchor test"
+Stop the solana-test-validator, then run "anchor test."
 
-Note: The program ids of all contracts should be in the following places:
+Note: The program IDs of all contracts should be in the following places:
 in the sol source file (above "contract" keyword), in the target/idl json files (bottom), in the target/types files (bottom), and in Anchor.toml.
 
-It can be confusing because "anchor deploy" outputs program ids which can be different from "anchor keys list". If this happens, use the ids output by "anchor deploy".
+It can be confusing because "anchor deploy" outputs program IDs, which can be different from "anchor keys list". If this happens, use the IDs output by "anchor deploy".
 
 Also, the Solana address to which the program is deployed must have some minimum SOL! Not only the account that deployed the program, but also the program address itself must have some SOL (because of the rent rule for any address: an address does not exist if it has no SOL). This issue shows up when you try to "anchor run node":
 
@@ -125,15 +125,15 @@ failed, error:  SendTransactionError: failed to send transaction: Transaction si
   }
 }
 ```
-To fix this issue, first find out what the address of the program is (program id), by issuing the following CLI:
+To fix this issue, first find out what the address of the program is (program ID) by issuing the following CLI:
 
-solana-keygen pubkey target/deploy/openbookv_2_interface-keypair.json
+solana-keygen pubkey target/deploy/openbookv_2_interface-keypair.json 
 
 and then
 
 solana airdrop 1 \<program id obtained above\>
 
-then you'd have to edit four files to put this same address as the program id.
+Then you'd have to edit four files to put the same address as the program ID.
 
 However, the program CreateMarket could still fail to run, display the same error message as above. What finally worked for me was the following:
 ```

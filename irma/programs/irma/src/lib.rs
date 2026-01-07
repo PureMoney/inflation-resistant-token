@@ -1,212 +1,450 @@
+// In programs/irma/src/lib.rs
 #![allow(unexpected_cfgs)]
-#[cfg(feature = "idl-build")]
-// #![feature(trivial_bounds)]
-// use std::cmp::{
-//     PartialEq,
-//     Eq,
-// };
-// use bytemuck::{
-//     Pod,
-// };
-
-use anchor_lang::prelude::AccountInfo;
-use anchor_lang::prelude::Context;
-// use anchor_lang::prelude::CpiContext;
-use anchor_lang::prelude::msg;
-use anchor_lang::prelude::Program;
-use anchor_lang::prelude::Pubkey;
-use anchor_lang::prelude::Rent;
-use anchor_lang::prelude::Signer;
-use anchor_lang::prelude::System;
 
 use anchor_lang::prelude::*;
-
-use anchor_lang::{
-    account,
-    Accounts,
-    // AnchorSerialize, 
-    // AnchorDeserialize, 
-    declare_id,
-    // declare_program,
-    // Discriminator,
-    // program,
-    // Pubkey,
-    // require_keys_neq,
-    Result,
-    // ToAccountMetas,
-    solana_program,
-    system_program,
-    // zero_copy
-};
-// se anchor_lang::solana_program::clock::Clock;
-// use static_assertions::const_assert_eq;
-// use std::io::{Cursor, Read, Write};
 use std::mem::size_of;
-use std::collections::BTreeMap;
-use solana_program::pubkey;
-// use borsh::BorshSerialize; // Add this import
+use std::str::FromStr;
+// use anchor_spl::token::ID as TOKEN_PROGRAM_ID;
+// use anchor_spl::token_2022::ID as TOKEN_2022_PROGRAM_ID;
 
-
+// Module declarations
+pub mod errors;
 pub mod pricing;
+pub mod position_manager;
+pub mod meteora_integration;
+pub mod pair_config;
+pub mod bin_array_manager;
+pub mod utils;
 
-use crate::pricing::*;
+// Import the state structs from your modules, as they are used in the account definitions.
+pub use pricing::{StateMap, StableState};
+use errors::CustomError;
 
-pub use crate::pricing::{StateMap, StableState, Init, Common, Maint};
+// declare_program!(dlmm);
+// use commons::dlmm::borsh::*;
 
-pub mod crank_market;
-pub mod iopenbook;
+// Declare your program's ID
+// declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
+declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 
-use crate::crank_market::{
-    crank_market,
-};
+// use anchor_lang::context::Context;
 
+use commons::dlmm::accounts::*;
+use commons::fetch_lb_pair_state;
+use commons::BIN_ARRAY_BITMAP_SEED;
 
-// use anchor_lang::prelude::{AccountInfo, CpiContext, Signer, AccountLoader, Program, Pubkey, AnchorDeserialize, AnchorSerialize};
-// pub const IRMA_ID: Pubkey = pubkey!("8zs1JbqxqLcCXzBrkMCXyY2wgSW8uk8nxYuMFEfUMQa6");
-// declare_id!("8zs1JbqxqLcCXzBrkMCXyY2wgSW8uk8nxYuMFEfUMQa6");
-pub const IRMA_ID: Pubkey = pubkey!("4rVQnE69m14Qows2iwcgokb59nx7G49VD6fQ9GH9Y6KJ");
-declare_id!("4rVQnE69m14Qows2iwcgokb59nx7G49VD6fQ9GH9Y6KJ");
+// Re-export types for IDL generation
+pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, TokenEntry};
+pub use meteora_integration::Core;
+pub use pair_config::*;
 
-/// IRMA program
-/// Use OpenBook V2 to process events and update the IRMA state, including pricing.
-#[program]
-pub mod irma {
-    use super::*;
+pub const IRMA_ID: Pubkey = crate::ID;
 
-    /// This is a one-time operation that sets up the IRMA pricing module.
-    /// Assume that the markets for the initial IRMA / reserve stablecoin pairs already exist.
-    /// This iniatializes only the pricing module for the intial stablecoin reserves, nothing else.
-    /// The "Init" data is allocated in a data account that is owned by the IRMA program.
-    /// The data is pre-allocated before the call, but empty.
-    pub fn initialize(ctx: Context<Init>) -> Result<()> {
-        crate::pricing::init_pricing(ctx)
-    }
+#[derive(Clone, Debug, PartialEq, AnchorDeserialize, AnchorSerialize)]
+pub enum MarketMakingMode {
+    ModeRight,
+    ModeLeft,
+    ModeBoth,
+    ModeView,
+}
 
-    /// Add a new stablecoin to the reserves.
-    /// This is a permissioned instruction that can only be called by the IRMA program owner.
-    /// The minimum requirement is that the stablecoin has 100M circulating supply and is not a meme coin.
-    /// IRMA relies on pre-existing network effects of each of the reserve stablecoins.
-    pub fn add_reserve(ctx: Context<Maint>, symbol: String, mint_address: Pubkey, decimals: u8) -> Result<()> {
-        msg!("Add stablecoin entry, size of StateMap: {}", size_of::<StateMap>());
-        crate::pricing::add_reserve(ctx, &symbol, mint_address, decimals)
-    }
-
-    /// Remove a stablecoin from the reserves by its symbol.
-    /// WARNING: This actually removes the stablecoin from the reserves, so be careful when using it.
-    /// In order to continue to avoid runs, all reserve amount must be redeemed before removing a stablecoin.
-    /// This can be done without using much capital: use 100K IRMAs to redeem another stablecoin (B),
-    /// then disable or deactivate the stablecoin to be removed (A), and then do a loop of
-    /// 1. internally swapping 100k of stablecoin B for stablecoin A, and then
-    /// 2. externally swapping 100k of stablecoin A for 100k of stablecoin B (open market).
-    pub fn remove_reserve(ctx: Context<Maint>, symbol: String) -> Result<()> {
-        crate::pricing::remove_reserve(ctx, &symbol)
-    }
-
-    /// Deactivate a reserve stablecoin.
-    /// Deactivating should still include the stablecoin in all calculations.
-    /// The only action that is disabled should be the minting of IRMA using this reserve stablecoin.
-    /// This is done in preparation for removing the stablecoin from the reserves.
-    /// For orderly removal, first announce separate dates of deactivation and removal.
-    pub fn disable_reserve(ctx: Context<Maint>, symbol: String) -> Result<()> {
-        crate::pricing::disable_reserve(ctx, &symbol)
-    }
-
-    // Crank the OpenBook V2 from client.
-    // This function is called periodically (at least once per slot) to process events and update the IRMA state.
-    // pub fn crank<'c: 'info, 'info>(ctx: Context<'_, '_, 'c, 'info, ConsumeEvents>) -> Result<()> {
-    pub fn crank(_dummy: Context<Maint>) -> Result<()> {
-        msg!("Crank..., ");
-        let slot;
-        #[cfg(not(test))]
-        {
-            msg!("Crank in test mode, mocking slot number...");
-            slot = 1223312; // Mock slot for testing
-        }
-        #[cfg(test)]
-        {
-            slot = Clock::get()?.slot;
-        }
-        msg!("Current slot: {}", slot);
-
-        // Create a buffer for StateMap and wrap it in AccountInfo
-        let state_account = Pubkey::find_program_address(&[b"state".as_ref()], &IRMA_ID).0;
-        let lamports: &mut u64 = &mut Box::new(100000u64);
-        let mut state: StateMap = StateMap::new();
-        let _ = state.init_reserves(); // Add initial stablecoins to the state
-
-        // Prepare the account data with the correct discriminator
-        let mut state_data_vec: Vec<u8> = Vec::with_capacity(120*MAX_BACKING_COUNT);
-        state.try_serialize(&mut state_data_vec).unwrap();
-
-        let state_data: &mut Vec<u8> = &mut Box::new(state_data_vec);
-        let state_key: &mut Pubkey = &mut Box::new(state_account);
-        let owner: &Pubkey = &mut Box::new(IRMA_ID);
-        // msg!("StateMap pre-test account data: {:?}", state_data);
-        let state_account_info: AccountInfo<'_> = AccountInfo::new(
-            state_key,
-            false, // is_signer
-            true,  // is_writable
-            lamports,
-            state_data,
-            owner,
-            false,
-            0,
-        );
-        // msg!("StateMap account created: {:?}", state_account_info.key);
-        // msg!("StateMap owner: {:?}", owner);
-        // Use a mock Signer for testing purposes
-        // let signer_pubkey: &'info mut Pubkey = &mut Box::new(Pubkey::new_unique())); // causes ELF error!
-        let lamportsx: &mut u64 = &mut Box::new(0u64);
-        let data: &mut Vec<u8> = &mut Box::new(vec![]);
-        let system_id = system_program::ID;
-        let owner: &mut Pubkey =  &mut Box::new(system_id);
-        let signer_account_info: AccountInfo<'_> = AccountInfo::new(
-            owner, // signer_pubkey,
-            true, // is_signer
-            false, // is_writable
-            lamportsx,
-            data,
-            owner,
-            false,
-            0,
-        );
-        // Create AccountInfo for system_program
-        let sys_lamports: &mut u64 = &mut Box::new(0u64);
-        let sys_data: &mut Vec<u8> = &mut Box::new(vec![]);
-        let sys_owner: &mut Pubkey = &mut Box::new(Pubkey::default());
-        let sys_account_info: AccountInfo<'_> = AccountInfo::new(
-            &system_program::ID,
-            false, // is_signer
-            false, // is_writable
-            sys_lamports,
-            sys_data,
-            sys_owner,
-            true,
-            0,
-        );
-
-        let mut bumps = BTreeMap::<String, u8>::new();
-        bumps.insert("state".to_string(), 13u8);
-        bumps.insert("irma_admin".to_string(), 13u8);
-        bumps.insert("system_program".to_string(), 13u8);
-
-        let ctx = Context::<'_, '_, '_, '_, Maint<'_>> {
-            // Fill in the context with necessary accounts and data
-            // This is a placeholder, actual implementation will depend on the accounts structure
-            accounts: &mut Maint {
-                state: Account::try_from(&state_account_info).unwrap(),
-                irma_admin: Signer::try_from(&signer_account_info).unwrap(),
-                system_program: Program::try_from(&sys_account_info).unwrap(),
-            },
-            remaining_accounts: &[],
-            program_id: &IRMA_ID,
-            bumps,
-        };
-        
-        msg!("Cranking market...");
-        
-        crank_market(ctx, slot)
+impl Default for MarketMakingMode {
+    fn default() -> Self {
+        MarketMakingMode::ModeView
     }
 }
 
+impl FromStr for MarketMakingMode {
+    type Err = anchor_lang::error::Error;
 
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "moderight" => Ok(MarketMakingMode::ModeRight),
+            "modeleft" => Ok(MarketMakingMode::ModeLeft),
+            "modeboth" => Ok(MarketMakingMode::ModeBoth),
+            "modeview" => Ok(MarketMakingMode::ModeView),
+            _ => Ok(MarketMakingMode::default()),
+        }
+    }
+}
+
+// ====================================================================
+// START: DEFINE ALL INSTRUCTION ACCOUNT STRUCTS HERE
+// ====================================================================
+
+#[derive(Accounts)]
+pub struct Init<'info> {
+    // Note: We need to qualify MAX_BACKING_COUNT with its module
+    #[account(
+        init,
+        space=32 + 8 + size_of::<StableState>()*pricing::MAX_BACKING_COUNT,
+        payer=irma_admin, seeds=[b"state_v5".as_ref()],
+        bump
+    )]
+    pub state: Account<'info, StateMap>,
+    #[account(mut)]
+    pub irma_admin: Signer<'info>,
+    // Space calculation for Core:
+    // 8 bytes for discriminator
+    // 32 bytes for owner (Pubkey)
+    // 4 bytes for config Vec length + (max 10 configs * ~200 bytes each) = 2004 bytes
+    // AllPosition struct:
+    //   - 4 bytes for all_positions Vec length + (max 10 positions * ~300 bytes each) = 3004 bytes  
+    //   - 4 bytes for tokens Vec length + (max 20 tokens * ~200 bytes each) = 4004 bytes
+    // Total: 8 + 32 + 2004 + 3004 + 4004 + buffer = ~10000 bytes
+    #[account(
+        init,
+        space=8 + 10000,
+        payer=irma_admin,
+        seeds=[b"core_v5".as_ref()],
+        bump
+    )]
+    pub core: Account<'info, Core>,
+    pub system_program: Program<'info, System>,
+    // pub bumps: InitBumps,
+}
+
+#[derive(Accounts)]
+pub struct Maint<'info> {
+    #[account(mut, seeds=[b"state_v5".as_ref()], bump)]
+    pub state: Account<'info, StateMap>,
+    pub irma_admin: Signer<'info>,
+    #[account(mut, seeds=[b"core_v5".as_ref()], bump)]
+    pub core: Account<'info, Core>,
+    pub system_program: Program<'info, System>,
+    // pub bumps: MaintBumps,
+}
+
+/// Context to force Core and related types into IDL
+#[derive(Accounts)]
+pub struct GetCoreData<'info> {
+    #[account(mut)]
+    pub core: Account<'info, Core>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(lb_pair: Pubkey)]
+pub struct CreateBitmapExtension<'a> {
+    #[account(
+        init,
+        space=8 + size_of::<BinArrayBitmapExtension>(),
+        payer=irma_admin,
+        seeds=[BIN_ARRAY_BITMAP_SEED, lb_pair.as_ref()],
+        bump
+    )]
+    /// CHECK: This account will be initialized as a BinArrayBitmapExtension
+    pub bitmap_extension: AccountInfo<'a>,
+    #[account(mut)]
+    pub irma_admin: Signer<'a>,
+    pub system_program: Program<'a, System>,
+}
+
+
+
+// Declare your modules (NOTE: already declared above)
+// pub mod pair_config;
+// pub mod bin_array_manager;
+// pub mod meteora_integration;
+// pub mod pricing;
+// pub mod position_manager;
+// pub mod utils;
+
+// ====================================================================
+// START: DEFINE ALL CPI API
+// ====================================================================
+// use crate::meteora_integration::Core;
+
+#[program]
+pub mod irma {
+    use super::*; // This will now correctly bring Init, Maint, etc. into scope
+
+    /// Initialize the IRMA protocol
+    /// The context accounts will be initialized by pricing to conttain reserves in alphabetical order.
+    /// The remaining_accounts should contain the LbPair accounts in the same order as the reserves.
+    pub fn initialize(
+        mut ctx: Context<Init>,
+        owner: String,
+        config_keys: Vec<String>
+    ) -> Result<()> {
+        let owner_pk = Pubkey::from_str(&owner).unwrap();
+
+        assert_eq!(config_keys.len() == 0, true);
+
+        let config_pks: Vec<Pubkey> = config_keys.iter()
+            .map(|key| Pubkey::from_str(key).unwrap())
+            .collect();
+
+        // Initialize the pricing system first
+        pricing::init_pricing(&mut ctx)?;
+
+        // TODO: Initialize Core separately if needed
+        // For now, just do basic initialization
+        msg!("IRMA protocol initialized with owner: {}", owner_pk);
+        msg!("Config keys count: {}", config_pks.len());
+
+        assert_eq!(config_pks.len() == 0, true);
+
+        let core = Core::create_core(owner_pk, config_pks)?;
+        ctx.accounts.core.set_inner(core);
+        Ok(())
+    }
+
+    pub fn add_reserve(
+        ctx: Context<Maint>,
+        symbol: String,
+        mint_address: Pubkey,
+        decimals: u8
+    ) -> Result<()> {
+        msg!("Add stablecoin entry, size of StateMap: {}", ctx.accounts.state.reserves.len());
+        pricing::add_reserve(ctx, &symbol, mint_address, decimals)
+    }
+
+    pub fn remove_reserve(
+        ctx: Context<Maint>,
+        symbol: String
+    ) -> Result<()> {
+        pricing::remove_reserve(ctx, &symbol)
+    }
+
+    pub fn disable_reserve(
+        ctx: Context<Maint>,
+        symbol: String
+    ) -> Result<()> {
+        pricing::disable_reserve(ctx, &symbol)
+    }
+
+    /// This connects a reserve stablecoin to its corresponding LBPair.
+    /// There can only be a single LbPair per stablecoin reserve.
+    pub fn update_reserve_lbpair<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, lb_pair: String
+    ) -> Result<()> {
+        // msg!("Update reserve LB pair for symbol: {}, lb_pair: {}", symbol, lb_pair);
+        let lb_pair_key: Pubkey = Pubkey::from_str(&lb_pair).unwrap();
+        {
+            let stablecoin = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
+                .ok_or(error!(CustomError::ReserveNotFound))?;
+            let lb_pair_state = fetch_lb_pair_state(
+                &ctx.remaining_accounts,
+                &lb_pair_key,
+            )?;
+            // check that the input LbPair is valid and matches the reserve stablecoin mint
+            if !lb_pair_state.token_y_mint.eq(&stablecoin.mint_address) {
+                return Err(error!(CustomError::InvalidLbPairState));
+            }
+        }
+        // add the LbPair to the core config if not already present
+        // let remaining_accounts = &ctx.remaining_accounts;
+        let core_mut = &mut ctx.accounts.core;
+        if core_mut.config.len() == 0 {
+            // msg!("Core config is empty, adding all reserves' LB pairs");
+            let reserves = &ctx.accounts.state.reserves;
+            for reserve in reserves.iter() {
+                // msg!("Core config length b4: {}", core_mut.config.len());
+                let pool_id = reserve.pool_id.clone();
+                core_mut.config.push(PairConfig {
+                    pair_address: pool_id.to_string(),
+                    x_amount: 0,
+                    y_amount: 0,
+                    mode: MarketMakingMode::ModeView,
+                });
+                // msg!("Core config length after: {}", core_mut.config.len());
+                if core_mut.position_data.all_positions.iter().all(|p| p.lb_pair != pool_id) {
+                    core_mut.position_data.all_positions.push(
+                        position_manager::SinglePosition::new(pool_id.clone())
+                    );
+                }
+            }
+        }
+        else if !core_mut.config.iter().any(|pairc: &PairConfig| pairc.pair_address == lb_pair) {
+            core_mut.config.push(PairConfig {
+                pair_address: lb_pair.clone(),
+                x_amount: 0,
+                y_amount: 0,
+                mode: MarketMakingMode::ModeBoth,
+            });
+            core_mut.position_data.all_positions.push(
+                position_manager::SinglePosition::new(lb_pair_key.clone())
+            );
+        }
+        else {
+            msg!("LB pair already in core config, clean up core config and position data");
+            core_mut.clean_up_config_and_positions()?;
+        }
+        let _ = core_mut.fetch_token_info(&ctx.remaining_accounts)?;
+        // msg!("Core config length after update: {}", core_mut.config.len());
+        // finally, update the pool_id for the given stablecoin symbol
+        let reserves = &mut ctx.accounts.state.reserves;
+        let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?;
+        stablecoin_mut.pool_id = lb_pair_key.clone();
+        Ok(())
+    }
+
+    pub fn list_reserves(ctx: Context<Maint>) -> Result<String> {
+        Ok(pricing::list_reserves(ctx))
+    }
+
+    pub fn get_redemption_price(ctx: Context<Maint>, quote_token: String) -> Result<f64> {
+        pricing::get_redemption_price(&ctx.accounts.state.reserves, &quote_token)
+    }
+    
+    pub fn get_prices(ctx: Context<Maint>, quote_token: String) -> Result<(f64, f64)> {
+        pricing::get_prices(&ctx.accounts.state.reserves, &quote_token)
+    }
+
+    pub fn set_mint_price(ctx: Context<Maint>, quote_token: String, new_price: f64) -> Result<()> {
+        pricing::set_mint_price(ctx, &quote_token, new_price)
+    }
+
+    // NOTE: In the two functions below, the Common accounts struct previously allowed the trader herself
+    // to access IRMA. However, now we are changing it so that only the irma_admin (the program
+    // maintainer) can call these functions to inform the pricing module of trade events. In other words,
+    // the trader should be set to irma_admin in the Common context when calling these functions.
+    // To avoid confusion, I have renamed the 'trader' field in Common to 'irma_admin' and replaced
+    // all instances of 'Common' with "Maint".
+
+    /// Let pricing know about a sale trade event
+    /// Note that IRMA is what we are selling (minting).
+    /// bought_amount is the amount of bought_token we received from the sale.
+    pub fn sale_trade_event(
+        ctx: Context<Maint>, bought_token: String, bought_amount: u64
+    ) -> Result<()> {
+        // Extract references to avoid double mutable borrow
+        let core = &mut ctx.accounts.core;
+        let state = &mut ctx.accounts.state;
+        let remaining_accounts = ctx.remaining_accounts;
+
+        core.refresh_position_data_with_accounts(state, &remaining_accounts, bought_token, bought_amount, true)
+    }
+
+    /// Let pricing know about a buy-back trade event
+    /// Note that IRMA is what we are buying back (burning) and we just sold the backing token.
+    pub fn buy_trade_event(
+        ctx: Context<Maint>, sold_token: String, irma_amount: u64
+    ) -> Result<()> {
+        // Extract references to avoid double mutable borrow
+        let core = &mut ctx.accounts.core;
+        let state = &mut ctx.accounts.state;
+        let remaining_accounts = ctx.remaining_accounts;
+
+        core.refresh_position_data_with_accounts(state, &remaining_accounts, sold_token, irma_amount, false)
+    }
+
+    pub fn swap<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, amount: u64, swap_for_reserve: bool
+    ) -> Result<()> {
+        // Extract references to avoid double mutable borrow
+        let corei = &mut ctx.accounts.core.clone();
+        let core = &mut ctx.accounts.core;
+        let payer = &mut ctx.accounts.irma_admin;
+        let reserves = &mut ctx.accounts.state.reserves;
+        let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
+
+        let lb_pair_key = reserves.iter().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+
+        // look for positions matching the symbol
+        let position = corei.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
+            .ok_or(error!(CustomError::PositionNotFound))?;
+        Core::swap(
+            core,
+            payer,
+            remaining_accounts,
+            position,
+            amount,
+            swap_for_reserve,
+        )?;
+        msg!("swap called for symbol: {}, amount: {}, swap_for_reserve: {}", symbol, amount, swap_for_reserve);
+        Ok(())
+    }
+
+    /// Check all LB pair positions and update from pricing.rs/
+    /// This is used to periodically sync all positions.
+    pub fn check_shift_price_ranges<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>
+    ) -> Result<()> {
+        // Extract references to avoid double mutable borrow
+        let corei = &mut ctx.accounts.core.clone();
+        let core = &mut ctx.accounts.core;
+        let payer = &mut ctx.accounts.irma_admin;
+        let reserves = &mut ctx.accounts.state.reserves;
+        let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
+
+        for position in corei.position_data.all_positions.iter_mut() {
+            Core::check_shift_price_range(
+                core,
+                payer,
+                remaining_accounts,
+                reserves,
+                position,
+            )?;
+        }
+        msg!("check_shift_price_ranges called");
+        Ok(())
+    }
+
+    pub fn init_bitmap_extension<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CreateBitmapExtension<'info>>,
+        lb_pair: Pubkey,
+    ) -> Result<()> {
+        let bitmap_extension_acct = &mut ctx.accounts.bitmap_extension;
+        // let bitmap_extension: &mut BinArrayBitmapExtension = get_bytemuck_account_ref::<BinArrayBitmapExtension>(
+        //     bitmap_extension_acct).ok_or(error!(CustomError::InvalidAccountData))?;
+        // bitmap_extension.lb_pair = lb_pair.clone();
+
+        msg!("Initializing bitmap extension for LB pair: {}", lb_pair.clone());
+        // the bitmap extension should already be initialized by anchor at this point
+        msg!("Bitmap extension account key: {:?}", bitmap_extension_acct.key());
+        Ok(())
+    }
+
+    /// Helper instruction to ensure Core type is included in IDL
+    /// Returns the Core account data for debugging
+    // pub fn get_core_data<'a>(ctx: Context<'a, Core>) -> Result<Account<'a, Core>> {
+    //     // Simple read operation to include Core type in IDL
+    //     let core = &ctx.accounts.core;
+    //     Ok(Account::from(*core))
+    // }
+
+    /// Helper instruction to force AllPosition type into IDL
+    pub fn get_position_info(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::AllPosition> {
+        // This forces AllPosition to be included in IDL as a return type
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force SinglePosition type into IDL
+    pub fn get_single_position(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::SinglePosition> {
+        // This forces SinglePosition to be included in IDL as a return type
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force MintInfo type into IDL
+    pub fn get_mint_info(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::MintInfo> {
+        // This forces MintInfo to be included in IDL as a return type
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force MintWithProgramId type into IDL
+    pub fn get_mint_with_program_id(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::MintWithProgramId> {
+        // This forces MintWithProgramId to be included in IDL as a return type  
+        Err(error!(CustomError::InvalidAmount))
+    }
+
+    /// Helper instruction to force TokenEntry type into IDL
+    pub fn get_token_entry(
+        _ctx: Context<Maint>
+    ) -> Result<position_manager::TokenEntry> {
+        // This forces TokenEntry to be included in IDL as a return type
+        Err(error!(CustomError::InvalidAmount))
+    }
+}
