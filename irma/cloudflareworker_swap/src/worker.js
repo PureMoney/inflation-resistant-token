@@ -315,9 +315,9 @@ class CustomWallet {
 // ==================================================================
 
 // CONSTANTS
-const RESERVE_MINT_STR = "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"; 
-const RESERVE_SYMBOL = "devUSDC";
-const POOL_ADDRESS = "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP"; 
+const RESERVE_MINT_STR = "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"; // devUSDT mint on Devnet
+const RESERVE_SYMBOL = "devUSDT";
+const POOL_ADDRESS = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; // Meteora DLMM pool for IRMA/devUSDT
 
 // TRUFLATION CONFIGURATION
 // Inflation data is fetched via our Vercel proxy (truflation-proxy)
