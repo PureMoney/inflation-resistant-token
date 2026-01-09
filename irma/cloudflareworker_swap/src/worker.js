@@ -411,7 +411,7 @@ function calculateMintPrice(inflationRate, quoteTokenPriceUsd) {
  * TODO: Integrate with Meteora pool or oracle for real price
  */
 async function getQuoteTokenPriceUsd(connection, poolAddress) {
-  // For stablecoins like USDC, the price is typically very close to $1
+  // For stablecoins like USDC or USDT, the price is typically very close to $1
   // In production, you might want to:
   // 1. Query Meteora pool for the actual price
   // 2. Use an oracle like Pyth or Switchboard
@@ -794,7 +794,7 @@ async function rebalanceMintBin(env, oldMintBinId, newMintBinId, dlmmPool, conne
 }
 
 /**
- * Rebalance redemption bin - move all USDC from old redemption bin to new redemption bin
+ * Rebalance redemption bin - move all reserve tokens from old redemption bin to new redemption bin
  */
 async function rebalanceRedemptionBin(env, oldRedemptionBinId, newRedemptionBinId, dlmmPool, connection, adminKeypair, userPositions, logger) {
   await logger.log(`🔄 Rebalancing REDEMPTION bin: ${oldRedemptionBinId} → ${newRedemptionBinId}`);
@@ -829,9 +829,9 @@ async function rebalanceRedemptionBin(env, oldRedemptionBinId, newRedemptionBinI
     }
   }
   
-  // Add USDC to new redemption bin
+  // Add reserve token to new redemption bin
   if (totalUsdcRemoved.gt(new BN(0))) {
-    await logger.log(`📦 Total USDC removed: ${totalUsdcRemoved.toString()}`);
+    await logger.log(`📦 Total ${RESERVE_SYMBOL} removed: ${totalUsdcRemoved.toString()}`);
     
     // Refresh positions after removal
     const { userPositions: refreshedPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
@@ -842,7 +842,7 @@ async function rebalanceRedemptionBin(env, oldRedemptionBinId, newRedemptionBinI
     );
     addSig = result.signature;
   } else {
-    await logger.log(`ℹ️ No USDC liquidity found in old redemption bin ${oldRedemptionBinId}`);
+    await logger.log(`ℹ️ No ${RESERVE_SYMBOL} liquidity found in old redemption bin ${oldRedemptionBinId}`);
   }
   
   return {
@@ -1629,10 +1629,10 @@ async function processRebalance(tx, env, ctx) {
       const storedActiveBins = await getActiveBins(env.irma_logs);
 
       // =========================================================
-      // LOGIC: MINT EVENT (User bought IRMA with USDC)
+      // LOGIC: MINT EVENT (User bought IRMA using reserve token or quote token)
       // =========================================================
       if (delta > 0) {
-        await logger.log(`👉 Step 1: Performing counter-swap (IRMA -> USDC)...`);
+        await logger.log(`👉 Step 1: Performing counter-swap (IRMA -> ${RESERVE_SYMBOL})...`);
 
         const swapForY = true; 
         
@@ -1650,8 +1650,8 @@ async function processRebalance(tx, env, ctx) {
           binArrays
         );
         
-        const usdcOutputAmount = swapQuote.minOutAmount;
-        await logger.log(`💰 Expected USDC output: ${usdcOutputAmount.toString()}`);
+        const reserveOutputAmount = swapQuote.minOutAmount;
+        await logger.log(`💰 Expected ${RESERVE_SYMBOL} output: ${reserveOutputAmount.toString()}`);
 
         await logger.log("DEBUG: Creating swap transaction...");
         const swapTx = await dlmmPool.swap({
@@ -1661,7 +1661,7 @@ async function processRebalance(tx, env, ctx) {
           binArraysPubkey: swapQuote.binArraysPubkey,
           lbPair: poolKey,
           user: adminKeypair.publicKey,
-          minOutAmount: usdcOutputAmount,
+          minOutAmount: reserveOutputAmount,
         });
 
         if (swapTx.add) {
@@ -1680,11 +1680,11 @@ async function processRebalance(tx, env, ctx) {
         await logger.log(`✅ Counter-swap sent: ${swapSig}`);
         swapEventData.counterSwapSignature = swapSig;
 
-        await logger.log(`👉 Step 2: Adding USDC to redemption bin ${redemptionBinId}...`);
+        await logger.log(`👉 Step 2: Adding ${RESERVE_SYMBOL} to redemption bin ${redemptionBinId}...`);
 
         // Check if redemption bin has changed and we need to rebalance
         const oldRedemptionBinId = storedActiveBins?.redemption_bin_id;
-        let totalUsdcToAdd = usdcOutputAmount;
+        let totalReserveToAdd = reserveOutputAmount;
         
         if (oldRedemptionBinId && oldRedemptionBinId !== redemptionBinId) {
           await logger.log(`🔄 Redemption bin changed: ${oldRedemptionBinId} → ${redemptionBinId}, rebalancing...`);
@@ -1696,10 +1696,10 @@ async function processRebalance(tx, env, ctx) {
               dlmmPool, connection, adminKeypair, userPositions, logger
             );
             
-            // Add the recovered USDC to our total
+            // Add the recovered reserve to our total
             if (rebalanceResult.usdcAmountMoved && rebalanceResult.usdcAmountMoved !== '0') {
-              totalUsdcToAdd = totalUsdcToAdd.add(new BN(rebalanceResult.usdcAmountMoved));
-              await logger.log(`📦 Added ${rebalanceResult.usdcAmountMoved} USDC from old bin to deposit`);
+              totalReserveToAdd = totalReserveToAdd.add(new BN(rebalanceResult.usdcAmountMoved));
+              await logger.log(`📦 Added ${rebalanceResult.usdcAmountMoved} ${RESERVE_SYMBOL} from old bin to deposit`);
             }
             
             logRebalancingEvent(env.irma_logs, {
@@ -1735,7 +1735,7 @@ async function processRebalance(tx, env, ctx) {
             positionPubKey: newPositionKeypair.publicKey,
             user: adminKeypair.publicKey,
             totalXAmount: new BN(0),
-            totalYAmount: totalUsdcToAdd,
+            totalYAmount: totalReserveToAdd,
             strategy: {
               minBinId: redemptionBinId,
               maxBinId: redemptionBinId,
@@ -1757,7 +1757,7 @@ async function processRebalance(tx, env, ctx) {
             positionPubKey: redemptionPosition.publicKey,
             user: adminKeypair.publicKey,
             totalXAmount: new BN(0),
-            totalYAmount: totalUsdcToAdd,
+            totalYAmount: totalReserveToAdd,
             strategy: {
               minBinId: redemptionBinId,
               maxBinId: redemptionBinId,
@@ -1808,9 +1808,9 @@ async function processRebalance(tx, env, ctx) {
 
       } else {
         // =========================================================
-        // LOGIC: REDEMPTION EVENT (User sold IRMA for USDC)
+        // LOGIC: REDEMPTION EVENT (User sold IRMA for reserve token or quote token)
         // =========================================================
-        await logger.log(`👉 Step 1: Performing counter-swap (USDC -> IRMA)...`);
+        await logger.log(`👉 Step 1: Performing counter-swap (${RESERVE_SYMBOL} -> IRMA)...`);
 
         const swapForY = false; 
         
@@ -1818,11 +1818,11 @@ async function processRebalance(tx, env, ctx) {
         const binArrays = await dlmmPool.getBinArrayForSwap(swapForY);
         
         await logger.log("DEBUG: Getting swap quote...");
-        const usdcSwapAmount = amountAtomic.abs().mul(new BN(95)).div(new BN(100));
-        await logger.log(`💰 User delta: ${amountAtomic.toString()}, Counter-swap USDC amount: ${usdcSwapAmount.toString()}`);
-        
+        const reserveSwapAmount = amountAtomic.abs().mul(new BN(95)).div(new BN(100));
+        await logger.log(`💰 User delta: ${amountAtomic.toString()}, Counter-swap ${RESERVE_SYMBOL} amount: ${reserveSwapAmount.toString()}`);
+
         const swapQuote = await dlmmPool.swapQuote(
-          usdcSwapAmount,
+          reserveSwapAmount,
           swapForY,
           new BN(1500),
           binArrays
@@ -1835,7 +1835,7 @@ async function processRebalance(tx, env, ctx) {
         const swapTx = await dlmmPool.swap({
           inToken: dlmmPool.tokenY.publicKey,
           outToken: dlmmPool.tokenX.publicKey,
-          inAmount: usdcSwapAmount,
+          inAmount: reserveSwapAmount,
           binArraysPubkey: swapQuote.binArraysPubkey,
           lbPair: poolKey,
           user: adminKeypair.publicKey,
