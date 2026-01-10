@@ -91,9 +91,9 @@ const [corePda] = PublicKey.findProgramAddressSync(
 // End of Prelude stuff
 //----------------------------------------------------------------------
 // Begin Test: Mint Price Inflation Adjustment
-async function testMintPriceInflation() {
+async function testMintPriceInflation(reserveSymbol: string = "devUSDC") {
 
-  console.log("\n🚀 Set IRMA mint price for 'devUSDC'");
+  console.log("\n🚀 Set IRMA mint price for '${reserveSymbol}'");
   console.log("  (Simulated inflation adjustment).");
   console.log("===============================\n");
 
@@ -107,41 +107,41 @@ async function testMintPriceInflation() {
     const state1 = await (program.account as any).stateMap.fetch(statePda);
     console.log("📊 Current State Data:", JSON.stringify(state1, null, 2));
 
-    let devUSDCState = state1.reserves.find((r: any) => r.symbol === "devUSDC");
+    let reserveState = state1.reserves.find((r: any) => r.symbol === reserveSymbol);
 
-    const mintPrice1 = Number(devUSDCState.mintPrice);
-    const redemptionPrice1 = Number(devUSDCState.backingReserves / devUSDCState.circulatingSupply);
-    // const lastUpdate1 = new Date(Number(devUSDCState.lastPriceUpdate) * 1000);
+    const mintPrice1 = Number(reserveState.mintPrice);
+    const redemptionPrice1 = Number(reserveState.backingReserves / reserveState.circulatingSupply);
+    // const lastUpdate1 = new Date(Number(reserveState.lastPriceUpdate) * 1000);
 
     console.log("BEFORE Inflation:");
-    console.log(`  Mint Price: ${mintPrice1.toFixed(6)} USDC (raw: ${mintPrice1 * 1_000_000})`);
-    console.log(`  Redemption Price: ${redemptionPrice1.toFixed(6)} USDC (raw: ${redemptionPrice1 * 1_000_000})`);
+    console.log(`  Mint Price: ${mintPrice1.toFixed(6)} ${reserveSymbol} (raw: ${mintPrice1 * 1_000_000})`);
+    console.log(`  Redemption Price: ${redemptionPrice1.toFixed(6)} ${reserveSymbol} (raw: ${redemptionPrice1 * 1_000_000})`);
     if (redemptionPrice1 > 0) {
       console.log(`  Spread: ${((mintPrice1 - redemptionPrice1) / redemptionPrice1 * 100).toFixed(2)}%`);
     }
-    // const lastUpdate1 = new Date(Number(devUSDCState.lastPriceUpdate) * 1000);
+    // const lastUpdate1 = new Date(Number(reserveState.lastPriceUpdate) * 1000);
     // console.log(`  Last Update: ${lastUpdate1.toISOString()}\n`);
 
     // Step 2: Apply 5% inflation (500 basis points)
     console.log("📊 Step 2: Applying 5.23% inflation (523 bps)...\n");
     const totalInflationRate = Number(523); // 5.23% = 523 bps
     const inflationRate = totalInflationRate - Number(200); // Subtract 2% buffer = 323 bps
-    const irmaPrice365daysAgo = Number(1_000_000); // 1 USDC in raw format
-    const currentUSDCOraclePrice = Number(999_300); // 1.0523 USDC in raw format
+    const irmaPrice365daysAgo = Number(1_000_000); // 1 reserveToken in raw format
+    const currentReserveOraclePrice = Number(999_300); // 1.0523 reserveToken in raw format
 
     console.log("Inflation Calculation:");
-    console.log(`  IRMA Price 365 Days Ago: ${(irmaPrice365daysAgo / 1_000_000).toFixed(6)} USDC`);
-    console.log(`  Current USDC Oracle Price: ${(currentUSDCOraclePrice / 1_000_000).toFixed(6)} USDC`);
+    console.log(`  IRMA Price 365 Days Ago: ${(irmaPrice365daysAgo / 1_000_000).toFixed(6)} ${reserveSymbol}`);
+    console.log(`  Current ${reserveSymbol} Oracle Price: ${(currentReserveOraclePrice / 1_000_000).toFixed(6)} ${reserveSymbol}`);
 
     console.log(`  Total Inflation Rate: ${totalInflationRate} bps`);
     console.log(`  Applying Inflation Rate: ${inflationRate} bps\n`);
 
-    const newPriceRaw = Math.floor(irmaPrice365daysAgo * (10_000 + inflationRate) / (10_000 * currentUSDCOraclePrice) * 1_000_000);
-    console.log(`  New Mint Price to Set: ${(newPriceRaw / 1_000_000).toFixed(6)} USDC (raw: ${newPriceRaw})\n`);
+    const newPriceRaw = Math.floor(irmaPrice365daysAgo * (10_000 + inflationRate) / (10_000 * currentReserveOraclePrice) * 1_000_000);
+    console.log(`  New Mint Price to Set: ${(newPriceRaw / 1_000_000).toFixed(6)} ${reserveSymbol} (raw: ${newPriceRaw})\n`);
     const newPrice = (newPriceRaw / 1_000_000).toFixed(6);
 
     const tx = await program.methods
-      .setMintPrice("devUSDC", newPrice)
+      .setMintPrice(reserveSymbol, newPrice)
       .accounts({
         state: statePda,
         irmaAdmin: wallet.publicKey,
@@ -159,13 +159,14 @@ async function testMintPriceInflation() {
     console.log("📖 Step 3: Reading updated protocol state...\n");
     const state2 = await (program.account as any).stateMap.fetch(statePda);
 
-    const mintPrice2 = Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").mintPrice);
-    const redemptionPrice2 = Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").redemptionPrice);
-    // const lastUpdate2 = new Date(Number(state2.reserves.find((r: any) => r.symbol === "devUSDC").lastPriceUpdate) * 1000);
+    let reserveState2 = state2.reserves.find((r: any) => r.symbol === reserveSymbol);
+    const mintPrice2 = Number(reserveState2.mintPrice);
+    const redemptionPrice2 = Number(reserveState2.redemptionPrice);
+    // const lastUpdate2 = new Date(Number(reserveState2.lastPriceUpdate) * 1000);
 
     console.log("AFTER Inflation:");
-    console.log(`  Mint Price: ${(mintPrice2 / 1_000_000_000).toFixed(6)} USDC (raw: ${mintPrice2})`);
-    console.log(`  Redemption Price: ${(redemptionPrice2 / 1_000_000_000).toFixed(6)} USDC`);
+    console.log(`  Mint Price: ${(mintPrice2 / 1_000_000_000).toFixed(6)} ${reserveSymbol} (raw: ${mintPrice2})`);
+    console.log(`  Redemption Price: ${(redemptionPrice2 / 1_000_000_000).toFixed(6)} ${reserveSymbol} (raw: ${redemptionPrice2})`);
     console.log(`  Spread: ${((mintPrice2 - redemptionPrice2) / redemptionPrice2 * 100).toFixed(2)}%`);
     // console.log(`  Last Update: ${lastUpdate2.toISOString()}\n`);
 
@@ -181,13 +182,13 @@ async function testMintPriceInflation() {
     // Verification
     console.log("✅ Verification:");
     if (mintPrice2 > mintPrice1) {
-      console.log(`  ✓ Mint price increased (${(mintPrice2 - mintPrice1) / 1_000_000_000} USDC)`);
+      console.log(`  ✓ Mint price increased (${(mintPrice2 - mintPrice1) / 1_000_000_000} ${reserveSymbol})`);
     } else {
       console.log(`  ✗ ERROR: Mint price did not increase!`);
     }
 
     if (redemptionPrice2 > redemptionPrice1) {
-      console.log(`  ✓ Redemption price increased (${(redemptionPrice2 - redemptionPrice1) / 1_000_000_000} USDC)`);
+      console.log(`  ✓ Redemption price increased (${(redemptionPrice2 - redemptionPrice1) / 1_000_000_000} ${reserveSymbol})`);
     } else {
       console.log(`  ✗ ERROR: Redemption price did not increase!`);
     }
@@ -211,7 +212,7 @@ async function testMintPriceInflation() {
   }
 }
 
-testMintPriceInflation().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+testMintPriceInflation("devUSDT"); // .catch((err) => {
+//   console.error(err);
+//   process.exit(1);
+// });

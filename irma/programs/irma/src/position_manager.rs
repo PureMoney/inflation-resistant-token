@@ -248,6 +248,19 @@ impl SinglePosition {
     }
 
     /// Binary search to find the bin id for a given price
+    /// 
+    ///   public static getBinIdFromPrice(
+    ///     price: string | number | Decimal,
+    ///     binStep: number,
+    ///     min: boolean
+    ///   ): number {
+    ///     const binStepNum = new Decimal(binStep).div(new Decimal(BASIS_POINT_MAX));
+    ///     const binId = new Decimal(price)
+    ///       .log()
+    ///       .dividedBy(new Decimal(1).add(binStepNum).log());
+    ///     return (min ? binId.floor() : binId.ceil()).toNumber();
+    ///   }
+    ///
     pub fn search_bin_given_price(
         lb_pair_state: &LbPair,
         target_price: u128,
