@@ -878,6 +878,8 @@ async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPrice, trig
     // Get stored active bins
     const activeBins = await getActiveBins(env.irma_logs);
     
+    let oldMintBinId = null;
+    let oldRedemptionBinId = null;
     if (!activeBins) {
       await logger.log(`ℹ️ No active bins stored yet, initializing...`);
       await updateActiveBins(env.irma_logs, {
@@ -887,12 +889,17 @@ async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPrice, trig
         redemptionPrice: newRedemptionPrice,
       });
       await logger.flush();
-      return { success: true, message: 'Active bins initialized', rebalanced: false };
+      // assume rebalancing is needed on first run
+      oldMintBinId = newMintBinId - 1;
+      oldRedemptionBinId = newRedemptionBinId + 1;
+      // return { success: true, message: 'Active bins initialized', rebalanced: true };
     }
-    
-    const oldMintBinId = activeBins.mint_bin_id;
-    const oldRedemptionBinId = activeBins.redemption_bin_id;
-    
+    else {
+
+      oldMintBinId = activeBins.mint_bin_id;
+      oldRedemptionBinId = activeBins.redemption_bin_id;
+    }
+
     await logger.log(`📊 Stored bins → Mint Bin: ${oldMintBinId}, Redemption Bin: ${oldRedemptionBinId}`);
     
     const mintBinChanged = Math.abs(newMintBinId - oldMintBinId) >= 1;
@@ -1403,7 +1410,7 @@ async function handleRequest(request, env, ctx) {
     // --- BASIC CHECKS ---
     if (!tx) return new Response("Ignored", { status: 200 });
 
-    console.log(`🔔 tx.meta: ${tx.meta}`);
+    console.log(`🔔 tx.meta.logMessages: ${JSON.stringify(tx.meta.logMessages)}`);
     // --- LOOP PREVENTION ---
     // Check for our specific Memo tag in the logs
     const logs = tx.meta.logMessages || [];
