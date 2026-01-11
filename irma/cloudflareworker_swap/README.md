@@ -51,7 +51,7 @@ The worker uses Cloudflare D1 to store logs permanently. This is required for th
 npx wrangler d1 create irma-logs
 
 Would you like Wrangler to add it on your behalf? … yes
-What binding name would you like to use? … irma_logs
+What binding name would you like to use? … DB
 For local dev, do you want to connect to the remote resource instead of a local resource? … yes
 ```
 
