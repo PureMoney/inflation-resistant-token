@@ -207,7 +207,7 @@ export default {
  * Also triggers automatic bin rebalancing after price update
  */
 async function handleScheduledMintPriceUpdate(env) {
-  const logger = new Logger(env.irma_logs);
+  const logger = new Logger(env.DB);
   
   try {
     await logger.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
@@ -216,7 +216,7 @@ async function handleScheduledMintPriceUpdate(env) {
     await logger.log(`✅ Scheduled mint price update completed: ${JSON.stringify(result)}`);
     
     // Log price update to D1
-    await logPriceUpdate(env.irma_logs, {
+    await logPriceUpdate(env.DB, {
       inflationRate: result.inflationRate,
       quoteTokenPriceUsd: result.quoteTokenPriceUsd,
       newMintPrice: result.newMintPrice,
@@ -253,7 +253,7 @@ async function handleScheduledMintPriceUpdate(env) {
     logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
     console.error("❌ Scheduled mint price update failed:", error.message);
     
-    await logPriceUpdate(env.irma_logs, {
+    await logPriceUpdate(env.DB, {
       inflationRate: 0,
       quoteTokenPriceUsd: 0,
       newMintPrice: 0,
@@ -359,7 +359,7 @@ async function handleRequest(request, env, ctx) {
       const expand = url.searchParams.get('expand') === 'true';
       
       try {
-        const result = await queryLogs(env.irma_logs, logType, limit, offset, expand);
+        const result = await queryLogs(env.DB, logType, limit, offset, expand);
         return new Response(JSON.stringify(result), {
           status: result.error ? 400 : 200,
           headers: { "Content-Type": "application/json" }
@@ -378,7 +378,7 @@ async function handleRequest(request, env, ctx) {
     // View current active bins
     if (action === 'view-bins') {
       try {
-        const activeBins = await getActiveBins(env.irma_logs);
+        const activeBins = await getActiveBins(env.DB);
         if (!activeBins) {
           return new Response(JSON.stringify({
             success: true,
