@@ -376,10 +376,10 @@ export async function rebalanceRedemptionBin(env, oldRedemptionBinId, newRedempt
  * Compares stored active bins with new calculated bins
  */
 export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPrice, triggerType = 'auto') {
-  const logger = new Logger(env.irma_logs);
+  const logger = new Logger(env.DB);
   
   try {
-    await logger.log(`🔍 Checking if bin rebalancing is needed...`);
+    logger.log(`🔍 Checking if bin rebalancing is needed...`);
     
     const { connection, adminKeypair } = await setupSolanaConnection(env);
     
@@ -391,16 +391,16 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
     const newMintBinId = dlmmPool.getBinIdFromPrice(newMintPrice.toString(), true);
     const newRedemptionBinId = dlmmPool.getBinIdFromPrice(newRedemptionPrice.toString(), false);
     
-    await logger.log(`📊 New prices → Mint Bin: ${newMintBinId}, Redemption Bin: ${newRedemptionBinId}`);
+    logger.log(`📊 New prices → Mint Bin: ${newMintBinId}, Redemption Bin: ${newRedemptionBinId}`);
     
     // Get stored active bins
-    const activeBins = await getActiveBins(env.irma_logs);
+    const activeBins = await getActiveBins(env.DB);
     
     let oldMintBinId = null;
     let oldRedemptionBinId = null;
     if (!activeBins) {
       logger.log(`ℹ️ No active bins stored yet, initializing...`);
-      await updateActiveBins(env.irma_logs, {
+      await updateActiveBins(env.DB, {
         mintBinId: newMintBinId,
         redemptionBinId: newRedemptionBinId,
         mintPrice: newMintPrice,
@@ -418,34 +418,34 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
       oldRedemptionBinId = activeBins.redemption_bin_id;
     }
 
-    await logger.log(`📊 Stored bins → Mint Bin: ${oldMintBinId}, Redemption Bin: ${oldRedemptionBinId}`);
+    logger.log(`📊 Stored bins → Mint Bin: ${oldMintBinId}, Redemption Bin: ${oldRedemptionBinId}`);
     
     const mintBinChanged = Math.abs(newMintBinId - oldMintBinId) >= 1;
     const redemptionBinChanged = Math.abs(newRedemptionBinId - oldRedemptionBinId) >= 1;
     
     if (!mintBinChanged && !redemptionBinChanged) {
-      await logger.log(`✅ Bins are in sync, no rebalancing needed`);
+      logger.log(`✅ Bins are in sync, no rebalancing needed`);
       await logger.flush();
       return { success: true, message: 'Bins in sync', rebalanced: false };
     }
     
     // Get user positions
     const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
-    await logger.log(`📍 Found ${userPositions.length} position(s) to check`);
+    logger.log(`📍 Found ${userPositions.length} position(s) to check`);
     
     let mintRebalanceResult = null;
     let redemptionRebalanceResult = null;
     
     // Rebalance mint bin if changed
     if (mintBinChanged) {
-      await logger.log(`🔄 Mint bin changed: ${oldMintBinId} → ${newMintBinId}`);
+      logger.log(`🔄 Mint bin changed: ${oldMintBinId} → ${newMintBinId}`);
       try {
         mintRebalanceResult = await rebalanceMintBin(
           env, oldMintBinId, newMintBinId, 
           dlmmPool, connection, adminKeypair, userPositions, logger
         );
         
-        await logRebalancingEvent(env.irma_logs, {
+        await logRebalancingEvent(env.DB, {
           rebalanceType: 'mint_bin',
           oldMintBinId,
           newMintBinId,
@@ -457,10 +457,10 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
           success: true,
         });
       } catch (err) {
-        await logger.error(`❌ Mint bin rebalancing failed: ${err.message}`);
+        logger.error(`❌ Mint bin rebalancing failed: ${err.message}`);
         console.error(`❌ Mint bin rebalancing failed: ${err.message}`);
         
-        await logRebalancingEvent(env.irma_logs, {
+        await logRebalancingEvent(env.DB, {
           rebalanceType: 'mint_bin',
           oldMintBinId,
           newMintBinId,
@@ -473,7 +473,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
     
     // Rebalance redemption bin if changed
     if (redemptionBinChanged) {
-      await logger.log(`🔄 Redemption bin changed: ${oldRedemptionBinId} → ${newRedemptionBinId}`);
+      logger.log(`🔄 Redemption bin changed: ${oldRedemptionBinId} → ${newRedemptionBinId}`);
       
       // Refresh positions if mint rebalancing happened
       let currentPositions = userPositions;
@@ -488,7 +488,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
           dlmmPool, connection, adminKeypair, currentPositions, logger
         );
         
-        await logRebalancingEvent(env.irma_logs, {
+        await logRebalancingEvent(env.DB, {
           rebalanceType: 'redemption_bin',
           oldRedemptionBinId,
           newRedemptionBinId,
@@ -500,10 +500,10 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
           success: true,
         });
       } catch (err) {
-        await logger.error(`❌ Redemption bin rebalancing failed: ${err.message}`);
+        logger.error(`❌ Redemption bin rebalancing failed: ${err.message}`);
         console.error(`❌ Redemption bin rebalancing failed: ${err.message}`);
         
-        await logRebalancingEvent(env.irma_logs, {
+        await logRebalancingEvent(env.DB, {
           rebalanceType: 'redemption_bin',
           oldRedemptionBinId,
           newRedemptionBinId,
@@ -515,14 +515,14 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
     }
     
     // Update stored active bins
-    await updateActiveBins(env.irma_logs, {
+    await updateActiveBins(env.DB, {
       mintBinId: newMintBinId,
       redemptionBinId: newRedemptionBinId,
       mintPrice: newMintPrice,
       redemptionPrice: newRedemptionPrice,
     });
     
-    await logger.log(`✅ Rebalancing complete, active bins updated`);
+    logger.log(`✅ Rebalancing complete, active bins updated`);
     await logger.flush();
     
     return {
@@ -549,7 +549,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
  * Manual rebalancing endpoint - forces rebalance based on current prices
  */
 export async function manualRebalanceBins(env) {
-  const logger = new Logger(env.irma_logs);
+  const logger = new Logger(env.DB);
   
   try {
     logger.log(`🔧 Manual rebalancing triggered...`);
@@ -568,14 +568,14 @@ export async function manualRebalanceBins(env) {
     const newRedemptionBinId = dlmmPool.getBinIdFromPrice(prices.redemptionPrice.toString(), false);
     
     // Get stored bins
-    const activeBins = await getActiveBins(env.irma_logs);
+    const activeBins = await getActiveBins(env.DB);
 
     let oldMintBinId = null;
     let oldRedemptionBinId = null;
     
     if (!activeBins) {
       // No bins stored, just initialize
-      await updateActiveBins(env.irma_logs, {
+      await updateActiveBins(env.DB, {
         mintBinId: newMintBinId,
         redemptionBinId: newRedemptionBinId,
         mintPrice: prices.mintPrice,
@@ -609,7 +609,7 @@ export async function manualRebalanceBins(env) {
         results.mintRebalanced = true;
         results.mintResult = mintResult;
         
-        await logRebalancingEvent(env.irma_logs, {
+        await logRebalancingEvent(env.DB, {
           rebalanceType: 'mint_bin',
           oldMintBinId,
           newMintBinId,
@@ -639,7 +639,7 @@ export async function manualRebalanceBins(env) {
         results.redemptionRebalanced = true;
         results.redemptionResult = redemptionResult;
         
-        await logRebalancingEvent(env.irma_logs, {
+        await logRebalancingEvent(env.DB, {
           rebalanceType: 'redemption_bin',
           oldRedemptionBinId,
           newRedemptionBinId,
@@ -658,7 +658,7 @@ export async function manualRebalanceBins(env) {
     }
     
     // Update active bins
-    await updateActiveBins(env.irma_logs, {
+    await updateActiveBins(env.DB, {
       mintBinId: newMintBinId,
       redemptionBinId: newRedemptionBinId,
       mintPrice: prices.mintPrice,

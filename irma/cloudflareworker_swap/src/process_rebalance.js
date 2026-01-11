@@ -15,7 +15,7 @@ import IDL from "../../target/idl/irma.json";
 
 
 export async function processRebalance(tx, env, ctx) {
-  const logger = new Logger(env.irma_logs);
+  const logger = new Logger(env.DB);
   const HELIUS_API_KEY = env.HELIUS_API_KEY;
   const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
   
@@ -188,11 +188,11 @@ export async function processRebalance(tx, env, ctx) {
         // Use waitUntil for logging operations to ensure they complete
         if (ctx) {
           ctx.waitUntil(Promise.all([
-            logSwapEvent(env.irma_logs, swapEventData),
+            logSwapEvent(env.DB, swapEventData),
             logger.flush()
           ]));
         } else {
-          await logSwapEvent(env.irma_logs, swapEventData);
+          await logSwapEvent(env.DB, swapEventData);
           await logger.flush();
         }
         await logger.log(`📝 Returning from early exit`);
@@ -208,7 +208,7 @@ export async function processRebalance(tx, env, ctx) {
       }
       
       // --- GET STORED ACTIVE BINS FOR REBALANCING ---
-      const storedActiveBins = await getActiveBins(env.irma_logs);
+      const storedActiveBins = await getActiveBins(env.DB);
 
       // =========================================================
       // LOGIC: MINT EVENT (User bought IRMA using reserve token or quote token)
@@ -284,7 +284,7 @@ export async function processRebalance(tx, env, ctx) {
               await logger.log(`📦 Added ${rebalanceResult.usdcAmountMoved} ${RESERVE_SYMBOL} from old bin to deposit`);
             }
             
-            await logRebalancingEvent(env.irma_logs, {
+            await logRebalancingEvent(env.DB, {
               rebalanceType: 'redemption_bin',
               oldRedemptionBinId,
               newRedemptionBinId: redemptionBinId,
@@ -462,7 +462,7 @@ export async function processRebalance(tx, env, ctx) {
               await logger.log(`📦 Added ${rebalanceResult.irmaAmountMoved} IRMA from old bin to deposit`);
             }
             
-            await logRebalancingEvent(env.irma_logs, {
+            await logRebalancingEvent(env.DB, {
               rebalanceType: 'mint_bin',
               oldMintBinId,
               newMintBinId: mintBinId,
@@ -569,7 +569,7 @@ export async function processRebalance(tx, env, ctx) {
       }
 
       // Update stored active bins (don't await - fire and forget)
-      await updateActiveBins(env.irma_logs, {
+      await updateActiveBins(env.DB, {
         mintBinId,
         redemptionBinId,
         mintPrice,
@@ -583,11 +583,11 @@ export async function processRebalance(tx, env, ctx) {
     // Log the swap event and flush with waitUntil to ensure completion
     if (ctx) {
       ctx.waitUntil(Promise.all([
-        logSwapEvent(env.irma_logs, swapEventData),
+        logSwapEvent(env.DB, swapEventData),
         await logger.flush()
       ]));
     } else {
-      await logSwapEvent(env.irma_logs, swapEventData);
+      await logSwapEvent(env.DB, swapEventData);
       await logger.flush();
     }
 
@@ -605,11 +605,11 @@ export async function processRebalance(tx, env, ctx) {
     swapEventData.errorMessage = err.message;
     if (ctx) {
       ctx.waitUntil(Promise.all([
-        logSwapEvent(env.irma_logs, swapEventData),
+        logSwapEvent(env.DB, swapEventData),
         logger.flush()
       ]));
     } else {
-      await logSwapEvent(env.irma_logs, swapEventData);
+      await logSwapEvent(env.DB, swapEventData);
       await logger.flush();
     }
   }
