@@ -3,9 +3,9 @@ import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { Program, AnchorProvider } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
 import IDL from "../../target/idl/irma.json";
-import { CustomWallet, processRebalance } from "./process_rebalance.js";
+import { processRebalance } from "./process_rebalance.js";
 import { Logger, logPriceUpdate, queryLogs, getActiveBins } from "./d1_logs.js";
-import { getPrices, setupSolanaConnection, checkAndRebalanceBins, manualRebalanceBins } from "./dlmm.js";
+import { CustomWallet, getPrices, setupSolanaConnection, checkAndRebalanceBins, manualRebalanceBins } from "./dlmm.js";
 import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE } from "./config.js";
 
 const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
@@ -20,7 +20,7 @@ const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
  * Returns inflation rate as a percentage (e.g., 2.169 for 2.169%)
  */
 async function fetchTruflationRate(env) {
-  console.log("📊 Fetching inflation data from Truflation proxy...");
+  console.log(`📊 Fetching inflation data from ${env.TRUFLATION_PROXY_URL}...`);
 
   const proxyUrl = env.TRUFLATION_PROXY_URL;
   if (!proxyUrl) {
@@ -184,10 +184,6 @@ async function updateMintPriceFromTruflation(env) {
     throw error;
   }
 }
-
-// ==================================================================
-// REBALANCING FUNCTIONS
-// ==================================================================
 
 // ==================================================================
 // WORKER LOGIC

@@ -5,28 +5,13 @@ import { BN } from "@coral-xyz/anchor";
 import DLMM, { StrategyType } from "@meteora-ag/dlmm";
 import { POOL_ADDRESS, RESERVE_MINT_STR, RESERVE_SYMBOL } from "./config.js";
 import { Logger, getActiveBins,  logSwapEvent, logRebalancingEvent, updateActiveBins } from "./d1_logs.js";
-import { getPrices, rebalanceMintBin, rebalanceRedemptionBin } from "./dlmm.js";
+import { CustomWallet, getPrices, rebalanceMintBin, rebalanceRedemptionBin } from "./dlmm.js";
+import IDL from "../../target/idl/irma.json";
 
-// --- CUSTOM WALLET ---
-// Used as wallet adapter for AnchorProvider in Cloudflare Workers environment
-export class CustomWallet {
-  constructor(payer) {
-    this.payer = payer;
-  }
-  async signTransaction(tx) {
-    tx.partialSign(this.payer);
-    return tx;
-  }
-  async signAllTransactions(txs) {
-    return txs.map((t) => {
-      t.partialSign(this.payer);
-      return t;
-    });
-  }
-  get publicKey() {
-    return this.payer.publicKey;
-  }
-}
+
+// ==================================================================
+// REBALANCING FUNCTION
+// ==================================================================
 
 
 export async function processRebalance(tx, env, ctx) {

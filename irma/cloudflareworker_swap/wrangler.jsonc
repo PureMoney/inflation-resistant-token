@@ -38,6 +38,6 @@
 	// Truflation proxy URL - set via deploy script from truflation-proxy/.vercel-url
 	// This gets populated when you run: ./deploy.sh
 	"vars": {
-		"TRUFLATION_PROXY_URL": "https://truflation-proxy.vercel.app"
+		"TRUFLATION_PROXY_URL": "https://truflation-proxy-one.vercel.app"
 	}
 }
