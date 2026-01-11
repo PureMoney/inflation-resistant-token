@@ -161,7 +161,7 @@ dist
 .pnp.\*
 
 # wrangler project
-
+wrangler.jsonc
 .dev.vars*
 !.dev.vars.example
 .env*
