@@ -1,8 +1,31 @@
+import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import DLMM, { StrategyType } from "@meteora-ag/dlmm";
-import { PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import { POOL_ADDRESS, RESERVE_SYMBOL } from "./config.js";
 import { getActiveBins, updateActiveBins, Logger, logRebalancingEvent } from "./d1_logs.js";
+import IDL from "../../target/idl/irma.json";
+
+// --- CUSTOM WALLET ---
+// Used as wallet adapter for AnchorProvider in Cloudflare Workers environment
+export class CustomWallet {
+  constructor(payer) {
+    this.payer = payer;
+  }
+  async signTransaction(tx) {
+    tx.partialSign(this.payer);
+    return tx;
+  }
+  async signAllTransactions(txs) {
+    return txs.map((t) => {
+      t.partialSign(this.payer);
+      return t;
+    });
+  }
+  get publicKey() {
+    return this.payer.publicKey;
+  }
+}
 
 /**
  * Get both mint and redemption prices from IRMA program
@@ -376,7 +399,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
     let oldMintBinId = null;
     let oldRedemptionBinId = null;
     if (!activeBins) {
-      await logger.log(`ℹ️ No active bins stored yet, initializing...`);
+      logger.log(`ℹ️ No active bins stored yet, initializing...`);
       await updateActiveBins(env.irma_logs, {
         mintBinId: newMintBinId,
         redemptionBinId: newRedemptionBinId,
@@ -531,7 +554,7 @@ export async function manualRebalanceBins(env) {
   try {
     await logger.log(`🔧 Manual rebalancing triggered...`);
     
-    const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
+    const { connection, adminKeypair, program, statePda, corePda } = await setupSolanaConnection(env);
     
     // Get current prices from IRMA program
     const prices = await getPrices(program, statePda, corePda, adminKeypair.publicKey, RESERVE_SYMBOL);
@@ -546,6 +569,9 @@ export async function manualRebalanceBins(env) {
     
     // Get stored bins
     const activeBins = await getActiveBins(env.irma_logs);
+
+    let oldMintBinId = null;
+    let oldRedemptionBinId = null;
     
     if (!activeBins) {
       // No bins stored, just initialize
@@ -555,13 +581,18 @@ export async function manualRebalanceBins(env) {
         mintPrice: prices.mintPrice,
         redemptionPrice: prices.redemptionPrice,
       });
-      await logger.log(`ℹ️ Active bins initialized (first time)`);
+      logger.log(`ℹ️ Active bins initialized (first time)`);
       await logger.flush();
-      return { success: true, message: 'Active bins initialized', rebalanced: false };
+      // assume rebalancing is needed on first run
+      oldMintBinId = newMintBinId - 1;
+      oldRedemptionBinId = newRedemptionBinId + 1;
+      // return { success: true, message: 'Active bins initialized', rebalanced: false };
     }
-    
-    const oldMintBinId = activeBins.mint_bin_id;
-    const oldRedemptionBinId = activeBins.redemption_bin_id;
+    else {
+
+      oldMintBinId = activeBins.mint_bin_id;
+      oldRedemptionBinId = activeBins.redemption_bin_id;
+    }
     
     // Get user positions
     const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
