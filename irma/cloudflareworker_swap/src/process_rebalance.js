@@ -10,7 +10,7 @@ import IDL from "../../target/idl/irma.json";
 
 
 // ==================================================================
-// REBALANCING FUNCTION
+// REBALANCING FUNCTION for Swaps
 // ==================================================================
 
 
