@@ -538,7 +538,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
       redemptionRebalanceResult,
     };
   } catch (err) {
-    await logger.error(`❌ Bin rebalancing check failed: ${err.message}`);
+    logger.error(`❌ Bin rebalancing check failed: ${err.message}`);
     console.error(`❌ Bin rebalancing check failed: ${err.message}`);
     await logger.flush();
     throw err;
@@ -552,13 +552,13 @@ export async function manualRebalanceBins(env) {
   const logger = new Logger(env.irma_logs);
   
   try {
-    await logger.log(`🔧 Manual rebalancing triggered...`);
+    logger.log(`🔧 Manual rebalancing triggered...`);
     
     const { connection, adminKeypair, program, statePda, corePda } = await setupSolanaConnection(env);
     
     // Get current prices from IRMA program
     const prices = await getPrices(program, statePda, corePda, adminKeypair.publicKey, RESERVE_SYMBOL);
-    await logger.log(`📊 Current prices - Mint: ${prices.mintPrice}, Redemption: ${prices.redemptionPrice}`);
+    logger.log(`📊 Current prices - Mint: ${prices.mintPrice}, Redemption: ${prices.redemptionPrice}`);
     
     // Force rebalance by temporarily clearing active bins
     const poolKey = new PublicKey(POOL_ADDRESS);

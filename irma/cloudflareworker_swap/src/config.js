@@ -15,3 +15,7 @@ export const POOL_ADDRESS = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; // M
 
 // Target inflation rate (below this, mint price = 1.0 / quote_token_price)
 export const TARGET_INFLATION_RATE = 2.0;
+
+// Production should remove all test logging and test scaffolding
+export const ENABLE_TEST_LOGGING = true;
+export const ENABLE_TEST_SCAFFOLDING = true;

@@ -6,7 +6,7 @@ import IDL from "../../target/idl/irma.json";
 import { processRebalance } from "./process_rebalance.js";
 import { Logger, logPriceUpdate, queryLogs, getActiveBins } from "./d1_logs.js";
 import { CustomWallet, getPrices, setupSolanaConnection, checkAndRebalanceBins, manualRebalanceBins } from "./dlmm.js";
-import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE } from "./config.js";
+import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE, ENABLE_TEST_SCAFFOLDING } from "./config.js";
 
 const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
 
@@ -227,11 +227,11 @@ async function handleScheduledMintPriceUpdate(env) {
     
     // After price update, check and rebalance bins if needed
     if (result.success) {
-      await logger.log("🔄 Checking bin synchronization after price update...");
+      logger.log("🔄 Checking bin synchronization after price update...");
       
       try {
         // Get current prices from the program to check both mint and redemption
-        const { connection, adminKeypair, program, statePda, corePda } = await setupSolanaConnection(env);
+        const { adminKeypair, program, statePda, corePda } = await setupSolanaConnection(env);
         const prices = await getPrices(program, statePda, corePda, adminKeypair.publicKey, RESERVE_SYMBOL);
         
         const rebalanceResult = await checkAndRebalanceBins(
@@ -241,16 +241,16 @@ async function handleScheduledMintPriceUpdate(env) {
           'auto'
         );
         
-        await logger.log(`✅ Bin rebalancing check complete: ${JSON.stringify(rebalanceResult)}`);
+        logger.log(`✅ Bin rebalancing check complete: ${JSON.stringify(rebalanceResult)}`);
       } catch (rebalanceError) {
-        await logger.error(`❌ Bin rebalancing after price update failed: ${rebalanceError.message}`);
+        logger.error(`❌ Bin rebalancing after price update failed: ${rebalanceError.message}`);
         console.error(`❌ Bin rebalancing after price update failed: ${rebalanceError.message}`);
       }
     }
     
     await logger.flush();
   } catch (error) {
-    await logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
+    logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
     console.error("❌ Scheduled mint price update failed:", error.message);
     
     await logPriceUpdate(env.irma_logs, {
@@ -276,6 +276,9 @@ async function handleRequest(request, env, ctx) {
   // GET /update-mint-price - Manually trigger mint price update
   // Also supports: GET /?action=update-mint-price
   if (request.method === 'GET') {
+    if (ENABLE_TEST_SCAFFOLDING !== true) {
+      return new Response("Not Found", { status: 404 });
+    }
     const action = url.searchParams.get('action') || url.pathname.slice(1);
     
     if (action === 'update-mint-price') {
