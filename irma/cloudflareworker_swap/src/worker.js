@@ -5,7 +5,12 @@ import { Buffer } from "buffer";
 import IDL from "../../target/idl/irma.json";
 import { processRebalance } from "./process_rebalance.js";
 import { Logger, logPriceUpdate, queryLogs, getActiveBins } from "./d1_logs.js";
-import { CustomWallet, getPrices, setupSolanaConnection, checkAndRebalanceBins, manualRebalanceBins } from "./dlmm.js";
+import { 
+  CustomWallet, 
+  getPrices, 
+  setupSolanaConnection, 
+  checkAndRebalanceBins, 
+  manualRebalanceBins } from "./dlmm.js";
 import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE, ENABLE_TEST_SCAFFOLDING } from "./config.js";
 
 const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
@@ -375,7 +380,7 @@ async function handleRequest(request, env, ctx) {
       }
     }
     
-    // View current active bins
+    // View current active bins as stored in D1
     if (action === 'view-bins') {
       try {
         const activeBins = await getActiveBins(env.DB);
