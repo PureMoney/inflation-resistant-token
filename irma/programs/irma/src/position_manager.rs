@@ -280,7 +280,7 @@ impl SinglePosition {
             let mid_price = PositionRaw::get_price_from_id(mid_bin_id, bin_step)?;
             // msg!("  mid_bin_id: {}, mid_price: {}", mid_bin_id, mid_price);
 
-            if mid_price < target_price && 
+            if mid_price <= target_price && 
                mid_price.checked_add(half_step_u128).unwrap() > target_price {
                 return Ok(mid_bin_id);
             } else if mid_price > target_price && 
