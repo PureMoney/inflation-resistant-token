@@ -5,6 +5,158 @@ import { BN } from "@coral-xyz/anchor";
 import { POOL_ADDRESS, RESERVE_SYMBOL } from "./config.js";
 import { getActiveBins, updateActiveBins, Logger, logRebalancingEvent } from "./d1_logs.js";
 import IDL from "../../target/idl/irma.json";
+import { min } from "bn.js";
+
+// --- HELPER FUNCTIONS ---
+
+/**
+ * Remove all liquidity from a specific bin in a position
+ * Returns the amounts withdrawn
+ */
+async function removeLiquidityFromBin(dlmmPool, connection, adminKeypair, position, binId, logger) {
+  await logger.log(`📤 Removing liquidity from bin ${binId} in position ${position.publicKey.toBase58()}...`);
+  
+  try {
+    // Get bin data to determine amounts
+    const binData = position.positionData.positionBinData.find(b => b.binId === binId);
+    if (!binData) {
+      await logger.log(`⚠️ No liquidity found in bin ${binId}`);
+      return { xAmount: new BN(0), yAmount: new BN(0), signature: null };
+    }
+    
+    // Calculate the BPS to remove (100% = 10000 BPS)
+    const binIdsToRemove = [binId];
+    const bpsToRemove = new BN(10000); // 100%
+    
+    const removeLiquidityTx = await dlmmPool.removeLiquidity({
+      position: position.publicKey,
+      user: adminKeypair.publicKey,
+      binIds: binIdsToRemove,
+      bps: bpsToRemove,
+      shouldClaimAndClose: false, // Don't close the position, just remove from this bin
+    });
+    
+    // Sign and send
+    for (const tx of Array.isArray(removeLiquidityTx) ? removeLiquidityTx : [removeLiquidityTx]) {
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.feePayer = adminKeypair.publicKey;
+      tx.sign(adminKeypair);
+      const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+      await logger.log(`✅ Removed liquidity from bin ${binId}: ${sig}`);
+      
+      // Parse withdrawn amounts from binData
+      const xAmount = new BN(binData.positionXAmount || 0);
+      const yAmount = new BN(binData.positionYAmount || 0);
+      
+      return { xAmount, yAmount, signature: sig };
+    }
+  } catch (err) {
+    logger.error(`❌ Failed to remove liquidity from bin ${binId}: ${err.message}`);
+    // throw err;
+  }
+  
+  return { xAmount: new BN(0), yAmount: new BN(0), signature: null };
+}
+
+/**
+ * Close an empty position
+ */
+async function closePosition(dlmmPool, connection, adminKeypair, position, logger) {
+  await logger.log(`🗑️ Closing position ${position.publicKey.toBase58()}...`);
+  
+  try {
+    // Close position - need to provide the position account info
+    const closePositionTx = await dlmmPool.closePosition({
+      position: position.publicKey,
+      user: adminKeypair.publicKey,
+    });
+    
+    for (const tx of Array.isArray(closePositionTx) ? closePositionTx : [closePositionTx]) {
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.feePayer = adminKeypair.publicKey;
+      tx.sign(adminKeypair);
+      const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+      await logger.log(`✅ Position closed: ${sig}`);
+      return sig;
+    }
+  } catch (err) {
+    await logger.error(`❌ Failed to close position: ${err.message}`);
+    throw err;
+  }
+  
+  return null;
+}
+
+/**
+ * Add liquidity to a bin (creates position if needed)
+ * Returns transaction signature
+ */
+async function addLiquidityToBin(dlmmPool, connection, adminKeypair, userPositions, binId, xAmount, yAmount, logger) {
+  await logger.log(`📥 Adding liquidity to bin ${binId} (X: ${xAmount.toString()}, Y: ${yAmount.toString()})...`);
+  
+  try {
+    // Find existing position that covers this bin
+    let targetPosition = userPositions.find(pos => 
+      pos.positionData.lowerBinId <= binId && pos.positionData.upperBinId >= binId
+    );
+    
+    if (!targetPosition) {
+      await logger.log(`📍 No existing position covers bin ${binId}, creating new position...`);
+      
+      const newPositionKeypair = Keypair.generate();
+      const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
+        positionPubKey: newPositionKeypair.publicKey,
+        user: adminKeypair.publicKey,
+        totalXAmount: xAmount,
+        totalYAmount: yAmount,
+        strategy: {
+          minBinId: binId,
+          maxBinId: binId,
+          strategyType: StrategyType.Spot,
+        },
+      });
+      
+      for (const tx of Array.isArray(createPositionTx) ? createPositionTx : [createPositionTx]) {
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        tx.feePayer = adminKeypair.publicKey;
+        tx.partialSign(adminKeypair, newPositionKeypair);
+        const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+        await logger.log(`✅ Created position and added liquidity to bin ${binId}: ${sig}`);
+        return { signature: sig, positionPubkey: newPositionKeypair.publicKey };
+      }
+    } else {
+      await logger.log(`📍 Using existing position: ${targetPosition.publicKey.toBase58()}`);
+      
+      const addLiquidityTx = await dlmmPool.addLiquidityByStrategy({
+        positionPubKey: targetPosition.publicKey,
+        user: adminKeypair.publicKey,
+        totalXAmount: xAmount,
+        totalYAmount: yAmount,
+        strategy: {
+          minBinId: binId,
+          maxBinId: binId,
+          strategyType: StrategyType.Spot,
+        },
+      });
+
+      for (const tx of Array.isArray(addLiquidityTx) ? addLiquidityTx : [addLiquidityTx]) {
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        tx.feePayer = adminKeypair.publicKey;
+        tx.sign(adminKeypair);
+        const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+        await logger.log(`✅ Added liquidity to bin ${binId}: ${sig}`);
+        return { signature: sig, positionPubkey: targetPosition.publicKey };
+      }
+    }
+  } catch (err) {
+    await logger.error(`❌ Failed to add liquidity to bin ${binId}: ${err.message}`);
+    throw err;
+  }
+  
+  return { signature: null, positionPubkey: null };
+}
+
+// --- START EXPORTS ---
 
 // --- CUSTOM WALLET ---
 // Used as wallet adapter for AnchorProvider in Cloudflare Workers environment
@@ -106,155 +258,9 @@ export async function setupSolanaConnection(env) {
 }
 
 /**
- * Remove all liquidity from a specific bin in a position
- * Returns the amounts withdrawn
- */
-async function removeLiquidityFromBin(dlmmPool, connection, adminKeypair, position, binId, logger) {
-  await logger.log(`📤 Removing liquidity from bin ${binId} in position ${position.publicKey.toBase58()}...`);
-  
-  try {
-    // Get bin data to determine amounts
-    const binData = position.positionData.positionBinData.find(b => b.binId === binId);
-    if (!binData) {
-      await logger.log(`⚠️ No liquidity found in bin ${binId}`);
-      return { xAmount: new BN(0), yAmount: new BN(0), signature: null };
-    }
-    
-    // Calculate the BPS to remove (100% = 10000 BPS)
-    const binIdsToRemove = [binId];
-    const bpsToRemove = new BN(10000); // 100%
-    
-    const removeLiquidityTx = await dlmmPool.removeLiquidity({
-      position: position.publicKey,
-      user: adminKeypair.publicKey,
-      binIds: binIdsToRemove,
-      bps: bpsToRemove,
-      shouldClaimAndClose: false, // Don't close the position, just remove from this bin
-    });
-    
-    // Sign and send
-    for (const tx of Array.isArray(removeLiquidityTx) ? removeLiquidityTx : [removeLiquidityTx]) {
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      tx.feePayer = adminKeypair.publicKey;
-      tx.sign(adminKeypair);
-      const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-      await logger.log(`✅ Removed liquidity from bin ${binId}: ${sig}`);
-      
-      // Parse withdrawn amounts from binData
-      const xAmount = new BN(binData.positionXAmount || 0);
-      const yAmount = new BN(binData.positionYAmount || 0);
-      
-      return { xAmount, yAmount, signature: sig };
-    }
-  } catch (err) {
-    await logger.error(`❌ Failed to remove liquidity from bin ${binId}: ${err.message}`);
-    throw err;
-  }
-  
-  return { xAmount: new BN(0), yAmount: new BN(0), signature: null };
-}
-
-/**
- * Close an empty position
- */
-async function closePosition(dlmmPool, connection, adminKeypair, position, logger) {
-  await logger.log(`🗑️ Closing position ${position.publicKey.toBase58()}...`);
-  
-  try {
-    const closePositionTx = await dlmmPool.closePosition({
-      position: position.publicKey,
-      owner: adminKeypair.publicKey,
-    });
-    
-    for (const tx of Array.isArray(closePositionTx) ? closePositionTx : [closePositionTx]) {
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      tx.feePayer = adminKeypair.publicKey;
-      tx.sign(adminKeypair);
-      const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-      await logger.log(`✅ Position closed: ${sig}`);
-      return sig;
-    }
-  } catch (err) {
-    await logger.error(`❌ Failed to close position: ${err.message}`);
-    throw err;
-  }
-  
-  return null;
-}
-
-/**
- * Add liquidity to a bin (creates position if needed)
- * Returns transaction signature
- */
-async function addLiquidityToBin(dlmmPool, connection, adminKeypair, userPositions, binId, xAmount, yAmount, logger) {
-  await logger.log(`📥 Adding liquidity to bin ${binId} (X: ${xAmount.toString()}, Y: ${yAmount.toString()})...`);
-  
-  try {
-    // Find existing position that covers this bin
-    let targetPosition = userPositions.find(pos => 
-      pos.positionData.lowerBinId <= binId && pos.positionData.upperBinId >= binId
-    );
-    
-    if (!targetPosition) {
-      await logger.log(`📍 No existing position covers bin ${binId}, creating new position...`);
-      
-      const newPositionKeypair = Keypair.generate();
-      const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
-        positionPubKey: newPositionKeypair.publicKey,
-        user: adminKeypair.publicKey,
-        totalXAmount: xAmount,
-        totalYAmount: yAmount,
-        strategy: {
-          minBinId: binId,
-          maxBinId: binId,
-          strategyType: StrategyType.Spot,
-        },
-      });
-      
-      for (const tx of Array.isArray(createPositionTx) ? createPositionTx : [createPositionTx]) {
-        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-        tx.feePayer = adminKeypair.publicKey;
-        tx.partialSign(adminKeypair, newPositionKeypair);
-        const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-        await logger.log(`✅ Created position and added liquidity to bin ${binId}: ${sig}`);
-        return { signature: sig, positionPubkey: newPositionKeypair.publicKey };
-      }
-    } else {
-      await logger.log(`📍 Using existing position: ${targetPosition.publicKey.toBase58()}`);
-      
-      const addLiquidityTx = await dlmmPool.addLiquidityByStrategy({
-        positionPubKey: targetPosition.publicKey,
-        user: adminKeypair.publicKey,
-        totalXAmount: xAmount,
-        totalYAmount: yAmount,
-        strategy: {
-          minBinId: binId,
-          maxBinId: binId,
-          strategyType: StrategyType.Spot,
-        },
-      });
-
-      for (const tx of Array.isArray(addLiquidityTx) ? addLiquidityTx : [addLiquidityTx]) {
-        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-        tx.feePayer = adminKeypair.publicKey;
-        tx.sign(adminKeypair);
-        const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-        await logger.log(`✅ Added liquidity to bin ${binId}: ${sig}`);
-        return { signature: sig, positionPubkey: targetPosition.publicKey };
-      }
-    }
-  } catch (err) {
-    await logger.error(`❌ Failed to add liquidity to bin ${binId}: ${err.message}`);
-    throw err;
-  }
-  
-  return { signature: null, positionPubkey: null };
-}
-
-/**
  * Rebalance mint bin - move all IRMA from old mint bin to new mint bin
  */
-export async function rebalanceMintBin(env, oldMintBinId, newMintBinId, dlmmPool, connection, adminKeypair, userPositions, logger) {
+export async function rebalanceMintBin(oldMintBinId, newMintBinId, dlmmPool, connection, adminKeypair, userPositions, logger) {
   await logger.log(`🔄 Rebalancing MINT bin: ${oldMintBinId} → ${newMintBinId}`);
   
   let totalIrmaRemoved = new BN(0);
@@ -264,14 +270,16 @@ export async function rebalanceMintBin(env, oldMintBinId, newMintBinId, dlmmPool
   
   // Find positions with liquidity in old mint bin
   for (const pos of userPositions) {
+    logger.log(`🔍 Checking position: ${pos.publicKey.toBase58()}...`);
     if (pos.positionData.lowerBinId <= oldMintBinId && pos.positionData.upperBinId >= oldMintBinId) {
-      const binData = pos.positionData.positionBinData.find(b => b.binId === oldMintBinId);
-      if (binData && (binData.positionXAmount > 0 || binData.positionYAmount > 0)) {
-        await logger.log(`📍 Found liquidity in position ${pos.publicKey.toBase58()} at bin ${oldMintBinId}`);
+    //   const binData = pos.positionData.positionBinData.find(b => b.binId === oldMintBinId);
+    //   if (binData && (binData.positionXAmount > 0 || binData.positionYAmount > 0)) {
+    //     logger.log(`📍 Found liquidity in position ${pos.publicKey.toBase58()} at bin ${oldMintBinId}`);
         
         const { xAmount, yAmount, signature } = await removeLiquidityFromBin(
           dlmmPool, connection, adminKeypair, pos, oldMintBinId, logger
         );
+        logger.log(`❗ Removed X amount: ${xAmount.toString()}, Y amount: ${yAmount.toString()}`);
         
         if (signature) removeSig = signature;
         totalIrmaRemoved = totalIrmaRemoved.add(xAmount);
@@ -283,14 +291,15 @@ export async function rebalanceMintBin(env, oldMintBinId, newMintBinId, dlmmPool
         if (remainingBins.length === 0) {
           closeSig = await closePosition(dlmmPool, connection, adminKeypair, pos, logger);
         }
-      }
+    //  }
     }
   }
+  await logger.flush();
   
   // Add IRMA to new mint bin
   if (totalIrmaRemoved.gt(new BN(0))) {
-    await logger.log(`📦 Total IRMA removed: ${totalIrmaRemoved.toString()}`);
-    
+    logger.log(`📦 Total IRMA removed: ${totalIrmaRemoved.toString()}`);
+
     // Refresh positions after removal
     const { userPositions: refreshedPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
     
@@ -300,8 +309,9 @@ export async function rebalanceMintBin(env, oldMintBinId, newMintBinId, dlmmPool
     );
     addSig = result.signature;
   } else {
-    await logger.log(`ℹ️ No IRMA liquidity found in old mint bin ${oldMintBinId}`);
+    logger.log(`ℹ️ No IRMA liquidity found in old mint bin ${oldMintBinId}`);
   }
+  await logger.flush();
   
   return {
     irmaAmountMoved: totalIrmaRemoved.toString(),
@@ -394,31 +404,32 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
     logger.log(`📊 New prices → Mint Bin: ${newMintBinId}, Redemption Bin: ${newRedemptionBinId}`);
     
     // Get stored active bins
-    const activeBins = await getActiveBins(env.DB);
+    // const activeBins = await getActiveBins(env.DB);
+    const activeBins = await getActivePositionBins(dlmmPool, adminKeypair, logger);
     
-    let oldMintBinId = null;
-    let oldRedemptionBinId = null;
-    if (!activeBins) {
-      logger.log(`ℹ️ No active bins stored yet, initializing...`);
-      await updateActiveBins(env.DB, {
-        mintBinId: newMintBinId,
-        redemptionBinId: newRedemptionBinId,
-        mintPrice: newMintPrice,
-        redemptionPrice: newRedemptionPrice,
-      });
-      await logger.flush();
-      // assume rebalancing is needed on first run
-      oldMintBinId = newMintBinId - 1;
-      oldRedemptionBinId = newRedemptionBinId + 1;
-      // return { success: true, message: 'Active bins initialized', rebalanced: true };
-    }
-    else {
+    let oldMintBinId = activeBins.mint_bin_id;
+    let oldRedemptionBinId = activeBins.redemption_bin_id;
+    // if (!activeBins) {
+    //   logger.log(`ℹ️ No active bins stored yet, initializing...`);
+    //   await updateActiveBins(env.DB, {
+    //     mintBinId: newMintBinId,
+    //     redemptionBinId: newRedemptionBinId,
+    //     mintPrice: newMintPrice,
+    //     redemptionPrice: newRedemptionPrice,
+    //   });
+    //   await logger.flush();
+    //   // assume rebalancing is needed on first run
+    //   oldMintBinId = newMintBinId - 1;
+    //   oldRedemptionBinId = newRedemptionBinId + 1;
+    //   // return { success: true, message: 'Active bins initialized', rebalanced: true };
+    // }
+    // else {
 
-      oldMintBinId = activeBins.mint_bin_id;
-      oldRedemptionBinId = activeBins.redemption_bin_id;
-    }
+    //   oldMintBinId = activeBins.mint_bin_id;
+    //   oldRedemptionBinId = activeBins.redemption_bin_id;
+    // }
 
-    logger.log(`📊 Stored bins → Mint Bin: ${oldMintBinId}, Redemption Bin: ${oldRedemptionBinId}`);
+    logger.log(`📊 DLMM bins → Mint Bin: ${oldMintBinId}, Redemption Bin: ${oldRedemptionBinId}`);
     
     const mintBinChanged = Math.abs(newMintBinId - oldMintBinId) >= 1;
     const redemptionBinChanged = Math.abs(newRedemptionBinId - oldRedemptionBinId) >= 1;
@@ -432,6 +443,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
     // Get user positions
     const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
     logger.log(`📍 Found ${userPositions.length} position(s) to check`);
+    await logger.flush();
     
     let mintRebalanceResult = null;
     let redemptionRebalanceResult = null;
@@ -441,7 +453,7 @@ export async function checkAndRebalanceBins(env, newMintPrice, newRedemptionPric
       logger.log(`🔄 Mint bin changed: ${oldMintBinId} → ${newMintBinId}`);
       try {
         mintRebalanceResult = await rebalanceMintBin(
-          env, oldMintBinId, newMintBinId, 
+          oldMintBinId, newMintBinId, 
           dlmmPool, connection, adminKeypair, userPositions, logger
         );
         
@@ -555,6 +567,7 @@ export async function manualRebalanceBins(env) {
     logger.log(`🔧 Manual rebalancing triggered...`);
     
     const { connection, adminKeypair, program, statePda, corePda } = await setupSolanaConnection(env);
+    logger.log(`🔑 Admin: ${adminKeypair.publicKey.toBase58()}`);
     
     // Get current prices from IRMA program
     const prices = await getPrices(program, statePda, corePda, adminKeypair.publicKey, RESERVE_SYMBOL);
@@ -568,31 +581,32 @@ export async function manualRebalanceBins(env) {
     const newRedemptionBinId = dlmmPool.getBinIdFromPrice(prices.redemptionPrice.toString(), false);
     
     // Get stored bins
-    const activeBins = await getActiveBins(env.DB);
+    // const activeBins = await getActiveBins(env.DB);
+    const activeBins = await getActivePositionBins(dlmmPool, adminKeypair, logger);
 
-    let oldMintBinId = null;
-    let oldRedemptionBinId = null;
+    let oldMintBinId = activeBins.mint_bin_id;
+    let oldRedemptionBinId = activeBins.redemption_bin_id;
     
-    if (!activeBins) {
-      // No bins stored, just initialize
-      await updateActiveBins(env.DB, {
-        mintBinId: newMintBinId,
-        redemptionBinId: newRedemptionBinId,
-        mintPrice: prices.mintPrice,
-        redemptionPrice: prices.redemptionPrice,
-      });
-      logger.log(`ℹ️ Active bins initialized (first time)`);
-      await logger.flush();
-      // assume rebalancing is needed on first run
-      oldMintBinId = newMintBinId - 1;
-      oldRedemptionBinId = newRedemptionBinId + 1;
-      // return { success: true, message: 'Active bins initialized', rebalanced: false };
-    }
-    else {
+    // if (!activeBins) {
+    //   // No bins stored, just initialize
+    //   await updateActiveBins(env.DB, {
+    //     mintBinId: newMintBinId,
+    //     redemptionBinId: newRedemptionBinId,
+    //     mintPrice: prices.mintPrice,
+    //     redemptionPrice: prices.redemptionPrice,
+    //   });
+    //   logger.log(`ℹ️ Active bins initialized (first time)`);
+    //   await logger.flush();
+    //   // assume rebalancing is needed on first run
+    //   oldMintBinId = newMintBinId - 1;
+    //   oldRedemptionBinId = newRedemptionBinId + 1;
+    //   // return { success: true, message: 'Active bins initialized', rebalanced: false };
+    // }
+    // else {
 
-      oldMintBinId = activeBins.mint_bin_id;
-      oldRedemptionBinId = activeBins.redemption_bin_id;
-    }
+    //   oldMintBinId = activeBins.mint_bin_id;
+    //   oldRedemptionBinId = activeBins.redemption_bin_id;
+    // }
     
     // Get user positions
     const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
@@ -603,7 +617,7 @@ export async function manualRebalanceBins(env) {
     if (oldMintBinId !== newMintBinId) {
       try {
         const mintResult = await rebalanceMintBin(
-          env, oldMintBinId, newMintBinId, 
+          oldMintBinId, newMintBinId, 
           dlmmPool, connection, adminKeypair, userPositions, logger
         );
         results.mintRebalanced = true;
@@ -622,10 +636,11 @@ export async function manualRebalanceBins(env) {
         });
       } catch (err) {
         results.mintError = err.message;
-        await logger.error(`❌ Manual mint bin rebalancing failed: ${err.message}`);
+        logger.error(`❌ Manual mint bin rebalancing failed: ${err.message}`);
         console.error(`❌ Manual mint bin rebalancing failed: ${err.message}`);
       }
     }
+    await logger.flush();
     
     if (oldRedemptionBinId !== newRedemptionBinId) {
       // Refresh positions
@@ -652,10 +667,11 @@ export async function manualRebalanceBins(env) {
         });
       } catch (err) {
         results.redemptionError = err.message;
-        await logger.error(`❌ Manual redemption bin rebalancing failed: ${err.message}`);
+        logger.error(`❌ Manual redemption bin rebalancing failed: ${err.message}`);
         console.error(`❌ Manual redemption bin rebalancing failed: ${err.message}`);
       }
     }
+    await logger.flush();
     
     // Update active bins
     await updateActiveBins(env.DB, {
@@ -675,9 +691,62 @@ export async function manualRebalanceBins(env) {
       previousBins: { mintBinId: oldMintBinId, redemptionBinId: oldRedemptionBinId },
     };
   } catch (err) {
-    await logger.error(`❌ Manual rebalancing failed: ${err.message}`);
+    logger.error(`❌ Manual rebalancing failed: ${err.message}`);
     console.error(`❌ Manual rebalancing failed: ${err.message}`);
     await logger.flush();
     throw err;
   }
+}
+
+/** Get current active position bins
+ * for this user and liquidity pool
+ */
+export async function getActivePositionBins(dlmmPool, adminKeypair, logger) {
+    // const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
+    // --- GET EXISTING POSITIONS ---
+    const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
+    logger.log(`📍 Found ${userPositions.length} position(s)`);
+
+    if (userPositions.length === 0) {
+        logger.log(`⚠️ No positions found for user ${adminKeypair.publicKey.toBase58()}`);
+        await logger.flush();
+        return {};
+    }
+    else if (userPositions.length === 1) {
+        const pos = userPositions[0];
+        const mint_bin_id = pos.positionData.lowerBinId;
+        logger.log(`ℹ️ Single position found, assume it is the mint position, mint_bin_id = ${mint_bin_id}`);
+        await logger.flush();
+        return {
+            // publicKey: pos.publicKey.toBase58(),
+            mint_bin_id,
+            redemption_bin_id: null
+        };
+    }
+    else if (userPositions.length === 2) {
+        const pos1 = userPositions[0];
+        const pos2 = userPositions[1];
+
+        let mint_bin_id = null;
+        let redemption_bin_id = null;
+
+        if (pos1.positionData.lowerBinId > pos2.positionData.lowerBinId) {
+            mint_bin_id = pos1.positionData.lowerBinId;
+            redemption_bin_id = pos2.positionData.lowerBinId;
+        } else {
+            mint_bin_id = pos2.positionData.lowerBinId;
+            redemption_bin_id = pos1.positionData.lowerBinId;
+        }
+        logger.log(`ℹ️ Two positions found, mint_bin_id = ${mint_bin_id}, redemption_bin_id = ${redemption_bin_id}`);
+        await logger.flush();
+        return {
+            mint_bin_id,
+            redemption_bin_id
+        };
+    }
+    else {
+        logger.log(`⚠️ More than 2 positions found, remove extra positions to avoid issues`);
+        await logger.flush();
+        return {};
+    }
 }
