@@ -413,6 +413,7 @@ pub mod irma {
     }
 
     /// Send swap instruction to Meteora DLMM
+    /// (This can be used by us only. In practice, traders will interact directly with Meteora or Jupiter.)
     pub fn swap<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, amount: u64, swap_for_reserve: bool
     ) -> Result<()> {
@@ -442,7 +443,7 @@ pub mod irma {
     }
 
     /// Check all LB pair positions and update from pricing.rs/
-    /// This is used to periodically sync all positions.
+    /// This is used to periodically sync all positions for a single reserve (single pool).
     pub fn check_shift_price_ranges<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, reserve_token: String
     ) -> Result<()> {
