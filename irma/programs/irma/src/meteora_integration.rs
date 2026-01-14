@@ -174,7 +174,7 @@ impl Core {
         for instruction in instructions.iter() {
             // All DLMM operations should be called without program signing
             // Required signers (user, position keypairs) should be provided by the client
-            msg!("Invoking DLMM instruction without program signing");
+            // msg!("Invoking DLMM instruction without program signing");
             invoke(&instruction, remaining_accounts)?;
         }
         Ok(())
@@ -205,7 +205,7 @@ impl Core {
         msg!("==> position_pks.len(): {}", position.position_pks.len());
 
         // Call the core position refresh logic without needing a full context
-        self.refresh_position_data(&state.reserves, remaining_accounts, token, position, is_sale)?;
+        self.refresh_position_data(&state.reserves, remaining_accounts, &token, position, is_sale)?;
         
         Ok(())
     }
@@ -218,7 +218,7 @@ impl Core {
         &self, // must be immutable
         reserves: &[StableState], // Changed to slice reference
         remaining_accounts: &'a [AccountInfo<'a>],
-        token: String, // symbol of the stablecoin
+        token: &String, // symbol of the stablecoin
         state: &mut SinglePosition, // for particular lb_pair with this token
         is_sale: bool,
     ) -> Result<()> {
@@ -231,7 +231,7 @@ impl Core {
         // sequence number in POSITION_MANAGERS.
         let mut pos_manager: &str = "";
         for (index, stablecoin) in reserves.iter().enumerate() {
-            if stablecoin.symbol == token {
+            if stablecoin.symbol == *token {
                 quote_token = Some(stablecoin.clone());
                 pos_manager = &POSITION_MANAGERS[index];
                 break;
@@ -441,6 +441,7 @@ impl Core {
                 data: vec![], // No data needed for ATA creation
             };
 
+            msg!("Creating ATA: {}", ata_address);
             // Execute the instruction
             Core::execute_meteora_instruction(payer, remaining_accounts, vec![create_ata_ix])?;
         }
@@ -531,15 +532,15 @@ impl Core {
             
         // Determine the correct sender/authority based on position ownership
         let position_owner = position_state.owner;
-        let is_pda_owned = {
-            let (irma_authority, _) = Pubkey::find_program_address(
-                &[b"irma_authority"],
-                &IRMA_ID,
-            );
-            position_owner == irma_authority
-        };
+        // let is_pda_owned = {
+        //     let (irma_authority, _) = Pubkey::find_program_address(
+        //         &[b"irma_authority"],
+        //         &IRMA_ID,
+        //     );
+        //     position_owner == irma_authority
+        // };
 
-        msg!("Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
+        // msg!("Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
 
         let main_accounts = dlmm::client::accounts::RemoveLiquidityByRange2 {
             position: old_position_key,
@@ -647,8 +648,10 @@ impl Core {
 
         instructions.push(close_position_ix);
 
-        let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
-        msg!("Close old_position_key {old_position_key} {result}");
+        msg!("    Executing withdraw and close instructions...");
+
+        let result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
+        msg!("Close old_position_key: {}, result: {:?}", old_position_key, result);
 
         Ok(())
     }
@@ -812,8 +815,10 @@ impl Core {
 
         let instructions = [swap_ix];
 
-        let _result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions.to_vec())?;
-        msg!("Swap {amount_in} {swap_for_y} {result:?}");
+        msg!("    Executing swap instruction...");
+
+        let result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions.to_vec())?;
+        msg!("Swap amount_in: {}, swap_for_y: {}, result: {:?}", amount_in, swap_for_y, result);
 
         Ok(())
     }
@@ -1049,7 +1054,7 @@ impl Core {
         msg!("    Adding liquidity instruction created: x {} y {}", amount_x, amount_y );
 
         let result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
-        msg!("deposit result: {}", result);
+        msg!("deposit result: {:?}", result);
 
         state.position_pks.push(position);
         let bin_id = state.max_bin_id;
@@ -1230,11 +1235,15 @@ impl Core {
         // modify core_position in place
 
         if needs_mint_shift {
-            self.shift_mint_position(payer, remaining_accounts, reserves, core_position, mint_price_bin_id, position)?;
+            self.shift_mint_position(payer, remaining_accounts, core_position, mint_price_bin_id, position)?;
+            // Only refresh position data - let caller handle rebalance time increment
+            self.refresh_position_data(reserves, remaining_accounts, &reserve_symbol, core_position, true)?;
         }
 
         if needs_redeem_shift {
-            self.shift_redeem_position(payer, remaining_accounts, reserves, core_position, redemption_price_bin_id, position)?;
+            self.shift_redeem_position(payer, remaining_accounts, core_position, redemption_price_bin_id, position)?;
+            // Only refresh position data - let caller handle rebalance time increment
+            self.refresh_position_data(reserves, remaining_accounts, &reserve_symbol, core_position, false)?;
         }
 
         Ok(())
@@ -1250,7 +1259,6 @@ impl Core {
         &self, // must be immutable
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
-        reserves: &Vec<StableState>,
         state: &mut SinglePosition, // modify but not replace (tied to lb_pair)
         new_price_bin_id: i32, // new mint price bin id
         position: Pubkey,
@@ -1296,20 +1304,7 @@ impl Core {
         };
 
         msg!("mint position created: {}", new_position_key.to_string());
-
-        msg!("refresh state {}", state.lb_pair);
-        // fetch positions again (Note: token y is the reserve stablecoin)
-
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
-
-        let stablecoin = reserves.iter().find(|r| r.mint_address == lb_pair_state.token_y_mint)
-            .ok_or(Error::from(CustomError::ReserveNotFound))?;
-        let symbol = stablecoin.symbol.to_string();
         
-        // Only refresh position data - let caller handle rebalance time increment
-        self.refresh_position_data(reserves, remaining_accounts, symbol, state, true)?;
-        
-        // Return the lb_pair so caller can increment rebalance time
         Ok(())
     }
 
@@ -1320,7 +1315,6 @@ impl Core {
         &self, // must be immutable
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
-        reserves: &Vec<StableState>,
         state: &mut SinglePosition,
         new_price_bin_id: i32, // new redemption price bin id
         position: Pubkey,
@@ -1367,19 +1361,6 @@ impl Core {
 
         msg!("redemption position created: {}", new_position_key.to_string());
 
-        msg!("refresh state {}", state.lb_pair);
-        // fetch positions again (Note: token y is the reserve stablecoin)
-
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
-
-        let stablecoin = reserves.iter().find(|r| r.mint_address == lb_pair_state.token_y_mint)
-            .ok_or(Error::from(CustomError::ReserveNotFound))?;
-        let symbol = stablecoin.symbol.to_string();
-
-        // Only refresh position data - let caller handle rebalance time increment
-        self.refresh_position_data(reserves, remaining_accounts, symbol, state, false)?;
-
-        // Return the lb_pair so caller can increment rebalance time
         Ok(())
     }
 
