@@ -182,15 +182,25 @@ impl SinglePosition {
             let bin_array_keys = position.get_bin_array_keys_coverage()?;
             let mut bin_arrays_for_position = vec![];
 
-            // msg!("    --> position lower_bin_id: {}, liquidity_shares len: {}",
-            //     position.lower_bin_id, position.liquidity_shares.len());
+            msg!("    --> position lower_bin_id: {}, liquidity_shares len: {}",
+                position.lower_bin_id, position.liquidity_shares.len());
+
+            msg!("    --> position upper_bin_id: {}, bin_array_keys len: {}",
+                position.upper_bin_id, bin_array_keys.len());
 
             for key in bin_array_keys {
                 let bin_array_state = bin_arrays.iter()
                     .find(|(array_key, _)| array_key == &key)
-                    .map(|(_, array)| array)
-                    .ok_or(error!(CustomError::CannotGetBinArray))?;
-                bin_arrays_for_position.push(*bin_array_state);
+                    .map(|(_, array)| array);
+                    // .ok_or(None); // error!(CustomError::CannotGetBinArray))?;
+                if !bin_array_state.is_some() {
+                    continue;
+                }
+                bin_arrays_for_position.push(*bin_array_state.unwrap());
+            }
+            if bin_arrays_for_position.len() == 0 {
+                msg!("    --> no bin arrays found for position, skipping...");
+                continue;
             }
 
             let bin_array_manager = BinArrayManager {
@@ -248,52 +258,93 @@ impl SinglePosition {
         })
     }
 
-    /// Binary search to find the bin id for a given price
-    /// 
-    ///   public static getBinIdFromPrice(
-    ///     price: string | number | Decimal,
-    ///     binStep: number,
-    ///     min: boolean
-    ///   ): number {
-    ///     const binStepNum = new Decimal(binStep).div(new Decimal(BASIS_POINT_MAX));
-    ///     const binId = new Decimal(price)
-    ///       .log()
-    ///       .dividedBy(new Decimal(1).add(binStepNum).log());
-    ///     return (min ? binId.floor() : binId.ceil()).toNumber();
-    ///   }
-    ///
+    /// Find bin ID for a given price using mathematical inverse instead of binary search
+    /// This is the inverse of get_price_from_id()
     pub fn search_bin_given_price(
         lb_pair_state: &LbPair,
         target_price: u128,
     ) -> Result<i32> {
-        // msg!("Searching for bin id for target price: {}", target_price);
-        let bin_step = lb_pair_state.bin_step;
-        let half_step = bin_step.checked_mul(50).unwrap() + 16;
-        let half_step_u128: u128 = <u16 as Into<u128>>::into(half_step);
         msg!("    search bin, target price: {}", target_price);
-
-        let mut lower_bin_id = lb_pair_state.parameters.min_bin_id;
-        let mut upper_bin_id = lb_pair_state.parameters.max_bin_id;
-
-        while lower_bin_id <= upper_bin_id {
-            let mid_bin_id = lower_bin_id + (upper_bin_id - lower_bin_id) / 2;
-            let mid_price = PositionRaw::get_price_from_id(mid_bin_id, bin_step)?;
-            // msg!("  mid_bin_id: {}, mid_price: {}", mid_bin_id, mid_price);
-
-            if mid_price <= target_price && 
-               mid_price.checked_add(half_step_u128).unwrap() > target_price {
-                return Ok(mid_bin_id);
-            } else if mid_price > target_price && 
-                      mid_price.checked_sub(half_step_u128).unwrap() < target_price {
-                return Ok(mid_bin_id);
-            } else if mid_price < target_price {
-                lower_bin_id = mid_bin_id + 1;
+        let bin_step = lb_pair_state.bin_step;
+        
+        // DLMM price formula: price = base_price * (1 + bin_step / 10000)^bin_id
+        // Where base_price is the price at bin_id = 0
+        // Inverse: bin_id = log(price / base_price) / log(1 + bin_step / 10000)
+        
+        const SCALE_OFFSET: u128 = 1 << 64; // 2^64 for precision
+        const BASE_FACTOR: u128 = 10000; // DLMM base factor
+        
+        // Get base price (price at bin_id = 0)
+        let base_price = PositionRaw::get_price_from_id(0, bin_step)?;
+        
+        // Handle edge case: if target_price equals base_price, bin_id = 0
+        if target_price == base_price {
+            return Ok(0);
+        }
+        
+        // Calculate bin_step_factor = 1 + bin_step / 10000
+        // We'll work with scaled integers to avoid floating point
+        // let bin_step_factor_scaled = BASE_FACTOR + (bin_step as u128);
+        
+        // Calculate price_ratio = target_price / base_price (scaled)
+        let price_ratio_scaled = target_price * (SCALE_OFFSET / base_price);
+        
+        // Use integer logarithm approximation
+        // For small bin_step values, we can use: bin_id ≈ (price_ratio - 1) / (bin_step / 10000)
+        if target_price > base_price {
+            // Positive bin_id case
+            let ratio_minus_one = price_ratio_scaled - SCALE_OFFSET;
+            let bin_step_scaled = (bin_step as u128) * SCALE_OFFSET / BASE_FACTOR;
+            let bin_id_approx = (ratio_minus_one / bin_step_scaled) as i32;
+            
+            // Refine the approximation by checking nearby bins
+            let start_bin = bin_id_approx.saturating_sub(2);
+            let end_bin = bin_id_approx.saturating_add(2);
+            
+            Self::find_closest_bin(lb_pair_state, target_price, start_bin, end_bin)
+        } else {
+            // Negative bin_id case (target_price < base_price)
+            let one_minus_ratio = SCALE_OFFSET - price_ratio_scaled;
+            let bin_step_scaled = (bin_step as u128) * SCALE_OFFSET / BASE_FACTOR;
+            let bin_id_approx = -((one_minus_ratio / bin_step_scaled) as i32);
+            
+            // Refine the approximation by checking nearby bins
+            let start_bin = bin_id_approx.saturating_sub(2);
+            let end_bin = bin_id_approx.saturating_add(2);
+            
+            Self::find_closest_bin(lb_pair_state, target_price, start_bin, end_bin)
+        }
+    }
+    
+    /// Helper function to find the closest bin within a small range
+    fn find_closest_bin(
+        lb_pair_state: &LbPair,
+        target_price: u128,
+        start_bin: i32,
+        end_bin: i32,
+    ) -> Result<i32> {
+        let bin_step = lb_pair_state.bin_step;
+        let min_bin = lb_pair_state.parameters.min_bin_id;
+        let max_bin = lb_pair_state.parameters.max_bin_id;
+        
+        let mut best_bin = start_bin.max(min_bin).min(max_bin);
+        let mut best_diff = u128::MAX;
+        
+        for bin_id in start_bin.max(min_bin)..=end_bin.min(max_bin) {
+            let bin_price = PositionRaw::get_price_from_id(bin_id, bin_step)?;
+            let diff = if bin_price > target_price {
+                bin_price - target_price
             } else {
-                upper_bin_id = mid_bin_id - 1;
+                target_price - bin_price
+            };
+            
+            if diff < best_diff {
+                best_diff = diff;
+                best_bin = bin_id;
             }
         }
-
-        Err(Error::from(CustomError::PriceNotFoundInLBPair))
+        
+        Ok(best_bin)
     }
 }
 

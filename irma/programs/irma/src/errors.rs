@@ -106,4 +106,6 @@ pub enum CustomError {
     SinglePositionNotFound,
     #[msg("Price conversion error.")]
     PriceConversionError,
+    #[msg("BinArray account not found in remaining accounts.")]
+    MissingBinArrayState,
 }

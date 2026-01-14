@@ -159,44 +159,23 @@ impl Core {
         payer: &mut Signer,
         remaining_accounts: &[AccountInfo],
         instructions: Vec<Instruction>,
-        sign: bool
     ) -> Result<()> {
         // Pre-validate that all required accounts are available
-        let mut missing_accounts = Vec::new();
+        // Use iterator instead of collecting into Vec to save memory
         for instruction in instructions.iter() {
             for account_meta in &instruction.accounts {
                 if remaining_accounts.iter().all(|acc| acc.key != &account_meta.pubkey) {
-                    missing_accounts.push(account_meta.pubkey);
+                    msg!("Missing required account: {}", account_meta.pubkey);
+                    return Err(error!(CustomError::MissingRequiredAccount));
                 }
             }
         }
         
-        if !missing_accounts.is_empty() {
-            msg!("Missing required accounts: {:?}", missing_accounts);
-            msg!("Available accounts: {:?}", remaining_accounts.iter().map(|acc| acc.key).collect::<Vec<_>>());
-            return Err(error!(CustomError::MissingRequiredAccount));
-        }
-        
         for instruction in instructions.iter() {
-            if sign {
-                // Use user PDA for signing (compatible with user-owned positions)
-                let key = payer.key();
-                let (_pda, bump) = Pubkey::find_program_address(
-                    &[b"irma", key.as_ref()],
-                    &IRMA_ID,
-                );
-                let seeds: &[&[u8]] = &[
-                    b"irma",
-                    key.as_ref(),
-                    &[bump],
-                ];
-                msg!("Invoking signed instruction with user authority");
-                invoke_signed(&instruction, remaining_accounts, &[seeds])?;
-            }
-            else {
-                msg!("Invoking instruction without signing");
-                invoke(&instruction, remaining_accounts)?;
-            }
+            // All DLMM operations should be called without program signing
+            // Required signers (user, position keypairs) should be provided by the client
+            msg!("Invoking DLMM instruction without program signing");
+            invoke(&instruction, remaining_accounts)?;
         }
         Ok(())
     }
@@ -463,7 +442,7 @@ impl Core {
             };
 
             // Execute the instruction
-            Core::execute_meteora_instruction(payer, remaining_accounts, vec![create_ata_ix], true)?;
+            Core::execute_meteora_instruction(payer, remaining_accounts, vec![create_ata_ix])?;
         }
 
         Ok(ata_address)
@@ -668,7 +647,7 @@ impl Core {
 
         instructions.push(close_position_ix);
 
-        let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions, false)?; // Use regular invoke, not signed
+        let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
         msg!("Close old_position_key {old_position_key} {result}");
 
         Ok(())
@@ -833,7 +812,7 @@ impl Core {
 
         let instructions = [swap_ix];
 
-        let _result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions.to_vec(), true)?;
+        let _result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions.to_vec())?;
         msg!("Swap {amount_in} {swap_for_y} {result:?}");
 
         Ok(())
@@ -857,7 +836,8 @@ impl Core {
         state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_x: u64, // must be zero if amount_y > 0 and vice versa
         amount_y: u64, // must be zero if amount_x > 0 and vice versa
-        new_price_bin_id: i32 // this is not the lb_pair active bin id; this is the bin we want to deposit to
+        new_price_bin_id: i32, // this is not the lb_pair active bin id; this is the bin we want to deposit to
+        position: Pubkey, // position account to initialize and deposit into
     ) -> Result<Pubkey> {
         msg!("==> Depositing liquidity into position for bin: {}", new_price_bin_id);
         // enforce exclusive OR condition
@@ -879,8 +859,6 @@ impl Core {
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
-        let mut instructions = vec![/* ComputeBudgetInstruction::set_compute_unit_limit(1_400_000) */];
-
         // Initialize bin array where the bin belongs, if not exists
         let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
@@ -889,14 +867,18 @@ impl Core {
         // it's possible that the new price bin is within the current bin array.
         let acct_info = remaining_accounts.iter()
             .find(|acc| acc.key == &bin_array);
-        if let Some(acct_info) = acct_info {
-            let _bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
-                Some(bin_array_state) => Some(bin_array_state),
-                None => None, // Err(error!(CustomError::InvalidBinArrayState))?,
-            };
-        }
-        msg!("    Bin array account found: {:?}", acct_info.is_some());
-        if acct_info.is_none() && !state.bin_array_pks.contains(&bin_array) {
+        // if let Some(acct_info) = acct_info {
+        //     let _bin_array_ref = match get_bytemuck_account_ref::<BinArray>(acct_info) {
+        //         Some(bin_array_state) => Some(bin_array_state),
+        //         None => None, // Err(error!(CustomError::InvalidBinArrayState))?,
+        //     };
+        // }
+        msg!("    Bin array account: {}", bin_array.to_string());
+        require!(
+            !acct_info.is_none(),
+            CustomError::MissingBinArrayState
+        );
+        if !state.bin_array_pks.contains(&bin_array) {
             msg!("    Bin array account not found, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
                 bin_array, // derived
@@ -915,7 +897,10 @@ impl Core {
             };
             msg!("    Initializing bin array {}.", bin_array);
 
-            instructions.push(instruction);
+            let _result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
+            msg!("    Bin array initialized");
+        } else {
+            msg!("    Bin array already exists, skipping initialization.");
         }
 
         // no matter what, we need to create a new DLMM position because price has changed.
@@ -925,40 +910,49 @@ impl Core {
 
         msg!("    BinArray updated, initializing new position...");
 
-        // Initialize new position - keep user as owner for compatibility
-        let (position, _bump) = derive_position_pda(
-            payer.key(),  // Use user as owner (for compatibility with existing positions)
-            lb_pair,
-            new_price_bin_id,
-            new_price_bin_id,
+        let acct_info = remaining_accounts.iter()
+            .find(|acc| acc.key == &position);
+        msg!("    Position account: {}", position.to_string());
+        require!(
+            !acct_info.is_none(),
+            CustomError::MissingPositionState
         );
 
-        let accounts = dlmm::client::accounts::InitializePosition {
-            lb_pair,
-            payer: payer.key(),
-            position,
-            owner: payer.key(), // User owns the position (for compatibility)
-            rent: rent::ID,
-            system_program: system_program::ID,
-            event_authority,
-            program: DLMM_ID,
+        if !state.position_pks.contains(&position) {
+
+            let accounts = dlmm::client::accounts::InitializePosition {
+                payer: payer.key(), // Base for the PDA derivation
+                position,
+                lb_pair,
+                owner: payer.key(), // User owns the position (for compatibility)
+                system_program: system_program::ID,
+                rent: rent::ID,
+                event_authority,
+                program: DLMM_ID,
+            }
+            .to_account_metas(None);
+
+            let data = dlmm::client::args::InitializePosition {
+                lower_bin_id: new_price_bin_id,
+                width: 1i32, // single bin position
+            }
+            .data();
+
+            let instruction = Instruction {
+                program_id: DLMM_ID,
+                accounts: accounts.to_vec(),
+                data,
+            };
+            msg!("    Initializing position: {}", position);
+
+            // DLMM program handles PDA creation and signing internally
+            // No program signing needed from IRMA side
+            let _result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
+            msg!("    Position initialized: {}", position);
         }
-        .to_account_metas(None);
-
-        let data = dlmm::client::args::InitializePosition {
-            lower_bin_id: new_price_bin_id,
-            width: 1i32, // single bin position
+        else {
+            msg!("    Position account exists, skipping initialization.");
         }
-        .data();
-
-        let instruction = Instruction {
-            program_id: DLMM_ID,
-            accounts: accounts.to_vec(),
-            data,
-        };
-        msg!("    Initializing position: {}", position);
-
-        instructions.push(instruction);
 
         // TODO implement bitmap extension fetching
         let bin_array_bitmap_extension = None;
@@ -966,8 +960,13 @@ impl Core {
         // let bin_array_bitmap_extension = get_account(&bin_array_bitmap_extension)
         //     .map(|_| bin_array_bitmap_extension)
         //     .unwrap_or(DLMM_ID);
+        let account_info = if let Some(acc) = remaining_accounts.iter().find(|acc| acc.key == &lb_pair) {
+            acc
+        } else {
+            return Err(error!(CustomError::MissingLbPairState));
+        };
 
-        let lb_pair_state = get_bytemuck_account::<LbPair>(remaining_accounts, &lb_pair)
+        let lb_pair_state = get_bytemuck_account_ref::<LbPair>(account_info)
             .ok_or(error!(CustomError::MissingLbPairState))?;
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -1038,7 +1037,9 @@ impl Core {
         }
         .data();
 
-        let accounts = [main_accounts.to_vec(), remaining_accounts_vec].concat();
+        // Optimize memory usage: avoid large vector concatenation
+        let mut accounts = main_accounts.to_vec();
+        accounts.extend_from_slice(&remaining_accounts_vec);
 
         let instruction = Instruction {
             program_id: DLMM_ID,
@@ -1047,10 +1048,8 @@ impl Core {
         };
         msg!("    Adding liquidity instruction created: x {} y {}", amount_x, amount_y );
 
-        instructions.push(instruction);
-
-        let _result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions, true)?;
-        msg!("deposit {amount_x} {amount_y} {_result}");
+        let result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
+        msg!("deposit result: {}", result);
 
         state.position_pks.push(position);
         let bin_id = state.max_bin_id;
@@ -1147,9 +1146,10 @@ impl Core {
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &mut Vec<StableState>,
         core_position: &mut SinglePosition,
+        position: Pubkey, // position account to shift if needed
     ) -> Result<()> {
         // ensure that this position is single-bin
-        require!(core_position.min_bin_id == core_position.max_bin_id, CustomError::PositionNotSingleBin);
+        // require!(core_position.min_bin_id == core_position.max_bin_id, CustomError::PositionNotSingleBin);
 
         msg!("==> Checking price range ...");
 
@@ -1230,11 +1230,11 @@ impl Core {
         // modify core_position in place
 
         if needs_mint_shift {
-            self.shift_mint_position(payer, remaining_accounts, reserves, core_position, mint_price_bin_id)?;
+            self.shift_mint_position(payer, remaining_accounts, reserves, core_position, mint_price_bin_id, position)?;
         }
 
         if needs_redeem_shift {
-            self.shift_redeem_position(payer, remaining_accounts, reserves, core_position, redemption_price_bin_id)?;
+            self.shift_redeem_position(payer, remaining_accounts, reserves, core_position, redemption_price_bin_id, position)?;
         }
 
         Ok(())
@@ -1253,15 +1253,9 @@ impl Core {
         reserves: &Vec<StableState>,
         state: &mut SinglePosition, // modify but not replace (tied to lb_pair)
         new_price_bin_id: i32, // new mint price bin id
+        position: Pubkey,
     ) -> Result<()> {
-        // validate that y amount is zero because this position must be for x:
-        // there should be no y deposit in any position
-        msg!("shift mint position {}", state.lb_pair);
-        let position_raw = state.get_positions_total(remaining_accounts)?;
-        let amount_y = position_raw.amount_y;
-        if amount_y != 0 {
-            return Err(Error::from(CustomError::AmountYNotZero));
-        }
+
         let positions = &state.position_pks;
         msg!("    fetched {} positions", positions.len());
         // determine whether this position is for minting or redeeming
@@ -1293,10 +1287,10 @@ impl Core {
         // this also creates a new position and returns its key
         msg!("mint deposit for {}", state.lb_pair);
         let new_position_key = match self
-            .deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, amount_y, new_price_bin_id)
+            .deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, position)
         {
             Err(_) => {
-                self.deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, amount_y, new_price_bin_id)?
+                self.deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, position)?
             }
             Ok(pos_key) => pos_key,
         };
@@ -1329,15 +1323,10 @@ impl Core {
         reserves: &Vec<StableState>,
         state: &mut SinglePosition,
         new_price_bin_id: i32, // new redemption price bin id
+        position: Pubkey,
     ) -> Result<()> {
         // let pair_config = get_pair_config(&self.config, state.lb_pair);
         msg!("shift redeem position {}", state.lb_pair);
-
-        // validate that x amount is zero
-        let position_raw = state.get_positions_total(remaining_accounts)?;
-        if position_raw.amount_x != 0 {
-            return Err(Error::from(CustomError::AmountXNotZero));
-        }
 
         let positions = &state.position_pks;
         msg!("    fetched {} positions", positions.len());
@@ -1368,10 +1357,10 @@ impl Core {
         // let (amount_x, amount_y) = self.get_deposit_amount(context, state, amount_x, amount_y)?;
         msg!("redemption deposit for {}", state.lb_pair);
         let new_position_key = match self
-            .deposit(payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id)
+            .deposit(payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, position)
         {
             Err(_) => {
-                self.deposit(payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id)?
+                self.deposit(payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, position)?
             }
             Ok(pos_key) => pos_key,
         };
