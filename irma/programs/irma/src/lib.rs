@@ -445,7 +445,7 @@ pub mod irma {
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions for a single reserve (single pool).
     pub fn check_shift_price_ranges<'info>(
-        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, reserve_token: String
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, reserve_token: String, position: Pubkey
     ) -> Result<()> {
         // Process this position - borrow everything we need in one go
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
@@ -459,23 +459,24 @@ pub mod irma {
         // Get the core reference and work with it consistently
         let core = &mut ctx.accounts.core;
         
-        // Find the position index for this lb_pair
+        // Find the core_position index for this lb_pair
         let pos_index = core.position_data.all_positions.iter()
             .position(|p| p.lb_pair == lb_pair_key)
             .ok_or(error!(CustomError::SinglePositionNotFound))?;
         
-        // Clone the position to avoid borrowing conflicts
-        let mut position = core.position_data.all_positions[pos_index].clone();
+        // Clone the core_position to avoid borrowing conflicts
+        let mut core_position = core.position_data.all_positions[pos_index].clone();
             
         core.check_shift_price_range(
             payer,
             remaining_accounts,
             reserves,
-            &mut position,
+            &mut core_position,
+            position,
         )?;
         
-        // Update the position back in core
-        core.position_data.all_positions[pos_index] = position;
+        // Update the core_position back in core
+        core.position_data.all_positions[pos_index] = core_position;
 
         msg!("check_shift_price_ranges called");
         Ok(())
