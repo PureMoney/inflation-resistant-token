@@ -383,7 +383,7 @@ mod core_test {
         core.refresh_position_data(
             &state_account.reserves,
             remaining_accounts,
-            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
+            &"devUSDC".to_string(), // &"BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
             &mut position,
             false
         ).unwrap();
@@ -438,7 +438,7 @@ mod core_test {
         core.refresh_position_data(
             &state_account.reserves,
             remaining_accounts,
-            "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
+            &"devUSDC".to_string(), // &"BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
             &mut position,
             true
         ).unwrap();
