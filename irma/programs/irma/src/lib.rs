@@ -444,8 +444,8 @@ pub mod irma {
 
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions for a single reserve (single pool).
-    pub fn check_shift_price_ranges<'info>(
-        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, reserve_token: String, position: Pubkey
+    pub fn check_shift_price_ranges<'a>(
+        ctx: Context<'_, '_, 'a, 'a, Maint<'a>>, reserve_token: String, position: Pubkey
     ) -> Result<()> {
         // Process this position - borrow everything we need in one go
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
@@ -466,13 +466,17 @@ pub mod irma {
         
         // Clone the core_position to avoid borrowing conflicts
         let mut core_position = core.position_data.all_positions[pos_index].clone();
+
+        // boxed position is a big kludge to satisfy lifetime requirements
+        // can't figure out how to pass position: &Pubkey directly
+        let boxed_position: &'static Pubkey = Box::leak(Box::new(position));
             
         core.check_shift_price_range(
             payer,
             remaining_accounts,
             reserves,
             &mut core_position,
-            position,
+            &boxed_position,
         )?;
         
         // Update the core_position back in core

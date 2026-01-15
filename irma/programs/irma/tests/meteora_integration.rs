@@ -381,9 +381,8 @@ mod core_test {
         let mut position = core.position_data.all_positions[0].clone();
 
         core.refresh_position_data(
-            &state_account.reserves,
+            &irma_admin_account.key(),
             remaining_accounts,
-            &"devUSDC".to_string(), // &"BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
             &mut position,
             false
         ).unwrap();
@@ -436,9 +435,8 @@ mod core_test {
         let mut position = core.position_data.all_positions[0].clone();
 
         core.refresh_position_data(
-            &state_account.reserves,
+            &irma_admin_account.key(),
             remaining_accounts,
-            &"devUSDC".to_string(), // &"BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k".to_string(), // devUSDC
             &mut position,
             true
         ).unwrap();
