@@ -235,7 +235,7 @@ impl Core {
 
         require!(position_keys_with_states.len() <= MAX_POSITIONS, CustomError::TooManyPositions);
 
-        let mut position_pks: Vec<&Pubkey> = vec![];
+        // let mut position_pks: Vec<&Pubkey> = vec![];
         // Note: We'll fetch PositionV2 positions and bin_arrays dynamically when needed
         // let mut positions = vec![];
         let mut min_bin_id = 0;
@@ -260,8 +260,9 @@ impl Core {
 
             msg!("    PositionV2 bin id range: {} - {}", min_bin_id, max_bin_id);
 
+            state.position_pks.clear();
             for (key, _state) in position_keys_with_states.iter() {
-                position_pks.push(key);
+                state.position_pks.push(**key);
                 // Don't store the position data - fetch dynamically when needed
                 // positions.push(state.to_owned());
             }
@@ -281,6 +282,8 @@ impl Core {
                 pos_v2.lower_bin_id, pos_v2.upper_bin_id);
 
             // from here on we should have to deal only with a single PositionV2
+            // TODO: find out whether we need to clear state.bin_array_pks first
+            // there are two possible positions, so some bin arrays may not belong to the selected position
             let _ = pos_v2.get_bin_array_keys_coverage(&mut state.bin_array_pks)?;
 
             // Note: We'll fetch bin arrays dynamically when needed, not store them
@@ -301,7 +304,7 @@ impl Core {
         // Don't store non-serializable types - they will be fetched dynamically
         // state.bin_arrays = bin_arrays_vec;
         // state.bin_array_pks = bin_array_keys; // keep just the keys and fetch dynamically
-        state.position_pks = position_pks.iter().map(|k| **k).collect();
+        // state.position_pks = position_pks.iter().map(|k| **k).collect();
         // state.positions = positions;
         state.min_bin_id = min_bin_id;
         state.max_bin_id = max_bin_id;
