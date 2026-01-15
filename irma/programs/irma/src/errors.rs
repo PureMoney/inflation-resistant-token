@@ -108,4 +108,6 @@ pub enum CustomError {
     PriceConversionError,
     #[msg("BinArray account not found in remaining accounts.")]
     MissingBinArrayState,
+    #[msg("Additional position required.")]
+    AdditionalPositionRequired,
 }

@@ -18,7 +18,6 @@ use crate::position_manager::*;
 use crate::pair_config::*;
 use crate::pricing;
 use crate::errors::CustomError;
-use crate::IRMA_ID;
 use crate::{Maint, StateMap, StableState};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -27,7 +26,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::prelude::instruction::Instruction;
 use anchor_lang::solana_program::{
     clock::Clock,
-    program::{invoke, invoke_signed},
+    program::invoke,
     sysvar::Sysvar,
     // system_instruction,
     // compute_budget::ComputeBudgetInstruction
@@ -47,15 +46,6 @@ pub enum AccountData<T> {
 const MAX_POSITIONS: usize = 2; // allow only 2 positions per pair
 const MINTING_POSITION_AMOUNT: u64 = 1_100_000_000; // 1.1 billion units for minting positions
 const REDEMPTION_POSITION_AMOUNT: u64 = 100_000_000; // 100 million units for redemption positions
-// We should have one position manager per reserve (it should be difficult to compromise all)
-const POSITION_MANAGERS: [&str; 6] = [
-    "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP",
-    "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95",
-    "PositionManager3",
-    "PositionManager4",
-    "PositionManager5",
-    "PositionManager6",
-];
 
 impl<T> AccountData<T> {
     pub fn into_inner(self) -> T {
@@ -156,7 +146,7 @@ impl Core {
 
 
     fn execute_meteora_instruction(
-        payer: &mut Signer,
+        _payer: &mut Signer,
         remaining_accounts: &[AccountInfo],
         instructions: Vec<Instruction>,
     ) -> Result<()> {
@@ -185,7 +175,7 @@ impl Core {
     pub fn refresh_position_data_with_accounts<'a>(
         &self, // must be immutable
         state: &mut Account<StateMap>,
-        positions: &mut Vec<SinglePosition>, // Changed to owned positions
+        pools: &mut Vec<SinglePosition>, // SinglePosition pertains to pool (LBPair)
         remaining_accounts: &'a [AccountInfo<'a>],
         token: String, // symbol of the stablecoin
         amount: u64,
@@ -198,14 +188,19 @@ impl Core {
             pricing::redeem_irma(state, &token, amount)?;
         }
 
-        if positions.len() != 1 {
+        if pools.len() != 1 {
             return Err(error!(CustomError::InconsistentPositionsFound));
         }
-        let position = &mut positions[0];
-        msg!("==> position_pks.len(): {}", position.position_pks.len());
+        let pair = &mut pools[0];
+        msg!("==> position_pks.len(): {}", pair.position_pks.len());
 
-        // Call the core position refresh logic without needing a full context
-        self.refresh_position_data(&state.reserves, remaining_accounts, &token, position, is_sale)?;
+        let lb_pair_state = fetch_lb_pair_state(
+            remaining_accounts, &pair.lb_pair
+        )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
+        let owner = &lb_pair_state.creator;
+
+        // Call the core pair refresh logic without needing a full context
+        self.refresh_position_data(owner, remaining_accounts, pair, is_sale)?;
         
         Ok(())
     }
@@ -216,46 +211,31 @@ impl Core {
     /// and the config Vec in Core to go through the pairs.
     pub fn refresh_position_data<'a>(
         &self, // must be immutable
-        reserves: &[StableState], // Changed to slice reference
+        owner: &Pubkey, // owner of the positions is also the creator of the pool
         remaining_accounts: &'a [AccountInfo<'a>],
-        token: &String, // symbol of the stablecoin
         state: &mut SinglePosition, // for particular lb_pair with this token
         is_sale: bool,
     ) -> Result<()> {
 
-        // search for lbpair matching the token
-        let mut quote_token: Option<StableState> = None;
         // all_positions contains SinglePosition entries, one for each reserve stablecoin.
         // One of these therefore represents the current mint or redemption SinglePosition.
         // The sequence number of the position in all_positions should be the same
-        // sequence number in POSITION_MANAGERS.
-        let mut pos_manager: &str = "";
-        for (index, stablecoin) in reserves.iter().enumerate() {
-            if stablecoin.symbol == *token {
-                quote_token = Some(stablecoin.clone());
-                pos_manager = &POSITION_MANAGERS[index];
-                break;
-            }
-        }
-        require!(quote_token.is_some(), CustomError::InvalidReserveList);
 
-        let pair_address = quote_token.unwrap().pool_id; // DLMM LbPair address
+        let pair_address = state.lb_pair; // DLMM LbPair address
 
-        require!(state.lb_pair == pair_address, CustomError::ReserveNotFound);
-
-        msg!("==> Refreshing state for pair: {}", pair_address.to_string());
+        msg!("==> Refreshing state for owner: {}", owner.to_string());
 
         // get all DLMM PositionV2's by the same user, for this trade pair.
         // there should only be two positions, at most - one for minting, one for redemption
         let mut position_keys_with_states = get_matching_positions(
             remaining_accounts,
-            &Pubkey::from_str(pos_manager).unwrap(), // must be owner of SinglePosition position_pks
+            owner, // must be owner of SinglePosition position_pks
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
 
         require!(position_keys_with_states.len() <= MAX_POSITIONS, CustomError::TooManyPositions);
 
-        let mut position_pks = vec![];
+        let mut position_pks: Vec<&Pubkey> = vec![];
         // Note: We'll fetch PositionV2 positions and bin_arrays dynamically when needed
         // let mut positions = vec![];
         let mut min_bin_id = 0;
@@ -263,7 +243,6 @@ impl Core {
         // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
         msg!("    Found {} PositionV2 positions", position_keys_with_states.len());
-        let mut bin_array_keys = vec![];
         if position_keys_with_states.len() > 0 {
             // sort position by bin id
             position_keys_with_states
@@ -279,17 +258,18 @@ impl Core {
                 .map(|(_key, state)| state.upper_bin_id)
                 .unwrap();
 
+            msg!("    PositionV2 bin id range: {} - {}", min_bin_id, max_bin_id);
+
             for (key, _state) in position_keys_with_states.iter() {
-                position_pks.push(*key);
+                position_pks.push(key);
                 // Don't store the position data - fetch dynamically when needed
                 // positions.push(state.to_owned());
             }
 
             let pos_v2 = match position_keys_with_states.len() {
-                0 => return Ok(()), // new SinglePosition, no PositionV2s yet
                 1 => match is_sale {
                     true => &mut position_keys_with_states[0].1, // mint position comes first
-                    false => return Ok(()), // only one position, and it's not the one we want
+                    false => return Err(error!(CustomError::AdditionalPositionRequired)), // only one position, and it's not the one we want
                 },
                 2 => match is_sale {
                     true => &mut position_keys_with_states[1].1,
@@ -297,9 +277,11 @@ impl Core {
                 },
                 _ => return Err(error!(CustomError::InconsistentPositionsFound)),
             };
+            msg!("    Selected PositionV2 with bin range: {} - {}", 
+                pos_v2.lower_bin_id, pos_v2.upper_bin_id);
 
             // from here on we should have to deal only with a single PositionV2
-            bin_array_keys = pos_v2.get_bin_array_keys_coverage()?;
+            let _ = pos_v2.get_bin_array_keys_coverage(&mut state.bin_array_pks)?;
 
             // Note: We'll fetch bin arrays dynamically when needed, not store them
             // let bin_arrays_raw: HashMap::<Pubkey, Option<BinArray>> 
@@ -313,13 +295,13 @@ impl Core {
             //     }
             // }
         }
-        msg!("   bin array keys count: {}", bin_array_keys.len());
+        msg!("   bin array keys count: {}", state.bin_array_pks.len());
 
         state.lb_pair = pair_address;
         // Don't store non-serializable types - they will be fetched dynamically
         // state.bin_arrays = bin_arrays_vec;
-        state.bin_array_pks = bin_array_keys; // keep just the keys and fetch dynamically
-        state.position_pks = position_pks;
+        // state.bin_array_pks = bin_array_keys; // keep just the keys and fetch dynamically
+        state.position_pks = position_pks.iter().map(|k| **k).collect();
         // state.positions = positions;
         state.min_bin_id = min_bin_id;
         state.max_bin_id = max_bin_id;
@@ -842,8 +824,8 @@ impl Core {
         amount_x: u64, // must be zero if amount_y > 0 and vice versa
         amount_y: u64, // must be zero if amount_x > 0 and vice versa
         new_price_bin_id: i32, // this is not the lb_pair active bin id; this is the bin we want to deposit to
-        position: Pubkey, // position account to initialize and deposit into
-    ) -> Result<Pubkey> {
+        position: &'a Pubkey, // position account to initialize and deposit into
+    ) -> Result<&'a Pubkey> {
         msg!("==> Depositing liquidity into position for bin: {}", new_price_bin_id);
         // enforce exclusive OR condition
         require!(
@@ -916,7 +898,7 @@ impl Core {
         msg!("    BinArray updated, initializing new position...");
 
         let acct_info = remaining_accounts.iter()
-            .find(|acc| acc.key == &position);
+            .find(|acc| acc.key == position);
         msg!("    Position account: {}", position.to_string());
         require!(
             !acct_info.is_none(),
@@ -927,7 +909,7 @@ impl Core {
 
             let accounts = dlmm::client::accounts::InitializePosition {
                 payer: payer.key(), // Base for the PDA derivation
-                position,
+                position: *position, // derived
                 lb_pair,
                 owner: payer.key(), // User owns the position (for compatibility)
                 system_program: system_program::ID,
@@ -1002,14 +984,14 @@ impl Core {
         }
 
         remaining_accounts_vec.extend(
-            [bin_array, position]
+            [bin_array, *position]
                 .into_iter()
                 .map(|k| AccountMeta::new(k, false)),
         );
 
         let main_accounts = dlmm::client::accounts::AddLiquidityByStrategy2 {
             lb_pair,
-            position, // pubkey for position
+            position: *position, // pubkey for position
             bin_array_bitmap_extension,
             sender: payer.key(),
             event_authority,
@@ -1056,7 +1038,7 @@ impl Core {
         let result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
         msg!("deposit result: {:?}", result);
 
-        state.position_pks.push(position);
+        state.position_pks.push(*position);
         let bin_id = state.max_bin_id;
         state.max_bin_id = new_price_bin_id;
         // if previously there was only one position, min_bin_id == max_bin_id,
@@ -1151,7 +1133,7 @@ impl Core {
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &mut Vec<StableState>,
         core_position: &mut SinglePosition,
-        position: Pubkey, // position account to shift if needed
+        position: &'a Pubkey, // position account to shift if needed
     ) -> Result<()> {
         // ensure that this position is single-bin
         // require!(core_position.min_bin_id == core_position.max_bin_id, CustomError::PositionNotSingleBin);
@@ -1161,19 +1143,10 @@ impl Core {
         let lb_pair = core_position.lb_pair;
 
         // Find the reserve coin for this LBPair
-        let (reserve_symbol, backing_decimals) = {
-            let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair);
-            require!(reserve_coin.is_some(), CustomError::ReserveListPositionListMismatch);
-            let reserve_coin = reserve_coin.unwrap();
-            let decimals = reserve_coin.backing_decimals;
-            if decimals == 0 {
-                return Err(error!(CustomError::ReserveCoinMissingDecimals));
-            }
-            (reserve_coin.symbol.clone(), decimals)
-        };
+        let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair).unwrap();
         
         let (mint_price, redemption_price) = pricing::get_prices(
-            reserves, &reserve_symbol)?;
+            reserves, &reserve_coin.symbol)?;
 
         // convert prices from f64 to u128 using token decimals
         // msg!("   --> backing decimals: {}", backing_decimals);
@@ -1181,8 +1154,9 @@ impl Core {
         //     reserve_symbol, mint_price, redemption_price);
         
         // Convert prices to token units (multiply by 10^decimals)
-        let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals as i32)) as u128;
-        let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals as i32)) as u128;
+        let backing_decimals = reserve_coin.backing_decimals as i32;
+        let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals)) as u128;
+        let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals)) as u128;
         let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
                                 .checked_div(1_000_000u128)
                                 .ok_or(Error::from(CustomError::PriceConversionError))?;
@@ -1195,6 +1169,7 @@ impl Core {
             remaining_accounts, 
             &lb_pair
         )?;
+        let creator = lb_pair_state.creator;
         let bin_step = lb_pair_state.bin_step;
         let min_bin_id = lb_pair_state.parameters.min_bin_id;
         let max_bin_id = lb_pair_state.parameters.max_bin_id;
@@ -1237,13 +1212,13 @@ impl Core {
         if needs_mint_shift {
             self.shift_mint_position(payer, remaining_accounts, core_position, mint_price_bin_id, position)?;
             // Only refresh position data - let caller handle rebalance time increment
-            self.refresh_position_data(reserves, remaining_accounts, &reserve_symbol, core_position, true)?;
+            self.refresh_position_data(&creator, remaining_accounts, core_position, true)?;
         }
 
         if needs_redeem_shift {
             self.shift_redeem_position(payer, remaining_accounts, core_position, redemption_price_bin_id, position)?;
             // Only refresh position data - let caller handle rebalance time increment
-            self.refresh_position_data(reserves, remaining_accounts, &reserve_symbol, core_position, false)?;
+            self.refresh_position_data(&creator, remaining_accounts, core_position, false)?;
         }
 
         Ok(())
@@ -1261,7 +1236,7 @@ impl Core {
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &mut SinglePosition, // modify but not replace (tied to lb_pair)
         new_price_bin_id: i32, // new mint price bin id
-        position: Pubkey,
+        position: &'a Pubkey,
     ) -> Result<()> {
 
         let positions = &state.position_pks;
@@ -1317,7 +1292,7 @@ impl Core {
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &mut SinglePosition,
         new_price_bin_id: i32, // new redemption price bin id
-        position: Pubkey,
+        position: &'a Pubkey,
     ) -> Result<()> {
         // let pair_config = get_pair_config(&self.config, state.lb_pair);
         msg!("shift redeem position {}", state.lb_pair);

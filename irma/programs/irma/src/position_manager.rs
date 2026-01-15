@@ -179,7 +179,8 @@ impl SinglePosition {
         let mut fee_y = 0u64;
 
         for position in positions.iter() {
-            let bin_array_keys = position.get_bin_array_keys_coverage()?;
+            let mut bin_array_keys: Vec<Pubkey> = Vec::new();
+            position.get_bin_array_keys_coverage(&mut bin_array_keys)?;
             let mut bin_arrays_for_position = vec![];
 
             msg!("    --> position lower_bin_id: {}, liquidity_shares len: {}",

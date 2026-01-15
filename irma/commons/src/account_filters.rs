@@ -1,8 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::dlmm::accounts::*;
-use crate::dlmm::ID;
 use crate::conversions::dlmm_bytemuck::get_bytemuck_account_ref;
-use crate::CustomError;
 
 /// Check if a position account matches the given wallet and pair
 /// For on-chain usage where we have direct access to account data
@@ -14,8 +12,7 @@ pub fn position_matches_wallet_and_pair(
     // Ensure account has enough data
     let required_size = std::mem::size_of::<PositionV2>() + 8;
     if position_account.data.borrow().len() < required_size {
-        msg!("Account {} has insufficient data: {} bytes, need {}", 
-             position_account.key(), position_account.data.borrow().len(), required_size);
+        // Removed memory-heavy logging
         return Ok(false);
     }
 
@@ -26,7 +23,7 @@ pub fn position_matches_wallet_and_pair(
     // Ensure we have exactly the right amount of data for PositionV2
     let position_size = std::mem::size_of::<PositionV2>();
     if position_data.len() < position_size {
-        msg!("Position data too small: {} bytes, need {}", position_data.len(), position_size);
+        // Removed memory-heavy logging
         return Ok(false);
     }
     
@@ -34,14 +31,13 @@ pub fn position_matches_wallet_and_pair(
     let position = match get_bytemuck_account_ref::<PositionV2>(position_account) {
         Some(pos) => pos,
         None => {
-            msg!("Failed to parse position data");
+            // Removed memory-heavy logging
             return Ok(false);
         }
     };
 
-    msg!("    Checking position: lb_pair {:?}, owner {:?}", position.lb_pair, position.owner);
-    msg!("    Against pair {:?}, wallet {:?}", pair, wallet);
-
+    // Removed memory-heavy debug logging
+    
     // Check if both lb_pair and owner match
     Ok(position.lb_pair == *pair && position.owner == *wallet)
 }
@@ -71,21 +67,46 @@ pub fn get_matching_positions<'a>(
     position_accounts: &'a [AccountInfo<'a>],
     wallet: &Pubkey,
     pair: &Pubkey,
-) -> anyhow::Result<Vec<(Pubkey, &'a PositionV2)>> {
-    let mut matching_positions = Vec::new();
+) -> anyhow::Result<Vec<(&'a Pubkey, &'a PositionV2)>> {
+    // Pre-allocate with estimated capacity to avoid reallocations
+    let mut matching_positions = Vec::with_capacity(2); // Most cases will have 0-2 positions
     
     for account in position_accounts.iter() {
         if account.data.borrow().is_empty() {
-            msg!("Invalid position {} found in input list", account.key());
+            // Remove memory-heavy logging
             continue;
         }
-        if is_position_account(account, &ID) {
-            if position_matches_wallet_and_pair(account, wallet, pair)? {
+        let discriminator = &account.data.borrow()[0..8];
+        // Check if discriminator matches Position account type
+        // Note: can't figure out how to reference the discriminator constant directly from the IDL,
+        // so using the raw bytes for now (very bad kludge)
+        // if discriminator != PositionV2::discriminator {
+        if discriminator == [117, 176, 212, 199, 245, 180, 133, 182] {
+            let data_slice = &account.data.borrow()[8..];
+            let position = unsafe {
+                // Ensure alignment and create reference
+                if data_slice.as_ptr() as usize % std::mem::align_of::<PositionV2>() == 0 {
+                    Some(&*(data_slice.as_ptr() as *const PositionV2))
+                } else {
+                    // If not properly aligned, we can't safely create a reference
+                    None
+                }
+            };
+            let position = match position {
+                Some(pos) => pos,
+                None => {
+                    continue;
+                }
+            };
+            if position.owner == *wallet && position.lb_pair == *pair {
                 // The position_matches_wallet_and_pair already validated the data,
                 // so we can safely read it here
-                let position = get_bytemuck_account_ref::<PositionV2>(account)
-                    .ok_or(error!(CustomError::MissingPositionState))?;
-                matching_positions.push((account.key(), position));
+                matching_positions.push((account.key, position));
+                
+                // Early exit if we've found the maximum expected positions
+                if matching_positions.len() >= 2 {
+                    break;
+                }
             }
         }
     }
@@ -108,7 +129,7 @@ pub fn is_position_account(account: &AccountInfo, program_id: &Pubkey) -> bool {
     
     // Discriminator check
     let discriminator = &account.data.borrow()[0..8];
-    msg!("    Discriminator: {:?}", discriminator);
+    // Remove memory-heavy discriminator logging
     // Check if discriminator matches Position account type
     // Note: can't figure out how to reference the discriminator constant directly from the IDL,
     // so using the raw bytes for now (very bad kludge)
