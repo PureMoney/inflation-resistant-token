@@ -221,9 +221,15 @@ impl Core {
         // One of these therefore represents the current mint or redemption SinglePosition.
         // The sequence number of the position in all_positions should be the same
 
+        // minting should always come first, so this is when we clear all existing keys
+        if is_sale {
+            state.position_pks.clear();
+            state.bin_array_pks.clear();
+        }
+
         let pair_address = state.lb_pair; // DLMM LbPair address
 
-        msg!("==> Refreshing state for owner: {}", owner.to_string());
+        // msg!("==> Refreshing state for owner: {}", owner.to_string());
 
         // get all DLMM PositionV2's by the same user, for this trade pair.
         // there should only be two positions, at most - one for minting, one for redemption
@@ -242,7 +248,7 @@ impl Core {
         let mut max_bin_id = 0;
         // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
-        msg!("    Found {} PositionV2 positions", position_keys_with_states.len());
+        // msg!("    Found {} PositionV2 positions", position_keys_with_states.len());
         if position_keys_with_states.len() > 0 {
             // sort position by bin id
             position_keys_with_states
@@ -258,14 +264,29 @@ impl Core {
                 .map(|(_key, state)| state.upper_bin_id)
                 .unwrap();
 
-            msg!("    PositionV2 bin id range: {} - {}", min_bin_id, max_bin_id);
+            // msg!("    PositionV2 bin id range: {} - {}", min_bin_id, max_bin_id);
 
-            state.position_pks.clear();
-            for (key, _state) in position_keys_with_states.iter() {
-                state.position_pks.push(**key);
-                // Don't store the position data - fetch dynamically when needed
-                // positions.push(state.to_owned());
+            if is_sale { // mint, we just cleared the position_pks
+                    state.position_pks.push(*position_keys_with_states[0].0);
             }
+            else { // redemptions
+                if state.position_pks.len() == 0 {
+                    return Err(error!(CustomError::MintPositionNotFound));
+                }
+                if state.position_pks.len() == 1 {
+                    state.position_pks.push(*position_keys_with_states[0].0);
+                }
+                else if state.position_pks.len() >= 2 {
+                    state.position_pks[1] = *position_keys_with_states[0].0;
+                }
+            }
+            // for (key, _state) in position_keys_with_states.iter() {
+            //     state.position_pks.push(**key);
+            //     // Don't store the position data - fetch dynamically when needed
+            //     // positions.push(state.to_owned());
+            // }
+
+            msg!("    Total position_pks count: {}", state.position_pks.len());
 
             let pos_v2 = match position_keys_with_states.len() {
                 1 => match is_sale {
@@ -273,8 +294,8 @@ impl Core {
                     false => return Err(error!(CustomError::AdditionalPositionRequired)), // only one position, and it's not the one we want
                 },
                 2 => match is_sale {
-                    true => &mut position_keys_with_states[1].1,
-                    false => &mut position_keys_with_states[0].1, // pick the first one if there are two
+                    true => &mut position_keys_with_states[0].1,
+                    false => &mut position_keys_with_states[1].1, // second one is redemption
                 },
                 _ => return Err(error!(CustomError::InconsistentPositionsFound)),
             };
@@ -282,30 +303,17 @@ impl Core {
                 pos_v2.lower_bin_id, pos_v2.upper_bin_id);
 
             // from here on we should have to deal only with a single PositionV2
-            // TODO: find out whether we need to clear state.bin_array_pks first
-            // there are two possible positions, so some bin arrays may not belong to the selected position
             let _ = pos_v2.get_bin_array_keys_coverage(&mut state.bin_array_pks)?;
 
-            // Note: We'll fetch bin arrays dynamically when needed, not store them
-            // let bin_arrays_raw: HashMap::<Pubkey, Option<BinArray>> 
-            //                 = Core::get_multiple_bytemuck_accounts(context, &bin_array_keys)?;
-
-            // msg!("    Found {} bin arrays", bin_arrays_raw.len());
-
-            // for (key, bin_array_option) in bin_arrays_raw.iter() {
-            //     if let Some(bin_array_state) = bin_array_option {
-            //         bin_arrays_vec.push((*key, *bin_array_state));
-            //     }
-            // }
         }
         msg!("   bin array keys count: {}", state.bin_array_pks.len());
 
         state.lb_pair = pair_address;
         // Don't store non-serializable types - they will be fetched dynamically
-        // state.bin_arrays = bin_arrays_vec;
-        // state.bin_array_pks = bin_array_keys; // keep just the keys and fetch dynamically
-        // state.position_pks = position_pks.iter().map(|k| **k).collect();
-        // state.positions = positions;
+        // state.bin_arrays = bin_arrays_vec; // fetch dynamically
+        // state.positions = positions; // fetch dynamically
+        // state.bin_array_pks = bin_array_keys; // already done, see above
+        // state.position_pks = position_pks.iter().map(|k| **k).collect(); // already done above
         state.min_bin_id = min_bin_id;
         state.max_bin_id = max_bin_id;
         state.last_update_timestamp = Self::get_epoch_sec()?.max(0) as u64;
@@ -633,10 +641,10 @@ impl Core {
 
         instructions.push(close_position_ix);
 
-        msg!("    Executing withdraw and close instructions...");
+        // msg!("    Executing withdraw and close instructions...");
 
-        let result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
-        msg!("Close old_position_key: {}, result: {:?}", old_position_key, result);
+        let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
+        // msg!("Close old_position_key: {}, result: {:?}", old_position_key, result);
 
         Ok(())
     }
@@ -852,7 +860,7 @@ impl Core {
         // Initialize bin array where the bin belongs, if not exists
         let (bin_array, _bump) = derive_bin_array_pda(lb_pair, bin_array_idx.into());
 
-        msg!("    Checking bin array at index: {}", bin_array_idx);
+        // msg!("    Checking bin array at index: {}", bin_array_idx);
 
         // it's possible that the new price bin is within the current bin array.
         let acct_info = remaining_accounts.iter()
@@ -863,13 +871,13 @@ impl Core {
         //         None => None, // Err(error!(CustomError::InvalidBinArrayState))?,
         //     };
         // }
-        msg!("    Bin array account: {}", bin_array.to_string());
+        // msg!("    Bin array account: {}", bin_array.to_string());
         require!(
             !acct_info.is_none(),
             CustomError::MissingBinArrayState
         );
         if !state.bin_array_pks.contains(&bin_array) {
-            msg!("    Bin array account not found, initializing...");
+            // msg!("    Bin array account not found, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
                 bin_array, // derived
                 funder: payer.key(),
@@ -885,24 +893,25 @@ impl Core {
                 accounts: accounts.to_vec(),
                 data,
             };
-            msg!("    Initializing bin array {}.", bin_array);
+            // msg!("    Initializing bin array {}.", bin_array);
 
             let _result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
-            msg!("    Bin array initialized");
-        } else {
-            msg!("    Bin array already exists, skipping initialization.");
+            // msg!("    Bin array initialized");
         }
+        // else {
+        //     msg!("    Bin array already exists, skipping initialization.");
+        // }
 
         // no matter what, we need to create a new DLMM position because price has changed.
 
-        msg!("    Adding bin array to position state.");
-        state.bin_array_pks.push(bin_array);
+        // don't push into bin_array_pks yet, do this during refresh
+        // state.bin_array_pks.push(bin_array);
 
-        msg!("    BinArray updated, initializing new position...");
+        // msg!("    BinArray updated, initializing new position...");
 
         let acct_info = remaining_accounts.iter()
             .find(|acc| acc.key == position);
-        msg!("    Position account: {}", position.to_string());
+        // msg!("    Position account: {}", position.to_string());
         require!(
             !acct_info.is_none(),
             CustomError::MissingPositionState
@@ -933,16 +942,16 @@ impl Core {
                 accounts: accounts.to_vec(),
                 data,
             };
-            msg!("    Initializing position: {}", position);
+            // msg!("    Initializing position: {}", position);
 
             // DLMM program handles PDA creation and signing internally
             // No program signing needed from IRMA side
             let _result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
-            msg!("    Position initialized: {}", position);
+            // msg!("    Position initialized: {}", position);
         }
-        else {
-            msg!("    Position account exists, skipping initialization.");
-        }
+        // else {
+        //     msg!("    Position account exists, skipping initialization.");
+        // }
 
         // TODO implement bitmap extension fetching
         let bin_array_bitmap_extension = None;
@@ -1038,8 +1047,8 @@ impl Core {
         };
         msg!("    Adding liquidity instruction created: x {} y {}", amount_x, amount_y );
 
-        let result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
-        msg!("deposit result: {:?}", result);
+        let _result = Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
+        // msg!("deposit result: {:?}", result);
 
         state.position_pks.push(*position);
         let bin_id = state.max_bin_id;
@@ -1130,13 +1139,15 @@ impl Core {
     /// Note that each position in IRMA is single-sided and single-bin.
     /// In other words, min_bin_id == max_bin_id for each position, and 
     /// there are two positions: one for each side of the stablecoin pair.
+    /// NOTE: this function is not longer called from lib.rs; instead,
+    /// it now exists in lib.rs to reduce max stack size needed.
     pub fn check_shift_price_range<'a>(
         &self, // immutable (can be a copy)
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         reserves: &mut Vec<StableState>,
         core_position: &mut SinglePosition,
-        position: &'a Pubkey, // position account to shift if needed
+        position: &'a Pubkey, // new position account for shifting if needed
     ) -> Result<()> {
         // ensure that this position is single-bin
         // require!(core_position.min_bin_id == core_position.max_bin_id, CustomError::PositionNotSingleBin);
@@ -1218,6 +1229,7 @@ impl Core {
             self.refresh_position_data(&creator, remaining_accounts, core_position, true)?;
         }
 
+        // TODO: redemption needs its own new position account
         if needs_redeem_shift {
             self.shift_redeem_position(payer, remaining_accounts, core_position, redemption_price_bin_id, position)?;
             // Only refresh position data - let caller handle rebalance time increment
@@ -1233,7 +1245,7 @@ impl Core {
     /// Note: this can involve shifting to the right or left, depending on the new_price_bin_id.
     /// Note: the "state" (SinglePosition) stays the same, but state.position_pks can change
     /// and must be updated accordingly.
-    fn shift_mint_position<'a>(
+    pub fn shift_mint_position<'a>(
         &self, // must be immutable
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
@@ -1243,12 +1255,12 @@ impl Core {
     ) -> Result<()> {
 
         let positions = &state.position_pks;
-        msg!("    fetched {} positions", positions.len());
+        msg!("    shift mint position_pks len = {}", positions.len());
         // determine whether this position is for minting or redeeming
         if positions.len() == 1 {
             // if there's only one position, assume that it's the minting position, withdraw
             let poskey = state.position_pks[0];
-            msg!("mint position {} withdraw", poskey.to_string());
+            // msg!("mint position {} withdraw", poskey.to_string());
             self.withdraw(payer, remaining_accounts, state, poskey)?;
         }
         else if positions.len() == 2 {
@@ -1271,8 +1283,8 @@ impl Core {
 
         // retry if error, amount_y should be zero
         // this also creates a new position and returns its key
-        msg!("mint deposit for {}", state.lb_pair);
-        let new_position_key = match self
+        // msg!("mint deposit for {}", state.lb_pair);
+        let _new_position_key = match self
             .deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, position)
         {
             Err(_) => {
@@ -1281,7 +1293,7 @@ impl Core {
             Ok(pos_key) => pos_key,
         };
 
-        msg!("mint position created: {}", new_position_key.to_string());
+        // msg!("mint position created: {}", new_position_key.to_string());
         
         Ok(())
     }
@@ -1289,35 +1301,39 @@ impl Core {
 
     /// Shift redeem position
     /// For IRMA, we deposit first, then withdraw from the old bin.
-    fn shift_redeem_position<'a>(
+    pub fn shift_redeem_position<'a>(
         &self, // must be immutable
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &mut SinglePosition,
         new_price_bin_id: i32, // new redemption price bin id
-        position: &'a Pubkey,
+        position: &'a Pubkey, // new redemption position account
     ) -> Result<()> {
         // let pair_config = get_pair_config(&self.config, state.lb_pair);
-        msg!("shift redeem position {}", state.lb_pair);
+        // msg!("shift redeem position {}", state.lb_pair);
 
         let positions = &state.position_pks;
-        msg!("    fetched {} positions", positions.len());
-        // determine whether this position is for minting or redeeming
+        msg!("    shift redeem position_pks len = {}", positions.len());
+        // determine which position is for minting or redeeming
         if positions.len() == 1 {
-            // if there's only one position, assume that it's the minting position, leave it alonw
-            let poskey = state.position_pks[0];
-            msg!("mint position {} withdraw", poskey.to_string());
+            // if there's only one position, assume that it's the minting position, leave it alone
+            let poskey = positions[0];
+            // msg!("mint position {}", poskey.to_string());
         }
         else if positions.len() == 2 {
             // if there are two positions, find the one with greater bin id
             let two_positions = fetch_positions(remaining_accounts, positions)?;
+            msg!("    withdraw from redeem position: ");
             // the minting position is the one with higher bin id
             if two_positions[0].lower_bin_id > two_positions[1].lower_bin_id {
                 self.withdraw(payer, remaining_accounts, state, state.position_pks[1])?;
+                msg!("    {}", state.position_pks[1]);
             } else if two_positions[0].lower_bin_id < two_positions[1].lower_bin_id {
                 self.withdraw(payer, remaining_accounts, state, state.position_pks[0])?;
+                msg!("    {}", state.position_pks[0]);
             } else {
-                // there should alwaays be at least a bin difference between the two positions
+                // there should always be at least a bin difference between the two positions
+                msg!("   lower bin ids are equal! {}", two_positions[0].lower_bin_id);
                 return Err(Error::from(CustomError::DuplicatePositions));
             }
         }
@@ -1327,7 +1343,7 @@ impl Core {
 
         // sanity check with real balances
         // let (amount_x, amount_y) = self.get_deposit_amount(context, state, amount_x, amount_y)?;
-        msg!("redemption deposit for {}", state.lb_pair);
+        // msg!("redemption deposit for {}", state.lb_pair);
         let new_position_key = match self
             .deposit(payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, position)
         {

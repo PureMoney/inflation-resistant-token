@@ -68,7 +68,7 @@ pub fn get_potential_token_2022_related_ix_data_and_accounts(
     if !slices.is_empty() {
         Ok(Some((slices, accounts)))
     } else {
-        msg!("    No Token 2022 related accounts found.");
+        // msg!("    No Token 2022 related accounts found.");
         Ok(None)
     }
 }
