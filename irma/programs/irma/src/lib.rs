@@ -30,8 +30,8 @@ declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 // use anchor_lang::context::Context;
 
 use commons::dlmm::accounts::*;
-use commons::fetch_lb_pair_state;
-use commons::BIN_ARRAY_BITMAP_SEED;
+use commons::{fetch_lb_pair_state, get_price_from_id};
+use commons::{BIN_ARRAY_BITMAP_SEED, SCALE_OFFSET};
 
 // Re-export types for IDL generation
 pub use position_manager::{AllPosition, SinglePosition, MintInfo, MintWithProgramId, TokenEntry};
@@ -445,7 +445,7 @@ pub mod irma {
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions for a single reserve (single pool).
     pub fn check_shift_price_ranges<'a>(
-        ctx: Context<'_, '_, 'a, 'a, Maint<'a>>, reserve_token: String, position: Pubkey
+        ctx: Context<'_, '_, 'a, 'a, Maint<'a>>, reserve_token: String, position1: Pubkey, position2: Pubkey
     ) -> Result<()> {
         // Process this position - borrow everything we need in one go
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
@@ -471,13 +471,89 @@ pub mod irma {
         // can't figure out how to pass position: &Pubkey directly
         let boxed_position: &'static Pubkey = Box::leak(Box::new(position));
             
-        core.check_shift_price_range(
-            payer,
-            remaining_accounts,
-            reserves,
-            &mut core_position,
-            &boxed_position,
-        )?;
+        // following code is supposed to be in meteora_integration.rs
+        // moved here to avoid stack memory allocation issues
+
+        {
+            // Find the reserve coin for this LBPair
+            let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair_key).unwrap();
+            
+            let (mint_price, redemption_price) = pricing::get_prices(
+                reserves, &reserve_token)?;
+
+            // convert prices from f64 to u128 using token decimals
+            // msg!("   --> backing decimals: {}", backing_decimals);
+            // msg!("    --> reserve coin: {}, mint_price: {}, redemption_price: {}", 
+            //     reserve_symbol, mint_price, redemption_price);
+            
+            // Convert prices to token units (multiply by 10^decimals)
+            let backing_decimals = reserve_coin.backing_decimals as i32;
+            let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals)) as u128;
+            let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals)) as u128;
+            let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
+                                    .checked_div(1_000_000u128)
+                                    .ok_or(Error::from(CustomError::PriceConversionError))?;
+            let redemption_price_u128 = (redemption_price_u128 << SCALE_OFFSET)
+                                    .checked_div(1_000_000u128)
+                                    .ok_or(Error::from(CustomError::PriceConversionError))?;
+            // msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
+
+            let lb_pair_state = fetch_lb_pair_state(
+                remaining_accounts, 
+                &lb_pair_key
+            )?;
+            let creator = lb_pair_state.creator;
+            let bin_step = lb_pair_state.bin_step;
+            let min_bin_id = lb_pair_state.parameters.min_bin_id;
+            let max_bin_id = lb_pair_state.parameters.max_bin_id;
+            // msg!("    --> lb pair bin step: {}, min bin id: {}, max bin id: {}", bin_step, min_bin_id, max_bin_id);
+            let mut mint_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128) {
+                Ok(bin_id) => bin_id,
+                Err(_) => {
+                    // if out of range, set to max or min bin id
+                    if mint_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                        min_bin_id
+                    } else {
+                        max_bin_id
+                    }
+                }
+            };
+            let redemption_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128) {
+                Ok(bin_id) => bin_id,
+                Err(_) => {
+                    // if out of range, set to max or min bin id
+                    if redemption_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                        min_bin_id
+                    } else {
+                        max_bin_id
+                    }
+                }
+            };
+            // msg!("    --> mint price bin id: {}, redemption price bin id: {}", mint_price_bin_id, redemption_price_bin_id);
+            // ensure that mint bin id is higher than redemption bin id
+            if mint_price_bin_id <= redemption_price_bin_id {
+                // adjust mint price bin id by one to ensure they are different
+                mint_price_bin_id = redemption_price_bin_id.saturating_add(1);
+            }
+            
+            // check whether out of price range - handle each shift separately to avoid borrowing conflicts
+            let needs_mint_shift = mint_price_bin_id != core_position.max_bin_id;
+            let needs_redeem_shift = redemption_price_bin_id != core_position.min_bin_id;
+            
+            // modify core_position in place
+
+            if needs_mint_shift {
+                core.shift_mint_position(payer, remaining_accounts, &mut core_position, mint_price_bin_id, boxed_position)?;
+                // Only refresh position data - let caller handle rebalance time increment
+                core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
+            }
+
+            if needs_redeem_shift {
+                core.shift_redeem_position(payer, remaining_accounts, &mut core_position, redemption_price_bin_id, boxed_position)?;
+                // Only refresh position data - let caller handle rebalance time increment
+                core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
+            }
+        }
         
         // Update the core_position back in core
         core.position_data.all_positions[pos_index] = core_position;

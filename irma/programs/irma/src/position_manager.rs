@@ -265,7 +265,7 @@ impl SinglePosition {
         lb_pair_state: &LbPair,
         target_price: u128,
     ) -> Result<i32> {
-        msg!("    search bin, target price: {}", target_price);
+        // msg!("    search bin, target price: {}", target_price);
         let bin_step = lb_pair_state.bin_step;
         
         // DLMM price formula: price = base_price * (1 + bin_step / 10000)^bin_id

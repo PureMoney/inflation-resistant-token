@@ -110,4 +110,8 @@ pub enum CustomError {
     MissingBinArrayState,
     #[msg("Additional position required.")]
     AdditionalPositionRequired,
+    #[msg("Mint position not found.")]
+    MintPositionNotFound,
+    #[msg("Redeem position not found.")]
+    RedeemPositionNotFound,
 }
