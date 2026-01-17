@@ -146,9 +146,12 @@ async function test_check_shift_price() {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    const positionKeypair = new Keypair();
-    console.log("🆕 Created new position account Keypair, pubkey: ", positionKeypair.publicKey.toBase58());
-    console.log("🆕 Using position account:", positionKeypair.secretKey.buffer);
+    const position1Keypair = new Keypair();
+    console.log("🆕 Created new position1 account Keypair, pubkey: ", position1Keypair.publicKey.toBase58());
+    console.log("🆕 Using position1 account:", position1Keypair.secretKey.buffer);
+    const position2Keypair = new Keypair();
+    console.log("🆕 Created new position2 account Keypair, pubkey: ", position2Keypair.publicKey.toBase58());
+    console.log("🆕 Using position2 account:", position2Keypair.secretKey.buffer);
 
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
@@ -168,7 +171,8 @@ async function test_check_shift_price() {
       "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
       "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
       // "8zPSZs9xoV7V1XewdvpZF7sDJxrY9qEYbzrcc7n1YpnS", // new position account for devUSDC
-      positionKeypair.publicKey.toBase58(), // new position account for devUSDT
+      position1Keypair.publicKey.toBase58(), // new position account for devUSDT
+      position2Keypair.publicKey.toBase58(), // new position account for devUSDT
       "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
       // "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP", // phantom1 wallet
       "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
@@ -178,8 +182,8 @@ async function test_check_shift_price() {
       "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
       "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // IRMA token account owned by the-fed
       // "DtYtYAbfPrWD3B81wKvwkynuVjoiEBBSj3ReYMuPSdcK", // does not exist
-      "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // IRMA token account owned by HfQQYJT
-      "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // devUSDC token account owned by HfQQYJT
+      // "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // IRMA token account owned by HfQQYJT
+      // "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // devUSDC token account owned by HfQQYJT
       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
@@ -190,7 +194,7 @@ async function test_check_shift_price() {
         // Call check_shift_price_ranges
         console.log("🔄 Calling check_shift_price_ranges() instruction...");
         const tx_sell = await program.methods
-        .checkShiftPriceRanges("devUSDT", positionKeypair.publicKey)
+        .checkShiftPriceRanges("devUSDT", position1Keypair.publicKey, position2Keypair.publicKey)
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -214,7 +218,7 @@ async function test_check_shift_price() {
             
             return {
                 pubkey: pubkey,
-                isSigner: index == 9 || index == 10,
+                isSigner: index == 9 || index == 10 || index == 11,
                 isWritable: isWritable,
             };
         }))
@@ -233,7 +237,7 @@ async function test_check_shift_price() {
         tx_sell.instructions.unshift(computeLimitIx, computePriceIx);
 
         // Send transaction
-        const signature = await connection.sendTransaction(tx_sell, [wallet.payer, positionKeypair]);
+        const signature = await connection.sendTransaction(tx_sell, [wallet.payer, position1Keypair, position2Keypair]);
         console.log("🚀 Transaction sent:", signature);
 
         // Wait for confirmation with custom timeout

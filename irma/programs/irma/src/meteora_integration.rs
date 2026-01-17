@@ -192,8 +192,9 @@ impl Core {
             return Err(error!(CustomError::InconsistentPositionsFound));
         }
         let pair = &mut pools[0];
-        msg!("==> refresh position_pks.len(): {}", pair.position_pks.len());
+        msg!("==> position_pks.len(): {}", pair.position_pks.len());
 
+        // NO refresh_position_data() because this is done already in check_shift_price_ranges()
         // let lb_pair_state = fetch_lb_pair_state(
         //     remaining_accounts, &pair.lb_pair
         // )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
@@ -216,7 +217,7 @@ impl Core {
         state: &mut SinglePosition, // for particular lb_pair with this token
         is_sale: bool,
     ) -> Result<()> {
-
+        msg!("==> Refreshing: {}", is_sale);
         // all_positions contains SinglePosition entries, one for each reserve stablecoin.
         // One of these therefore represents the current mint or redemption SinglePosition.
         // The sequence number of the position in all_positions should be the same
@@ -286,7 +287,7 @@ impl Core {
             //     // positions.push(state.to_owned());
             // }
 
-            msg!("    Total position_pks count: {}", state.position_pks.len());
+            // msg!("    Total position_pks count: {}", state.position_pks.len());
 
             let pos_v2 = match position_keys_with_states.len() {
                 1 => match is_sale {
@@ -299,14 +300,14 @@ impl Core {
                 },
                 _ => return Err(error!(CustomError::InconsistentPositionsFound)),
             };
-            msg!("    Selected PositionV2 with bin range: {} - {}", 
-                pos_v2.lower_bin_id, pos_v2.upper_bin_id);
+            // msg!("    Selected PositionV2 with bin range: {} - {}", 
+            //     pos_v2.lower_bin_id, pos_v2.upper_bin_id);
 
             // from here on we should have to deal only with a single PositionV2
             let _ = pos_v2.get_bin_array_keys_coverage(&mut state.bin_array_pks)?;
 
         }
-        msg!("   bin array keys count: {}", state.bin_array_pks.len());
+        // msg!("   bin array keys count: {}", state.bin_array_pks.len());
 
         state.lb_pair = pair_address;
         // Don't store non-serializable types - they will be fetched dynamically
@@ -1208,11 +1209,11 @@ impl Core {
         // msg!("shift redeem position {}", state.lb_pair);
 
         let positions = &state.position_pks;
-        msg!("    shift redeem position_pks len = {}", positions.len());
+        msg!("==> shift redeem position_pks len = {}", positions.len());
         // determine which position is for minting or redeeming
         if positions.len() == 1 {
             // if there's only one position, assume that it's the minting position, leave it alone
-            let poskey = positions[0];
+            let _poskey = positions[0];
             // msg!("mint position {}", poskey.to_string());
         }
         else if positions.len() == 2 {
@@ -1248,7 +1249,7 @@ impl Core {
             Ok(pos_key) => pos_key,
         };
 
-        msg!("redemption position created: {}", new_position_key.to_string());
+        // msg!("redemption position created: {}", new_position_key.to_string());
 
         Ok(())
     }
