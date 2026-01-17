@@ -838,7 +838,7 @@ impl Core {
         new_price_bin_id: i32, // this is not the lb_pair active bin id; this is the bin we want to deposit to
         position: &'a Pubkey, // position account to initialize and deposit into
     ) -> Result<&'a Pubkey> {
-        msg!("==> Depositing liquidity into position for bin: {}", new_price_bin_id);
+        msg!("==> Depositing liquidity, new bin: {}", new_price_bin_id);
         // enforce exclusive OR condition
         require!(
             (amount_x == 0) != (amount_y == 0),
@@ -1151,7 +1151,7 @@ impl Core {
     ) -> Result<()> {
 
         let positions = &state.position_pks;
-        msg!("    shift mint position_pks len = {}", positions.len());
+        msg!("==> Shift Mint len = {}", positions.len());
         // determine whether this position is for minting or redeeming
         if positions.len() == 1 {
             // if there's only one position, assume that it's the minting position, withdraw
@@ -1209,7 +1209,7 @@ impl Core {
         // msg!("shift redeem position {}", state.lb_pair);
 
         let positions = &state.position_pks;
-        msg!("==> shift redeem position_pks len = {}", positions.len());
+        msg!("==> Shift Redeem len = {}", positions.len());
         // determine which position is for minting or redeeming
         if positions.len() == 1 {
             // if there's only one position, assume that it's the minting position, leave it alone
