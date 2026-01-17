@@ -192,15 +192,15 @@ impl Core {
             return Err(error!(CustomError::InconsistentPositionsFound));
         }
         let pair = &mut pools[0];
-        msg!("==> position_pks.len(): {}", pair.position_pks.len());
+        msg!("==> refresh position_pks.len(): {}", pair.position_pks.len());
 
-        let lb_pair_state = fetch_lb_pair_state(
-            remaining_accounts, &pair.lb_pair
-        )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
-        let owner = &lb_pair_state.creator;
+        // let lb_pair_state = fetch_lb_pair_state(
+        //     remaining_accounts, &pair.lb_pair
+        // )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
+        // let owner = &lb_pair_state.creator;
 
-        // Call the core pair refresh logic without needing a full context
-        self.refresh_position_data(owner, remaining_accounts, pair, is_sale)?;
+        // // Call the core pair refresh logic without needing a full context
+        // self.refresh_position_data(owner, remaining_accounts, pair, is_sale)?;
         
         Ok(())
     }
@@ -1134,114 +1134,9 @@ impl Core {
         state.tokens.clone()
     }
 
-    /// For a reserve coin, check how far the two current prices are from those set by pricing.rs
-    /// If the difference is at least a bin away, we shift to another bin.
-    /// Note that each position in IRMA is single-sided and single-bin.
-    /// In other words, min_bin_id == max_bin_id for each position, and 
-    /// there are two positions: one for each side of the stablecoin pair.
-    /// NOTE: this function is not longer called from lib.rs; instead,
-    /// it now exists in lib.rs to reduce max stack size needed.
-    pub fn check_shift_price_range<'a>(
-        &self, // immutable (can be a copy)
-        payer: &mut Signer,
-        remaining_accounts: &'a [AccountInfo<'a>],
-        reserves: &mut Vec<StableState>,
-        core_position: &mut SinglePosition,
-        position: &'a Pubkey, // new position account for shifting if needed
-    ) -> Result<()> {
-        // ensure that this position is single-bin
-        // require!(core_position.min_bin_id == core_position.max_bin_id, CustomError::PositionNotSingleBin);
-
-        msg!("==> Checking price range ...");
-
-        let lb_pair = core_position.lb_pair;
-
-        // Find the reserve coin for this LBPair
-        let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair).unwrap();
-        
-        let (mint_price, redemption_price) = pricing::get_prices(
-            reserves, &reserve_coin.symbol)?;
-
-        // convert prices from f64 to u128 using token decimals
-        // msg!("   --> backing decimals: {}", backing_decimals);
-        // msg!("    --> reserve coin: {}, mint_price: {}, redemption_price: {}", 
-        //     reserve_symbol, mint_price, redemption_price);
-        
-        // Convert prices to token units (multiply by 10^decimals)
-        let backing_decimals = reserve_coin.backing_decimals as i32;
-        let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals)) as u128;
-        let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals)) as u128;
-        let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
-                                .checked_div(1_000_000u128)
-                                .ok_or(Error::from(CustomError::PriceConversionError))?;
-        let redemption_price_u128 = (redemption_price_u128 << SCALE_OFFSET)
-                                .checked_div(1_000_000u128)
-                                .ok_or(Error::from(CustomError::PriceConversionError))?;
-        msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
-
-        let lb_pair_state = fetch_lb_pair_state(
-            remaining_accounts, 
-            &lb_pair
-        )?;
-        let creator = lb_pair_state.creator;
-        let bin_step = lb_pair_state.bin_step;
-        let min_bin_id = lb_pair_state.parameters.min_bin_id;
-        let max_bin_id = lb_pair_state.parameters.max_bin_id;
-        msg!("    --> lb pair bin step: {}, min bin id: {}, max bin id: {}", bin_step, min_bin_id, max_bin_id);
-        let mut mint_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128) {
-            Ok(bin_id) => bin_id,
-            Err(_) => {
-                // if out of range, set to max or min bin id
-                if mint_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
-                    min_bin_id
-                } else {
-                    max_bin_id
-                }
-            }
-        };
-        let redemption_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128) {
-            Ok(bin_id) => bin_id,
-            Err(_) => {
-                // if out of range, set to max or min bin id
-                if redemption_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
-                    min_bin_id
-                } else {
-                    max_bin_id
-                }
-            }
-        };
-        msg!("    --> mint price bin id: {}, redemption price bin id: {}", mint_price_bin_id, redemption_price_bin_id);
-        // ensure that mint bin id is higher than redemption bin id
-        if mint_price_bin_id <= redemption_price_bin_id {
-            // adjust mint price bin id by one to ensure they are different
-            mint_price_bin_id = redemption_price_bin_id.saturating_add(1);
-        }
-        
-        // check whether out of price range - handle each shift separately to avoid borrowing conflicts
-        let needs_mint_shift = mint_price_bin_id != core_position.max_bin_id;
-        let needs_redeem_shift = redemption_price_bin_id != core_position.min_bin_id;
-        
-        // modify core_position in place
-
-        if needs_mint_shift {
-            self.shift_mint_position(payer, remaining_accounts, core_position, mint_price_bin_id, position)?;
-            // Only refresh position data - let caller handle rebalance time increment
-            self.refresh_position_data(&creator, remaining_accounts, core_position, true)?;
-        }
-
-        // TODO: redemption needs its own new position account
-        if needs_redeem_shift {
-            self.shift_redeem_position(payer, remaining_accounts, core_position, redemption_price_bin_id, position)?;
-            // Only refresh position data - let caller handle rebalance time increment
-            self.refresh_position_data(&creator, remaining_accounts, core_position, false)?;
-        }
-
-        Ok(())
-    }
-
 
     /// Shift mint position
-    /// For IRMA, we should deposit first, then withdraw from the old, single bin position.
+    /// For IRMA, we should deposit first, then withdraw from the old, single bin position (NO).
     /// Note: this can involve shifting to the right or left, depending on the new_price_bin_id.
     /// Note: the "state" (SinglePosition) stays the same, but state.position_pks can change
     /// and must be updated accordingly.
