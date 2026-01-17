@@ -1,5 +1,8 @@
 // In programs/irma/src/lib.rs
-#![allow(unexpected_cfgs)]
+#[cfg(feature = "custom-heap")]
+solana_allocator::custom_heap!();
+
+// #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
 use std::mem::size_of;
