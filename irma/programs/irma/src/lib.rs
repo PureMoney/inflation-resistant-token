@@ -469,11 +469,17 @@ pub mod irma {
 
         // boxed position is a big kludge to satisfy lifetime requirements
         // can't figure out how to pass position: &Pubkey directly
-        let boxed_position: &'static Pubkey = Box::leak(Box::new(position));
-            
+        let boxed_position1: &'static Pubkey = Box::leak(Box::new(position1));
+        let boxed_position2: &'static Pubkey = Box::leak(Box::new(position2));
+
         // following code is supposed to be in meteora_integration.rs
         // moved here to avoid stack memory allocation issues
 
+        // For a reserve coin, check how far the two current prices are from those set by pricing.rs
+        // If the difference is at least a bin away, we shift to another bin.
+        // Note that each position in IRMA is single-sided and single-bin.
+        // In other words, min_bin_id == max_bin_id for each position, and 
+        // there are two positions: one for each side of the stablecoin pair.
         {
             // Find the reserve coin for this LBPair
             let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair_key).unwrap();
@@ -543,13 +549,15 @@ pub mod irma {
             // modify core_position in place
 
             if needs_mint_shift {
-                core.shift_mint_position(payer, remaining_accounts, &mut core_position, mint_price_bin_id, boxed_position)?;
+                core.shift_mint_position(
+                    payer, remaining_accounts, &mut core_position, mint_price_bin_id, boxed_position1)?;
                 // Only refresh position data - let caller handle rebalance time increment
                 core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
             }
 
             if needs_redeem_shift {
-                core.shift_redeem_position(payer, remaining_accounts, &mut core_position, redemption_price_bin_id, boxed_position)?;
+                core.shift_redeem_position(
+                    payer, remaining_accounts, &mut core_position, redemption_price_bin_id, boxed_position2)?;
                 // Only refresh position data - let caller handle rebalance time increment
                 core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
             }
