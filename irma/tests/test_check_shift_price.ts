@@ -158,7 +158,8 @@ async function test_check_shift_price() {
       // "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair
       "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair
       // "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
-      "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // Example position
+      // "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // Example position <-- tremoved
+      "EXqomVB89w3oWumin5TRLkAV2D4yCJhheNZG5uVPDprK", // old position account owned by the fed <-- remove
       // "BgUcPgRa4TS9f4Kgjb7GzpELDrF67BUv2CHaPJxSn6xy", // new position (need to derive)
       // "EH42NiHFWBsR4p2CPqzskrsyCksqz6DW5bo79V4dwJVj", // BinArray 1 for usdc
       // "Eb1fKdV6wVVyoVQAdRC7bP6TxutGTDrSerwL1zYgtDpu", // BinArray 2 for usdc
@@ -167,15 +168,17 @@ async function test_check_shift_price() {
       "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // IRMA mint
       // "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k", // devUSDC mint
       "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // devUSDT mint
-      "63zASrAr6ByHWoBP9osdXRyWnbEhKP2DdKZ86TZc9aoe", // new bin array account
+      // "63zASrAr6ByHWoBP9osdXRyWnbEhKP2DdKZ86TZc9aoe", // new bin array account
       "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
       "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
+      "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
       // "8zPSZs9xoV7V1XewdvpZF7sDJxrY9qEYbzrcc7n1YpnS", // new position account for devUSDC
       position1Keypair.publicKey.toBase58(), // new position account for devUSDT
       position2Keypair.publicKey.toBase58(), // new position account for devUSDT
       "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
       // "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP", // phantom1 wallet
-      "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
+      "44FHi5sTvs591EXLgJeXtUpR4iQzuqziw8rPUsWBauey", // position 1 for devUSDT owned by the fed
+      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2 for devUSDT owned by the fed
       "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // IRMA account owned by the USDT pool
       "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj", // devUSDT account owned the USDT pool
       "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
@@ -184,7 +187,7 @@ async function test_check_shift_price() {
       // "DtYtYAbfPrWD3B81wKvwkynuVjoiEBBSj3ReYMuPSdcK", // does not exist
       // "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // IRMA token account owned by HfQQYJT
       // "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // devUSDC token account owned by HfQQYJT
-      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
+      // "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
       "11111111111111111111111111111111", // System program ID
@@ -209,7 +212,7 @@ async function test_check_shift_price() {
             const keyString = key;
             const isProgram = keyString.includes('LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo') ||
                              keyString.includes('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') ||
-                             keyString.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') ||
+                             // keyString.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') ||
                              keyString.includes('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr') ||
                              keyString === '11111111111111111111111111111111' ||
                              keyString === 'SysvarRent111111111111111111111111111111111';

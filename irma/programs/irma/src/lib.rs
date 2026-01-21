@@ -1,8 +1,8 @@
 // In programs/irma/src/lib.rs
+#![allow(unexpected_cfgs)]
+
 #[cfg(feature = "custom-heap")]
 solana_allocator::custom_heap!();
-
-// #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
 use std::mem::size_of;
@@ -348,9 +348,8 @@ pub mod irma {
         msg!("   position_pks.len(): {}", core.position_data.all_positions[0].position_pks.len());
         
         let state = &mut ctx.accounts.state;
-        let remaining_accounts = ctx.remaining_accounts;
 
-        core.refresh_position_data_with_accounts(state, &mut filtered_positions, &remaining_accounts, bought_token, bought_amount, true)?;
+        core.refresh_position_data_with_accounts(state, &mut filtered_positions, bought_token, bought_amount, true)?;
         
         // Update the positions back in core
         if !filtered_positions.is_empty() {
@@ -401,9 +400,8 @@ pub mod irma {
         }
         
         let state = &mut ctx.accounts.state;
-        let remaining_accounts = ctx.remaining_accounts;
 
-        core.refresh_position_data_with_accounts(state, &mut filtered_positions, &remaining_accounts, sold_token, irma_amount, false)?;
+        core.refresh_position_data_with_accounts(state, &mut filtered_positions, sold_token, irma_amount, false)?;
         
         // Update the positions back in core
         if !filtered_positions.is_empty() {
@@ -448,7 +446,7 @@ pub mod irma {
     /// Check all LB pair positions and update from pricing.rs/
     /// This is used to periodically sync all positions for a single reserve (single pool).
     pub fn check_shift_price_ranges<'a>(
-        ctx: Context<'_, '_, 'a, 'a, Maint<'a>>, reserve_token: String, position1: Pubkey, position2: Pubkey
+        ctx: Context<'_, '_, 'a, 'a, Maint<'a>>, reserve_token: String
     ) -> Result<()> {
         // Process this position - borrow everything we need in one go
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
@@ -469,11 +467,6 @@ pub mod irma {
         
         // Clone the core_position to avoid borrowing conflicts
         let mut core_position = core.position_data.all_positions[pos_index].clone();
-
-        // boxed position is a big kludge to satisfy lifetime requirements
-        // can't figure out how to pass position: &Pubkey directly
-        let boxed_position1: &'static Pubkey = Box::leak(Box::new(position1));
-        let boxed_position2: &'static Pubkey = Box::leak(Box::new(position2));
 
         // following code is supposed to be in meteora_integration.rs
         // moved here to avoid stack memory allocation issues
@@ -553,14 +546,14 @@ pub mod irma {
 
             if needs_mint_shift {
                 core.shift_mint_position(
-                    payer, remaining_accounts, &mut core_position, mint_price_bin_id, boxed_position1)?;
+                    payer, remaining_accounts, &mut core_position, mint_price_bin_id)?;
                 // Only refresh position data - let caller handle rebalance time increment
                 core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
             }
 
             if needs_redeem_shift {
                 core.shift_redeem_position(
-                    payer, remaining_accounts, &mut core_position, redemption_price_bin_id, boxed_position2)?;
+                    payer, remaining_accounts, &mut core_position, redemption_price_bin_id)?;
                 // Only refresh position data - let caller handle rebalance time increment
                 core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
             }
