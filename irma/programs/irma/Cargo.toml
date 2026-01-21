@@ -9,15 +9,14 @@ crate-type = ["cdylib", "lib"]
 name = "irma"
 
 [features]
-# default = ["custom"]
+anchor-debug = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 custom = []
 # no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
-anchor-debug = []
-# custom-panic = []
+custom-panic = []
 default = ["custom-heap"]
 custom-heap = ["dep:solana-allocator"]
 

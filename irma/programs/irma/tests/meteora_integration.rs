@@ -398,7 +398,7 @@ mod core_test {
         };
 
         // withdraw - now we can borrow core immutably
-        core.withdraw(&mut irma_admin_account, remaining_accounts, &mut state, Pubkey::default()).unwrap();
+        core.withdraw(&mut irma_admin_account, remaining_accounts, &mut state, &Pubkey::default()).unwrap();
     }
 
     #[test]
