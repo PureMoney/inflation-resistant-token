@@ -613,8 +613,6 @@ impl Core {
             reserve_y: lb_pair_state.reserve_y,
             token_x_mint: lb_pair_state.token_x_mint,
             token_y_mint: lb_pair_state.token_y_mint,
-            // bin_array_lower: bin_array_keys[0],
-            // bin_array_upper: if bin_array_keys.len() > 1 { bin_array_keys[1] } else { bin_array_keys[0] },
             sender: position_owner,
             token_x_program,
             token_y_program,
@@ -1102,6 +1100,181 @@ impl Core {
         Ok(())
     }
 
+    /// Rebalance position by depositing to a new bin.
+    pub fn rebalance<'a>(
+        &self,
+        payer: &mut Signer,
+        remaining_accounts_in: &'a [AccountInfo<'a>],
+        state: &mut SinglePosition,
+        target_bin_id: i32,
+        amount_x: u64,
+        amount_y: u64,
+        old_position_key: &Pubkey,
+    ) -> Result<()> {
+        msg!("==> Rebalancing position to bin id: {}", target_bin_id);
+        if state.position_pks.len() == 0 {
+            return Ok(());
+        }
+        msg!("==> Rebalance position: {}", old_position_key);
+
+        let (event_authority, _bump) = derive_event_authority_pda();
+
+        let lb_pair = state.lb_pair;
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, &state.lb_pair)?;
+
+        let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
+
+        let mut remaining_account_info = RemainingAccountsInfo { slices: vec![] };
+        let mut transfer_hook_remaining_accounts = vec![];
+
+        if let Some((slices, remaining_accounts)) =
+            get_potential_token_2022_related_ix_data_and_accounts(
+                &lb_pair_state,
+                remaining_accounts_in,
+                ActionType::Liquidity,
+            )?
+        {
+            remaining_account_info.slices = slices;
+            transfer_hook_remaining_accounts = remaining_accounts;
+        }
+
+        let vec_positions = fetch_positions(remaining_accounts_in, &[*old_position_key])?;
+        let position_state = vec_positions
+            .get(0)
+            .ok_or(error!(CustomError::PositionNotFound))?;
+
+        let bin_arrays_account_meta = position_state.get_bin_array_accounts_meta_coverage()?;
+
+        msg!("   User token programs: x: {}, y: {}", token_x_program, token_y_program);
+
+        let user_token_x = get_associated_token_address_with_program_id(
+            &payer.key(),
+            &lb_pair_state.token_x_mint,
+            &token_x_program,
+        );
+
+        let user_token_y = get_associated_token_address_with_program_id(
+            &payer.key(),
+            &lb_pair_state.token_y_mint,
+            &token_y_program,
+        );
+
+        // Check who owns this position to determine the correct authority
+        let position_state = vec_positions
+            .get(0)
+            .ok_or(error!(CustomError::PositionNotFound))?;
+            
+        // Determine the correct sender/authority based on position ownership
+        let position_owner = position_state.owner;
+        let is_pda_owned = {
+            let (irma_authority, _) = Pubkey::find_program_address(
+                &[b"irma_authority"],
+                &IRMA_ID,
+            );
+            position_owner == irma_authority
+        };
+
+        msg!("Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
+
+        let mut bin_array_keys: Vec<Pubkey> = Vec::new();
+        let _ = position_state.get_bin_array_keys_coverage(&mut bin_array_keys);
+
+        let bin_array_states = get_multiple_bytemuck_account_refs::<BinArray>(
+            remaining_accounts_in,
+            &bin_array_keys,
+        )?;
+
+        for (key, ba_state) in bin_array_states {
+            if ba_state.is_none() || ba_state.as_ref().unwrap().lb_pair != lb_pair {
+                bin_array_keys.retain(|k| k != &key);
+                state.bin_array_pks.retain(|k| k != &key);
+            }
+        }
+
+        let main_accounts = dlmm::client::accounts::RebalanceLiquidity {
+            position: *old_position_key,
+            lb_pair: state.lb_pair,
+            bin_array_bitmap_extension: None,
+            user_token_x,
+            user_token_y,
+            reserve_x: lb_pair_state.reserve_x,
+            reserve_y: lb_pair_state.reserve_y,
+            token_x_mint: lb_pair_state.token_x_mint,
+            token_y_mint: lb_pair_state.token_y_mint,
+            owner: position_owner,
+            rent_payer: payer.key(),
+            token_x_program,
+            token_y_program,
+            memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
+            system_program: system_program::ID,
+            event_authority,
+            program: DLMM_ID,
+        }
+        .to_account_metas(None);
+
+        let remaining_accounts = [
+            transfer_hook_remaining_accounts.clone(),
+            bin_arrays_account_meta.clone(),
+        ]
+        .concat();
+
+        let data = dlmm::client::args::RebalanceLiquidity {
+            params: {
+                RebalanceLiquidityParams {
+                    active_id: lb_pair_state.active_id,
+                    max_active_bin_slippage: 1000,
+                    should_claim_fee: true,
+                    should_claim_reward: true,
+                    min_withdraw_x_amount: 1u64,
+                    max_deposit_x_amount: u64::MAX,
+                    min_withdraw_y_amount: 1u64,
+                    max_deposit_y_amount: u64::MAX,
+                    padding: [0u8; 32],
+                    removes: vec![
+                        RemoveLiquidityParams {
+                            min_bin_id: Some(position_state.lower_bin_id),
+                            max_bin_id: Some(position_state.upper_bin_id),
+                            bps: 10_000, // remove all liquidity from each bin
+                            padding: [0u8; 16],
+                        }
+                    ],
+                    adds: vec![
+                        AddLiquidityParams {
+                            min_delta_id: 0, // TODO: understand all these parameters
+                            max_delta_id: 0,
+                            x0: 0u64,
+                            y0: 0u64,
+                            delta_x: if amount_x > 0 
+                                { amount_x.try_into().unwrap() } 
+                                else { 0u64 },
+                            delta_y: if amount_y > 0 
+                                { amount_y.try_into().unwrap() } 
+                                else { 0u64 },
+                            bit_flag: 0u8,
+                            favor_x_in_active_id: false,
+                            padding: [0u8; 16],
+                        }
+                    ],
+                }
+            },
+            remaining_accounts_info: remaining_account_info.clone(),
+        }.data();
+
+        let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
+
+        let rebalance_ix = Instruction {
+            program_id: DLMM_ID,
+            accounts,
+            data,
+        };
+        msg!("    Adding liquidity instruction created: x {} y {}", amount_x, amount_y );
+
+        let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, vec![rebalance_ix])?;
+
+        Ok(())
+    }
+
+
     /// get_deposit_amount:
     /// Get the maximum depositable amount based on user's current token balance.
     /// Do we need this routine? Maybe not.
@@ -1207,7 +1380,8 @@ impl Core {
                 if !positions.contains(pos_key) {
                     msg!("    Removing stale position_pk: {}", pos_key);
                     self.withdraw(payer, remaining_accounts, state, *pos_key)?;
-                    self.close_position(payer, remaining_accounts, state, *pos_key)?;
+                    // cannot close position because position address was not derived (lost secret)
+                    // self.close_position(payer, remaining_accounts, state, *pos_key)?;
                 }
             }
         }
