@@ -35,8 +35,8 @@ use anchor_lang::solana_program::{
 use anchor_lang::InstructionData;
 use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use anchor_spl::token_interface::{Mint, TokenAccount};
-use anchor_spl::token_2022::spl_token_2022;
-use anchor_spl::token::spl_token;
+// use anchor_spl::token_2022::spl_token_2022;
+// use anchor_spl::token::spl_token;
 const DLMM_ID: Pubkey = commons::dlmm::ID;
 
 // Enum to represent either type of deserializable account
@@ -630,11 +630,18 @@ impl Core {
         ]
         .concat();
 
+        let mut allbins = vec![];
+        for bin_id in position_state.lower_bin_id..position_state.upper_bin_id + 1 {
+            allbins.push(BinLiquidityReduction {
+                bin_id,
+                bps_to_remove: 10_000, // remove all liquidity from each bin
+            });
+        }
+
+        msg!("   Remove all instruction data len: {}", allbins.len());
+
         let data = dlmm::client::args::RemoveLiquidity2 {
-            bin_liquidity_removal: vec![BinLiquidityReduction {
-                bin_id: position_state.lower_bin_id,
-                bps_to_remove: 10_000, // remove all liquidity
-            }],
+            bin_liquidity_removal: allbins,
             remaining_accounts_info: remaining_account_info.clone(),
         }.data();
 
