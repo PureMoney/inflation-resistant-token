@@ -69,7 +69,7 @@ pub fn get_matching_positions<'a>(
     pair: &Pubkey,
 ) -> anyhow::Result<Vec<(&'a Pubkey, &'a PositionV2)>> {
     // Pre-allocate with estimated capacity to avoid reallocations
-    let mut matching_positions = Vec::with_capacity(2); // Most cases will have 0-2 positions
+    let mut matching_positions = Vec::with_capacity(3); // Most cases will have 0-2 positions
     
     for account in position_accounts.iter() {
         if account.data.borrow().is_empty() {
@@ -77,11 +77,13 @@ pub fn get_matching_positions<'a>(
             continue;
         }
         let discriminator = &account.data.borrow()[0..8];
+        // msg!("Discriminator {:?}", discriminator);
         // Check if discriminator matches Position account type
         // Note: can't figure out how to reference the discriminator constant directly from the IDL,
         // so using the raw bytes for now (very bad kludge)
         // if discriminator != PositionV2::discriminator {
         if discriminator == [117, 176, 212, 199, 245, 180, 133, 182] {
+            msg!("Account {} is a Position account", account.key);
             let data_slice = &account.data.borrow()[8..];
             let position = unsafe {
                 // Ensure alignment and create reference
@@ -89,12 +91,14 @@ pub fn get_matching_positions<'a>(
                     Some(&*(data_slice.as_ptr() as *const PositionV2))
                 } else {
                     // If not properly aligned, we can't safely create a reference
+                    msg!("-");
                     None
                 }
             };
             let position = match position {
                 Some(pos) => pos,
                 None => {
+                    msg!("-");
                     continue;
                 }
             };
@@ -104,9 +108,23 @@ pub fn get_matching_positions<'a>(
                 matching_positions.push((account.key, position));
                 
                 // Early exit if we've found the maximum expected positions
-                if matching_positions.len() >= 2 {
+                if matching_positions.len() >= 3 {
                     break;
                 }
+            } else if position.owner != *wallet {
+                msg!(
+                    "Position account {} owner mismatch: expected {}, found {}",
+                    account.key,
+                    wallet,
+                    position.owner
+                );
+            } else if position.lb_pair != *pair {
+                msg!(
+                    "Position account {} pair mismatch: expected {}, found {}",
+                    account.key,
+                    pair,
+                    position.lb_pair
+                );
             }
         }
     }

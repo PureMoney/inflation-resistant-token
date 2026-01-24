@@ -256,7 +256,7 @@ pub fn create_mock_lb_pair(
         _padding_3: [0u8; 8],
         _padding_4: 0u64,
         creator: Pubkey::default(),
-        token_mint_x_program_flag: 0u8,
+        token_mint_x_program_flag: 0u8, // 0 is NOT token 2022
         token_mint_y_program_flag: 0u8,
         _reserved: [0u8; 22],
     }

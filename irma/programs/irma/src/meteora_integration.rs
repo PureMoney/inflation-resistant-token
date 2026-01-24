@@ -10,6 +10,7 @@ use commons::{
     get_bytemuck_account_ref,
     get_matching_positions,
     derive_event_authority_pda,
+    get_multiple_bytemuck_account_refs,
     // price_math::get_price_from_id,
 };
 // use commons::u64x64_math::pow;
@@ -18,7 +19,7 @@ use crate::position_manager::*;
 use crate::pair_config::*;
 use crate::pricing;
 use crate::errors::CustomError;
-use crate::{Maint, StateMap};
+use crate::{Maint, StateMap, IRMA_ID};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -34,6 +35,8 @@ use anchor_lang::solana_program::{
 use anchor_lang::InstructionData;
 use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use anchor_spl::token_interface::{Mint, TokenAccount};
+use anchor_spl::token_2022::spl_token_2022;
+use anchor_spl::token::spl_token;
 const DLMM_ID: Pubkey = commons::dlmm::ID;
 
 // Enum to represent either type of deserializable account
@@ -377,7 +380,7 @@ impl Core {
             }
             let lb_pair_state = fetch_lb_pair_state(
                 remaining_accounts, &position_entry.lb_pair
-            )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
+            )?;
             let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
             token_mints_with_program.push((lb_pair_state.token_x_mint, token_x_program));
             token_mints_with_program.push((lb_pair_state.token_y_mint, token_y_program));
@@ -479,21 +482,16 @@ impl Core {
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
-        let lb_pair = state.lb_pair;
-
-        let main_accounts = dlmm::client::accounts::ClosePosition {
+        let main_accounts = dlmm::client::accounts::ClosePosition2 {
             position: *position_key,
-            lb_pair,
             sender: payer.key(),
             event_authority,
             program: DLMM_ID,
-            bin_array_lower: Pubkey::default(), // not used in ClosePosition
-            bin_array_upper: Pubkey::default(), // not used in ClosePosition
             rent_receiver: payer.key(), // receive rent lamports
         }
         .to_account_metas(None);
 
-        let data = dlmm::client::args::ClosePosition {}.data();
+        let data = dlmm::client::args::ClosePosition2 {}.data();
 
         let accounts = main_accounts.to_vec();
 
@@ -503,11 +501,7 @@ impl Core {
             data,
         };
 
-        let mut instructions = vec![];
-
-        instructions.push(close_position_ix);
-
-        Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
+        Core::execute_meteora_instruction(payer, remaining_accounts_in, vec![close_position_ix])?;
 
         Ok(())
     }
@@ -519,18 +513,26 @@ impl Core {
         &self,
         payer: &mut Signer,
         remaining_accounts_in: &'a [AccountInfo<'a>],
-        state: &SinglePosition,
+        state: &mut SinglePosition,
         old_position_key: &Pubkey,
     ) -> Result<()> {
         if state.position_pks.len() == 0 {
             return Ok(());
         }
-        msg!("==> Withdrawing and closing old position: {}", old_position_key);
+        msg!("==> Withdrawing old position: {}", old_position_key);
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
         let lb_pair = state.lb_pair;
         let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, &state.lb_pair)?;
+        // let mut lb_pair_state = lb_pair_state.clone();
+        // lb_pair_state.token_mint_x_program_flag = TokenProgramFlags::TokenProgram as u8;
+        // lb_pair_state.token_mint_y_program_flag = TokenProgramFlags::TokenProgram as u8;
+
+        // msg!("   Token program 2022: {}", spl_token_2022::ID);
+        // msg!("   Token program old: {}", spl_token::ID);
+        msg!("   Token 2022 flag x: {}", lb_pair_state.token_mint_x_program_flag);
+        msg!("   Token 2022 flag y: {}", lb_pair_state.token_mint_y_program_flag);
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -555,6 +557,8 @@ impl Core {
 
         let bin_arrays_account_meta = position_state.get_bin_array_accounts_meta_coverage()?;
 
+        msg!("   User token programs: x: {}, y: {}", token_x_program, token_y_program);
+
         let user_token_x = get_associated_token_address_with_program_id(
             &payer.key(),
             &lb_pair_state.token_x_mint,
@@ -574,20 +578,32 @@ impl Core {
             
         // Determine the correct sender/authority based on position ownership
         let position_owner = position_state.owner;
-        // let is_pda_owned = {
-        //     let (irma_authority, _) = Pubkey::find_program_address(
-        //         &[b"irma_authority"],
-        //         &IRMA_ID,
-        //     );
-        //     position_owner == irma_authority
-        // };
+        let is_pda_owned = {
+            let (irma_authority, _) = Pubkey::find_program_address(
+                &[b"irma_authority"],
+                &IRMA_ID,
+            );
+            position_owner == irma_authority
+        };
 
-        // msg!("Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
+        msg!("Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
 
         let mut bin_array_keys: Vec<Pubkey> = Vec::new();
         let _ = position_state.get_bin_array_keys_coverage(&mut bin_array_keys);
 
-        let main_accounts = dlmm::client::accounts::RemoveAllLiquidity {
+        let bin_array_states = get_multiple_bytemuck_account_refs::<BinArray>(
+            remaining_accounts_in,
+            &bin_array_keys,
+        )?;
+
+        for (key, ba_state) in bin_array_states {
+            if ba_state.is_none() || ba_state.as_ref().unwrap().lb_pair != lb_pair {
+                bin_array_keys.retain(|k| k != &key);
+                state.bin_array_pks.retain(|k| k != &key);
+            }
+        }
+
+        let main_accounts = dlmm::client::accounts::RemoveLiquidity2 {
             position: *old_position_key,
             lb_pair,
             bin_array_bitmap_extension: None,
@@ -597,12 +613,12 @@ impl Core {
             reserve_y: lb_pair_state.reserve_y,
             token_x_mint: lb_pair_state.token_x_mint,
             token_y_mint: lb_pair_state.token_y_mint,
-            bin_array_lower: bin_array_keys[0],
-            bin_array_upper: bin_array_keys[1],
+            // bin_array_lower: bin_array_keys[0],
+            // bin_array_upper: if bin_array_keys.len() > 1 { bin_array_keys[1] } else { bin_array_keys[0] },
             sender: position_owner,
             token_x_program,
             token_y_program,
-            // memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
+            memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
             event_authority,
             program: DLMM_ID,
         }
@@ -614,7 +630,13 @@ impl Core {
         ]
         .concat();
 
-        let data = dlmm::client::args::RemoveAllLiquidity {}.data();
+        let data = dlmm::client::args::RemoveLiquidity2 {
+            bin_liquidity_removal: vec![BinLiquidityReduction {
+                bin_id: position_state.lower_bin_id,
+                bps_to_remove: 10_000, // remove all liquidity
+            }],
+            remaining_accounts_info: remaining_account_info.clone(),
+        }.data();
 
         let accounts = [main_accounts.to_vec(), remaining_accounts].concat();
 
@@ -672,27 +694,7 @@ impl Core {
         // we don't really need to close the position at all
         // just deposit to a different bin next
 
-        // // Close single bin position
-        // let accounts = dlmm::client::accounts::ClosePosition2 {
-        //     position: old_position_key,
-        //     sender: payer.key(),
-        //     rent_receiver: payer.key(),
-        //     event_authority,
-        //     program: DLMM_ID,
-        // }
-        // .to_account_metas(None);
-
-        // let data = dlmm::client::args::ClosePosition2 {}.data();
-
-        // let close_position_ix = Instruction {
-        //     program_id: DLMM_ID,
-        //     accounts: accounts.to_vec(),
-        //     data,
-        // };
-
-        // instructions.push(close_position_ix);
-
-        // msg!("    Executing withdraw and close instructions...");
+        msg!("==> Executing withdraw and ClaimFee instructions...");
 
         let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
         // msg!("Close old_position_key: {}, result: {:?}", old_position_key, result);
@@ -1178,17 +1180,18 @@ impl Core {
         state: &mut SinglePosition, // modify but not replace (tied to lb_pair)
         new_price_bin_id: i32, // new mint price bin id
     ) -> Result<()> {
+
         // this call to DLMM can be optimized away later
         // when we are sure that the position_pks are always valid
         let pair_address = state.lb_pair;
-        let mut position_keys_with_states = get_matching_positions(
+        let position_keys_with_states = get_matching_positions(
             remaining_accounts,
             &payer.key(), // must be owner of SinglePosition position_pks
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Fetched {} matching positions", position_keys_with_states.len());
 
-        let positions = &state.position_pks;
+        let positions = &state.position_pks.clone();
         if position_keys_with_states.len() > positions.len() {
             // this means there are stale position_pks in state.position_pks
             // we need to remove them
