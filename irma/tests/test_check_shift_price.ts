@@ -146,12 +146,12 @@ async function test_check_shift_price() {
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    const position1Keypair = new Keypair();
-    console.log("🆕 Created new position1 account Keypair, pubkey: ", position1Keypair.publicKey.toBase58());
-    console.log("🆕 Using position1 account:", position1Keypair.secretKey.buffer);
-    const position2Keypair = new Keypair();
-    console.log("🆕 Created new position2 account Keypair, pubkey: ", position2Keypair.publicKey.toBase58());
-    console.log("🆕 Using position2 account:", position2Keypair.secretKey.buffer);
+    // const position1Keypair = new Keypair();
+    // console.log("🆕 Created new position1 account Keypair, pubkey: ", position1Keypair.publicKey.toBase58());
+    // console.log("🆕 Using position1 account:", position1Keypair.secretKey.buffer);
+    // const position2Keypair = new Keypair();
+    // console.log("🆕 Created new position2 account Keypair, pubkey: ", position2Keypair.publicKey.toBase58());
+    // console.log("🆕 Using position2 account:", position2Keypair.secretKey.buffer);
 
     const configKeys = [
       // Add some example pair addresses - these should be actual DLMM pair addresses
@@ -160,6 +160,8 @@ async function test_check_shift_price() {
       // "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
       // "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // Example position <-- tremoved
       "EXqomVB89w3oWumin5TRLkAV2D4yCJhheNZG5uVPDprK", // old position account owned by the fed <-- remove
+      "44FHi5sTvs591EXLgJeXtUpR4iQzuqziw8rPUsWBauey", // position 1 for devUSDT owned by the fed
+      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2 for devUSDT owned by the fed
       // "BgUcPgRa4TS9f4Kgjb7GzpELDrF67BUv2CHaPJxSn6xy", // new position (need to derive)
       // "EH42NiHFWBsR4p2CPqzskrsyCksqz6DW5bo79V4dwJVj", // BinArray 1 for usdc
       // "Eb1fKdV6wVVyoVQAdRC7bP6TxutGTDrSerwL1zYgtDpu", // BinArray 2 for usdc
@@ -173,12 +175,12 @@ async function test_check_shift_price() {
       "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
       "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
       // "8zPSZs9xoV7V1XewdvpZF7sDJxrY9qEYbzrcc7n1YpnS", // new position account for devUSDC
-      position1Keypair.publicKey.toBase58(), // new position account for devUSDT
-      position2Keypair.publicKey.toBase58(), // new position account for devUSDT
+      // position1Keypair.publicKey.toBase58(), // new position account for devUSDT
+      // position2Keypair.publicKey.toBase58(), // new position account for devUSDT
       "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
       // "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP", // phantom1 wallet
-      "44FHi5sTvs591EXLgJeXtUpR4iQzuqziw8rPUsWBauey", // position 1 for devUSDT owned by the fed
-      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2 for devUSDT owned by the fed
+      "9ZEqmbBp3QaT4z25xnQqdLLeRqb7Vej59vdgvHmVhwrk", // ?? from somewhere in withdraw() code
+      "L93d6igVFXZKhcujZNWKeM1rH1XyqWmHttRoy5J3vg6", // ?? from somewhere in withdraw() code
       "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // IRMA account owned by the USDT pool
       "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj", // devUSDT account owned the USDT pool
       "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
@@ -187,7 +189,7 @@ async function test_check_shift_price() {
       // "DtYtYAbfPrWD3B81wKvwkynuVjoiEBBSj3ReYMuPSdcK", // does not exist
       // "4nU2fGFRpEdbzBc89jsfG1UEerWG5huRXb6Q7pNr7CH3", // IRMA token account owned by HfQQYJT
       // "783VUrA1LSbtWaosPGXPcTbvCgBo1RTYiLtfCyhQo7G2", // devUSDC token account owned by HfQQYJT
-      // "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
       "11111111111111111111111111111111", // System program ID
@@ -197,7 +199,7 @@ async function test_check_shift_price() {
         // Call check_shift_price_ranges
         console.log("🔄 Calling check_shift_price_ranges() instruction...");
         const tx_sell = await program.methods
-        .checkShiftPriceRanges("devUSDT", position1Keypair.publicKey, position2Keypair.publicKey)
+        .checkShiftPriceRanges("devUSDT") // , position1Keypair.publicKey, position2Keypair.publicKey)
         .accounts({
             state: statePda,
             irmaAdmin: payer,
@@ -212,17 +214,15 @@ async function test_check_shift_price() {
             const keyString = key;
             const isProgram = keyString.includes('LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo') ||
                              keyString.includes('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') ||
-                             // keyString.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') ||
+                             keyString.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') ||
                              keyString.includes('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr') ||
-                             keyString === '11111111111111111111111111111111' ||
-                             keyString === 'SysvarRent111111111111111111111111111111111';
-            
-            const isWritable = !isProgram; // Most accounts need to be writable
+                             keyString.includes('11111111111111111111111111111111') ||
+                             keyString.includes('SysvarRent111111111111111111111111111111111');
             
             return {
                 pubkey: pubkey,
-                isSigner: index == 9 || index == 10 || index == 11,
-                isWritable: isWritable,
+                isSigner: index == 11,
+                isWritable: !isProgram, // Most accounts need to be writable
             };
         }))
         .transaction();
@@ -240,7 +240,7 @@ async function test_check_shift_price() {
         tx_sell.instructions.unshift(computeLimitIx, computePriceIx);
 
         // Send transaction
-        const signature = await connection.sendTransaction(tx_sell, [wallet.payer, position1Keypair, position2Keypair]);
+        const signature = await connection.sendTransaction(tx_sell, [wallet.payer]);
         console.log("🚀 Transaction sent:", signature);
 
         // Wait for confirmation with custom timeout
