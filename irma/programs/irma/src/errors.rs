@@ -114,4 +114,10 @@ pub enum CustomError {
     MintPositionNotFound,
     #[msg("Redeem position not found.")]
     RedeemPositionNotFound,
+    #[msg("Position does not belong to the specified LbPair.")]
+    PositionPairMismatch,
+    #[msg("Position does not belong to the specified owner.")]
+    UnauthorizedPositionAccess,
+    #[msg("Bin is out of range for the position.")]
+    BinOutOfRange,
 }
