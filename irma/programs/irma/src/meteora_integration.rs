@@ -1143,6 +1143,7 @@ impl Core {
     }
 
     /// Rebalance position by depositing to a new bin.
+    /// NOTE: This is not used in IRMA currently, as we use withdraw() + deposit() instead.
     pub fn rebalance<'a>(
         &self,
         payer: &mut Signer,

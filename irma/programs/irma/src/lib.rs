@@ -547,13 +547,13 @@ pub mod irma {
             if needs_mint_shift {
                 core.shift_mint_position(
                     payer, remaining_accounts, &mut core_position, mint_price_bin_id)?;
-                core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
+                // core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
             }
 
             if needs_redeem_shift {
                 core.shift_redeem_position(
                     payer, remaining_accounts, &mut core_position, redemption_price_bin_id)?;
-                core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
+                // core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
             }
         }
         
