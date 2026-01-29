@@ -13,7 +13,7 @@ use commons::{
     get_multiple_bytemuck_account_refs,
     // price_math::get_price_from_id,
 };
-// use commons::u64x64_math::pow;
+use commons::SCALE_OFFSET;
 
 use crate::position_manager::*;
 use crate::pair_config::*;
@@ -148,6 +148,7 @@ impl Core {
     }
 
 
+    /// Execute a series of Meteora (DLMM) instructions using provided accounts
     fn execute_meteora_instruction(
         _payer: &mut Signer,
         remaining_accounts: &[AccountInfo],
@@ -522,14 +523,6 @@ impl Core {
 
         let lb_pair = state.lb_pair;
         let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, &lb_pair)?;
-        // let mut lb_pair_state = lb_pair_state.clone();
-        // lb_pair_state.token_mint_x_program_flag = TokenProgramFlags::TokenProgram as u8;
-        // lb_pair_state.token_mint_y_program_flag = TokenProgramFlags::TokenProgram as u8;
-
-        // msg!("   Token program 2022: {}", spl_token_2022::ID);
-        // msg!("   Token program old: {}", spl_token::ID);
-        msg!("   Token 2022 flag x: {}", lb_pair_state.token_mint_x_program_flag);
-        msg!("   Token 2022 flag y: {}", lb_pair_state.token_mint_y_program_flag);
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -554,7 +547,7 @@ impl Core {
 
         let bin_arrays_account_meta = position_state.get_bin_array_accounts_meta_coverage()?;
 
-        msg!("   User token programs: x: {}, y: {}", token_x_program, token_y_program);
+        msg!("    bin_arrays_account_meta: {}", bin_arrays_account_meta);
 
         let user_token_x = get_associated_token_address_with_program_id(
             &payer.key(),
@@ -583,10 +576,12 @@ impl Core {
             position_owner == irma_authority
         };
 
-        msg!("Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
+        msg!("    Position owner: {}, is PDA owned: {}", position_owner, is_pda_owned);
 
         let mut bin_array_keys: Vec<Pubkey> = Vec::new();
         let _ = position_state.get_bin_array_keys_coverage(&mut bin_array_keys);
+
+        msg!("    bin_array_keys: {:?}", bin_array_keys);
 
         let bin_array_states = get_multiple_bytemuck_account_refs::<BinArray>(
             remaining_accounts_in,
@@ -599,6 +594,12 @@ impl Core {
                 state.bin_array_pks.retain(|k| k != &key);
             }
         }
+
+        msg!("    bin_array_keys len: {}", bin_array_keys.len());
+        msg!("    state.bin_array_pks len: {}", state.bin_array_pks.len());
+
+        // find out first whether there is anything to withdraw at all?
+        // during production, there should always be liquidity to withdraw.
 
         let main_accounts = dlmm::client::accounts::RemoveLiquidity2 {
             position: *old_position_key,
@@ -899,7 +900,7 @@ impl Core {
             CustomError::InvalidDepositAmounts
         );
 
-        if state.position_pks.len() > 2 {
+        if state.position_pks.len() > MAX_POSITIONS {
             return Err(error!(CustomError::TooManyPositionsForPair));
         }
 
@@ -1023,6 +1024,30 @@ impl Core {
             &token_y_program,
         );
 
+        let tokens = self.get_all_tokens();
+        let decimals_x = get_decimals(lb_pair_state.token_x_mint, &tokens);
+        let decimals_y = get_decimals(lb_pair_state.token_y_mint, &tokens);
+
+        // Now convert UI amount to internal amount
+        let internal_amount = if amount_x > 0 {
+            10_u64.checked_pow(decimals_x as u32)
+                .ok_or(error!(CustomError::MathOverflow))
+                .unwrap()
+                .checked_mul(amount_x.into())
+                .ok_or(error!(CustomError::MathOverflow))?
+        } else {
+            10_u64.checked_pow(decimals_y as u32)
+                .ok_or(error!(CustomError::MathOverflow))
+                .unwrap()
+                .checked_mul(amount_y.into())
+                .ok_or(error!(CustomError::MathOverflow))?
+        };
+        // let internal_amount = if internal_amount_u128 < u64::MAX as u128 {
+        //     internal_amount_u128 as u64
+        // } else {
+        //     return Err(error!(CustomError::MathOverflow));
+        // };
+
         let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
         let mut remaining_accounts_vec = vec![];
 
@@ -1057,10 +1082,10 @@ impl Core {
         }
         
         let position_state = &vec_positions[0];
-        msg!("Position lb_pair: {}, expected: {}", position_state.lb_pair, lb_pair);
-        msg!("Position owner: {}, sender: {}", position_state.owner, payer.key());
-        msg!("Position bins: {} to {}", position_state.lower_bin_id, position_state.upper_bin_id);
-        msg!("Trying to add liquidity to bin: {}", new_price_bin_id);
+        // msg!("Position lb_pair: {}, expected: {}", position_state.lb_pair, lb_pair);
+        // msg!("Position owner: {}, sender: {}", position_state.owner, payer.key());
+        // msg!("Position bins: {} to {}", position_state.lower_bin_id, position_state.upper_bin_id);
+        // msg!("Trying to add liquidity to bin: {}", new_price_bin_id);
         
         // Check if new bin is within position's range
         if new_price_bin_id < position_state.lower_bin_id || new_price_bin_id > position_state.upper_bin_id {
@@ -1097,11 +1122,18 @@ impl Core {
         }
         .to_account_metas(None);
 
+        // msg!("==> Strategy parameters:");
+        // msg!("   internal_amount: {}", internal_amount);
+        // msg!("   active_id: {}, target_bin: {}", lb_pair_state.active_id, new_price_bin_id);
+        // msg!("   amount_x param: {}, amount_y param: {}", 
+        //     if amount_x > 0 { internal_amount } else { 0u128 },
+        //     if amount_y > 0 { internal_amount } else { 0u128 });
+
         let data = dlmm::client::args::AddLiquidityByStrategy2 {
             liquidity_parameter: {
                 LiquidityParameterByStrategy {
-                    amount_x,
-                    amount_y,
+                    amount_x: if amount_x > 0 { internal_amount } else { 0u64 },
+                    amount_y: if amount_y > 0 { internal_amount } else { 0u64 },
                     active_id: lb_pair_state.active_id,
                     max_active_bin_slippage: 30000, // large slippage to allow single bin deposit far from active
                     strategy_parameters: StrategyParameters {
@@ -1131,6 +1163,29 @@ impl Core {
         // msg!("deposit result: {:?}", result);
 
         // state.position_pks.push(*position); // <-- position already exists, no need to push again
+        if amount_x > 0 {
+            if state.position_pks.len() == 0 {
+                state.position_pks.push(*poskey);
+            } else if state.position_pks.len() > 0 {
+                state.position_pks[0] = *poskey;
+            }
+            if state.bin_array_pks.len() == 0 {
+                state.bin_array_pks.push(bin_array);
+            } else if state.bin_array_pks.len() > 0 {
+                state.bin_array_pks[0] = bin_array;
+            }
+        } else if amount_y > 0 {
+            if state.position_pks.len() == 1 {
+                state.position_pks.push(*poskey);
+            } else if state.position_pks.len() > 1 {
+                state.position_pks[1] = *poskey;
+            }
+            if state.bin_array_pks.len() == 1 {
+                state.bin_array_pks.push(bin_array);
+            } else if state.bin_array_pks.len() > 1 {
+                state.bin_array_pks[1] = bin_array;
+            }
+        }
         let bin_id = state.max_bin_id;
         state.max_bin_id = new_price_bin_id;
         // if previously there was only one position, min_bin_id == max_bin_id,
@@ -1390,6 +1445,23 @@ impl Core {
         state.tokens.clone()
     }
 
+    fn close_position_if_required<'a>(
+        &self,
+        payer: &mut Signer,
+        remaining_accounts: &'a [AccountInfo<'a>],
+        state: &mut SinglePosition,
+        new_price_bin_id: i32,
+        old_position_key: &'a Pubkey,
+    ) -> Result<&'a Pubkey> {
+        // For IRMA, we always have only one bin position at any time.
+        // So after withdrawing from the old position, we can close it.
+        msg!("    Closing old position if required: {}", old_position_key);
+
+        // use close_position function
+
+        // for now just return the same old position key
+        Ok(old_position_key)
+    }
 
     /// Shift mint position
     /// For IRMA, we should deposit first, then withdraw from the old, single bin position (NO).
@@ -1425,7 +1497,14 @@ impl Core {
             msg!("    withdraw from mint position: {}", poskey.to_string());
 
             self.withdraw(payer, remaining_accounts, state, &poskey)?;
-            self.deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, &poskey)?;
+            let new_position = self.close_position_if_required(
+                payer,
+                remaining_accounts,
+                state,
+                new_price_bin_id,
+                &poskey,
+            )?;
+            self.deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, new_position)?;
         }
         else {
             msg!("    No mint position found, must initialize new mint position.");
@@ -1466,8 +1545,15 @@ impl Core {
             msg!("    withdraw from mint position: {}", poskey.to_string());
 
             self.withdraw(payer, remaining_accounts, state, &poskey)?;
+            let new_position = self.close_position_if_required(
+                payer,
+                remaining_accounts,
+                state,
+                new_price_bin_id,
+                &poskey,
+            )?;
             self.deposit(
-                payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, &poskey
+                payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, new_position
             )?;
         }
         else {
