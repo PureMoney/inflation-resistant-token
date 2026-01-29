@@ -120,4 +120,6 @@ pub enum CustomError {
     UnauthorizedPositionAccess,
     #[msg("Bin is out of range for the position.")]
     BinOutOfRange,
+    #[msg("Math overflow occurred.")]
+    MathOverflow,
 }

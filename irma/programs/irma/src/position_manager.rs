@@ -17,7 +17,6 @@ use crate::errors::CustomError;
 
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::Bin;
-// use commons::u64x64_math::pow;
 use commons::bin::*;
 use commons::position::*;
 use commons::ONE;
@@ -66,8 +65,8 @@ pub struct TokenEntry {
 #[account]
 #[derive(Debug)]
 pub struct AllPosition {
-    pub all_positions: Vec<SinglePosition>,  // Use struct instead of tuple
-    pub tokens: Vec<TokenEntry>,            // Use struct instead of tuple
+    pub all_positions: Vec<SinglePosition>,  // Each LbPair has its own SinglePosition
+    pub tokens: Vec<TokenEntry>,            // All tokens used across pairs
 }
 
 impl AllPosition {
@@ -114,8 +113,8 @@ pub struct SinglePosition {
     pub bin_array_pks: Vec<Pubkey>, // Keep bin array keys to fetch dynamically
     pub position_pks: Vec<Pubkey>,  // Keep pubkeys to fetch positions dynamically
     pub rebalance_time: u64,
-    pub min_bin_id: i32,
-    pub max_bin_id: i32,
+    pub min_bin_id: i32, // use this to track current redemption price bin
+    pub max_bin_id: i32, // use this to track current minting price bin
     pub last_update_timestamp: u64,
 }
 
