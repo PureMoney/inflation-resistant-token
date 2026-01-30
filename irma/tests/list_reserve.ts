@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import DLMM from "@meteora-ag/dlmm";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +40,13 @@ async function list_reserve() {
 
   // Create connection and provider manually using environment variables
   const connection = new Connection(rpcUrl, commitment);
-  
+
+  // const userPositions = await DLMM.getAllLbPairPositionsByUser(
+  //   connection,
+  //   new PublicKey("Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95")
+  // );
+  // console.log("User Positions:", JSON.stringify(userPositions));
+
   // Create or load a keypair for testing
   let keypair: Keypair;
   
