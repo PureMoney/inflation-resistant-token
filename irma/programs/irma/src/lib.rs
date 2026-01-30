@@ -490,13 +490,14 @@ pub mod irma {
             
             // Convert prices to token units (multiply by 10^decimals)
             let backing_decimals = reserve_coin.backing_decimals as i32;
-            let mint_price_u128 = (mint_price * 10.0f64.powi(backing_decimals)) as u128;
-            let redemption_price_u128 = (redemption_price * 10.0f64.powi(backing_decimals)) as u128;
+            let multiplier = 10f64.powi(backing_decimals as i32);
+            let mint_price_u128 = (mint_price * multiplier) as u128;
+            let redemption_price_u128 = (redemption_price * multiplier) as u128;
             let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
-                                    .checked_div(1_000_000u128)
+                                    .checked_div(multiplier as u128)
                                     .ok_or(Error::from(CustomError::PriceConversionError))?;
             let redemption_price_u128 = (redemption_price_u128 << SCALE_OFFSET)
-                                    .checked_div(1_000_000u128)
+                                    .checked_div(multiplier as u128)
                                     .ok_or(Error::from(CustomError::PriceConversionError))?;
             // msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
 
@@ -504,7 +505,7 @@ pub mod irma {
                 remaining_accounts, 
                 &lb_pair_key
             )?;
-            let creator = lb_pair_state.creator;
+            // let creator = lb_pair_state.creator;
             let bin_step = lb_pair_state.bin_step;
             let min_bin_id = lb_pair_state.parameters.min_bin_id;
             let max_bin_id = lb_pair_state.parameters.max_bin_id;
