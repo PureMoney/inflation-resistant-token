@@ -12,6 +12,7 @@ use commons::{
     derive_event_authority_pda,
     derive_position_pda,
     get_multiple_bytemuck_account_refs,
+    calculate_transfer_fee_included_amount,
 };
 
 use crate::position_manager::*;
@@ -1089,11 +1090,23 @@ impl Core {
                 .checked_mul(amount_y.into())
                 .ok_or(error!(CustomError::MathOverflow))?
         };
-        // let internal_amount = if internal_amount_u128 < u64::MAX as u128 {
-        //     internal_amount_u128 as u64
-        // } else {
-        //     return Err(error!(CustomError::MathOverflow));
-        // };
+
+        let token_mint_base_account = get_account_info(
+            remaining_accounts_in,
+            &lb_pair_state.token_x_mint,
+        )?;
+        let clock_account = get_account_info(
+            remaining_accounts_in,
+            &sysvar::clock::ID,
+        )?;
+        let clock = Clock::from_account_info(&clock_account)?;
+
+        let internal_amount = calculate_transfer_fee_included_amount(
+            token_mint_base_account,
+            internal_amount,
+            clock.epoch,
+        )?
+        .amount;
 
         let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
         let mut remaining_accounts_vec = vec![];
@@ -1168,13 +1181,6 @@ impl Core {
             user_token_y,
         }
         .to_account_metas(None);
-
-        // msg!("==> Strategy parameters:");
-        // msg!("   internal_amount: {}", internal_amount);
-        // msg!("   active_id: {}, target_bin: {}", lb_pair_state.active_id, new_price_bin_id);
-        // msg!("   amount_x param: {}, amount_y param: {}", 
-        //     if amount_x > 0 { internal_amount } else { 0u128 },
-        //     if amount_y > 0 { internal_amount } else { 0u128 });
 
         let data = dlmm::client::args::AddLiquidityByStrategy2 {
             liquidity_parameter: {
