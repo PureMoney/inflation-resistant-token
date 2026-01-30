@@ -196,7 +196,8 @@ async function test_check_shift_price() {
       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
       "11111111111111111111111111111111", // System program ID
-      "SysvarRent111111111111111111111111111111111" // Rent sysvar
+      "SysvarRent111111111111111111111111111111111", // Rent sysvar
+      "SysvarC1ock11111111111111111111111111111111", // Clock sysvar
     ];
         // base for devUSDT
         const base = await PublicKey.createWithSeed(
@@ -244,8 +245,8 @@ async function test_check_shift_price() {
                              keyString.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') ||
                              keyString.includes('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr') ||
                              keyString.includes('11111111111111111111111111111111') ||
-                             keyString.includes('SysvarRent111111111111111111111111111111111');
-            
+                             keyString.includes('SysvarRent111111111111111111111111111111111') ||
+                             keyString.includes('SysvarC1ock11111111111111111111111111111111');
             return {
                 pubkey: pubkey,
                 isSigner: index == 12,

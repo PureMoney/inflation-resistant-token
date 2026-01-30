@@ -2,6 +2,16 @@ use anchor_lang::prelude::*;
 use crate::dlmm::accounts::*;
 use crate::conversions::dlmm_bytemuck::get_bytemuck_account_ref;
 
+/// Get Account Info
+pub fn get_account_info<'a>(
+    accounts: &'a [AccountInfo<'a>],
+    key: &Pubkey,
+) -> Result<AccountInfo<'a>> {
+    accounts.iter().find(|acc| acc.key == key).ok_or_else(|| {
+        ProgramError::NotEnoughAccountKeys.into()
+    }).cloned()
+}
+
 /// Check if a position account matches the given wallet and pair
 /// For on-chain usage where we have direct access to account data
 pub fn position_matches_wallet_and_pair(
