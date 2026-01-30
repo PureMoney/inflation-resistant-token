@@ -6,6 +6,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import bs58 from 'bs58';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -159,9 +161,10 @@ async function test_check_shift_price() {
       "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair
       // "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
       // "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // Example position <-- tremoved
-      "EXqomVB89w3oWumin5TRLkAV2D4yCJhheNZG5uVPDprK", // old position account owned by the fed <-- remove
-      "44FHi5sTvs591EXLgJeXtUpR4iQzuqziw8rPUsWBauey", // position 1 for devUSDT owned by the fed
-      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2 for devUSDT owned by the fed
+      "4oWeaemqrBU3BTvvHLwXjigThvtZ4JemNQ4wUjz8of1H", // new position account owned by the fed [0..69]
+      "9rMc8GnMfbq233ZhqjguRt37iXcKrt35LNgxj4ZVChZs", // position? for devUSDT owned by the fed, latest [0..69]
+      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2 for devUSDT owned by the fed [0..0]
+      "FBX1ZEozZFsN4b74QNR8TAkujU16Ctj9WE6mBkbhwqjb", // position? for devUSDT owned by the fed [0..69]
       // "BgUcPgRa4TS9f4Kgjb7GzpELDrF67BUv2CHaPJxSn6xy", // new position (need to derive)
       // "EH42NiHFWBsR4p2CPqzskrsyCksqz6DW5bo79V4dwJVj", // BinArray 1 for usdc
       // "Eb1fKdV6wVVyoVQAdRC7bP6TxutGTDrSerwL1zYgtDpu", // BinArray 2 for usdc
@@ -195,6 +198,30 @@ async function test_check_shift_price() {
       "11111111111111111111111111111111", // System program ID
       "SysvarRent111111111111111111111111111111111" // Rent sysvar
     ];
+        // base for devUSDT
+        const base = await PublicKey.createWithSeed(
+          wallet.payer.publicKey,
+          "irma_bin_0",
+          SystemProgram.programId
+        );
+        console.log("base address:", base.toBase58());
+
+        const DLMM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
+        const LB_PAIR_DEVUSDT = new PublicKey("HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD");
+        
+        // position account for devUSDT
+        const [data2Pda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from([112, 111, 115, 105, 116, 105, 111, 110]), //"POSITION"),
+            LB_PAIR_DEVUSDT.toBuffer(),
+            base.toBuffer(),
+            Buffer.from([0, 0, 0, 0]),
+            Buffer.from([0, 0, 0, 70]),
+          ],
+          DLMM_ID,
+        );
+        console.log("Derived position account address:", data2Pda.toBase58());
+        console.log();
 
         // Call check_shift_price_ranges
         console.log("🔄 Calling check_shift_price_ranges() instruction...");
@@ -221,7 +248,7 @@ async function test_check_shift_price() {
             
             return {
                 pubkey: pubkey,
-                isSigner: index == 11,
+                isSigner: index == 12,
                 isWritable: !isProgram, // Most accounts need to be writable
             };
         }))

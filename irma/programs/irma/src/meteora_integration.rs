@@ -10,10 +10,9 @@ use commons::{
     get_bytemuck_account_ref,
     get_matching_positions,
     derive_event_authority_pda,
+    derive_position_pda,
     get_multiple_bytemuck_account_refs,
-    // price_math::get_price_from_id,
 };
-use commons::SCALE_OFFSET;
 
 use crate::position_manager::*;
 use crate::pair_config::*;
@@ -35,6 +34,7 @@ use anchor_lang::solana_program::{
 use anchor_lang::InstructionData;
 use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use anchor_spl::token_interface::{Mint, TokenAccount};
+use anchor_spl::token_2022_extensions::spl_pod::option::Nullable;
 // use anchor_spl::token_2022::spl_token_2022;
 // use anchor_spl::token::spl_token;
 const DLMM_ID: Pubkey = commons::dlmm::ID;
@@ -237,11 +237,19 @@ impl Core {
 
         // get all DLMM PositionV2's by the same user, for this trade pair.
         // there should only be two positions, at most - one for minting, one for redemption
-        let mut position_keys_with_states = get_matching_positions(
+        let position_keys_with_states = get_matching_positions(
             remaining_accounts,
             owner, // must be owner of SinglePosition position_pks
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
+
+        if position_keys_with_states.len() == 0 {
+            return Ok(());
+        }
+
+        if position_keys_with_states.len() > MAX_POSITIONS {
+            msg!("    Found too many PositionV2 positions: {}", position_keys_with_states.len());
+        }
 
         // TODO: uncomment when positions are properly setup
         // require!(position_keys_with_states.len() <= MAX_POSITIONS, CustomError::TooManyPositions);
@@ -253,40 +261,52 @@ impl Core {
         let mut max_bin_id = 0;
         // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
+        let mut poskey = Pubkey::default();
         // msg!("    Found {} PositionV2 positions", position_keys_with_states.len());
-        if position_keys_with_states.len() > 0 {
-            // sort position by bin id
-            position_keys_with_states
-                .sort_by(|(_, a), (_, b)| a.lower_bin_id.cmp(&b.lower_bin_id));
-
-            min_bin_id = position_keys_with_states
-                .first()
-                .map(|(_key, state)| state.lower_bin_id)
-                .unwrap();
-
-            max_bin_id = position_keys_with_states
-                .last()
-                .map(|(_key, state)| state.upper_bin_id)
-                .unwrap();
-
-            // msg!("    PositionV2 bin id range: {} - {}", min_bin_id, max_bin_id);
-
-            if is_sale { // mint, we just cleared the position_pks, push position with largest bin id
-                    state.position_pks.push(*position_keys_with_states.last().unwrap().0);
+        if state.position_pks.len() > 0 {
+            if is_sale {
+                poskey = state.position_pks[0];
+            } else if state.position_pks.len() >= 2 {
+                poskey = state.position_pks[1];
             }
-            else { // redemptions
-                if state.position_pks.len() == 0 {
-                    return Err(error!(CustomError::MintPositionNotFound));
-                }
-                if state.position_pks.len() == 1 { // push position with smallest bin id
-                    state.position_pks.push(*position_keys_with_states.first().unwrap().0);
-                }
-                else if state.position_pks.len() >= 2 {
-                    state.position_pks[1] = *position_keys_with_states.first().unwrap().0;
+            let (poskey, position_state) =
+                position_keys_with_states.iter()
+                    .find(|(key, _)| *key == &poskey)
+                    .unwrap();
+            if poskey.is_some() {
+
+                min_bin_id = position_state.lower_bin_id;
+                max_bin_id = position_state.upper_bin_id;
+
+                // msg!("    PositionV2 bin id range: {} - {}", min_bin_id, max_bin_id);
+
+                msg!("    Total position_pks count: {}", state.position_pks.len());
+            }
+            else {
+                if is_sale && position_keys_with_states.len() >= 1 {
+                    let (poskey, position_state) = position_keys_with_states.first().unwrap();
+                    if state.position_pks.len() == 0 {
+                        state.position_pks.push(**poskey);
+                    }
+                    else {
+                        state.position_pks[0] = **poskey;
+                    }
+
+                    min_bin_id = position_state.lower_bin_id;
+                    max_bin_id = position_state.upper_bin_id;
+                } else if position_keys_with_states.len() > 1 {
+                    let (poskey, position_state) = position_keys_with_states.last().unwrap();
+                    if state.position_pks.len() == 1 {
+                        state.position_pks.push(**poskey);
+                    }
+                    else {
+                        state.position_pks[1] = **poskey;
+                    }
+
+                    min_bin_id = position_state.lower_bin_id;
+                    max_bin_id = position_state.upper_bin_id;
                 }
             }
-
-            msg!("    Total position_pks count: {}", state.position_pks.len());
 
             // let pos_v2 = if position_keys_with_states.len() == 1 {
             //     match is_sale {
@@ -389,12 +409,16 @@ impl Core {
         Ok(token_mints_with_program)
     }
 
+    /// Get immutable position state for a given liquidity pair
+    /// For testability
     pub fn get_position_state(&self, lp_pair: Pubkey) -> SinglePosition {
         let state = &self.position_data;
         let position = state.get_position(&lp_pair).unwrap();
         position.clone()
     }
 
+    /// Get mutable position state for a given liquidity pair
+    /// For testability
     pub fn get_mut_position_state(&mut self, lp_pair: Pubkey) -> &mut SinglePosition {
         let state = &mut self.position_data;
         let position = state.get_position_mut(&lp_pair).unwrap();
@@ -464,9 +488,93 @@ impl Core {
         Ok(())
     }
 
+    /// Initialize a new position for the user.
+    fn initialize_position<'a>(
+        &self,
+        payer: &mut Signer,
+        remaining_accounts: &'a [AccountInfo<'a>],
+        lb_pair: &Pubkey,
+        new_price_bin_id: i32,
+    ) -> Result<Pubkey> {
+
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, lb_pair)?;
+
+        let mut remaining_account_info = RemainingAccountsInfo { slices: vec![] };
+        let mut transfer_hook_remaining_accounts = vec![];
+
+        if let Some((slices, remaining_accounts)) =
+            get_potential_token_2022_related_ix_data_and_accounts(
+                &lb_pair_state,
+                remaining_accounts,
+                ActionType::Liquidity,
+            )?
+        {
+            remaining_account_info.slices = slices;
+            transfer_hook_remaining_accounts = remaining_accounts;
+        }
+
+        // Create unique base for this bin position
+        let bin_array_index = BinArray::bin_id_to_bin_array_index(new_price_bin_id)?;
+        // let pos_seed = format!("irma_bin_{}", bin_array_index);
+        // msg!("    pos_seed: {}", pos_seed);
+        // let base = Pubkey::create_with_seed(&payer.key(), &pos_seed, &system_program::ID).unwrap();
+        let base = payer.key();
+        msg!("    base: {}", base);
+
+        let lower_bin_id = BinArray::get_bin_array_lower_upper_bin_id(bin_array_index)?.0;
+        msg!("    lower_bin_id: {}", lower_bin_id);
+
+        let new_position_key = derive_position_pda(
+            *lb_pair,
+            base, // unique base for this bin
+            lower_bin_id,
+            70i32, // max width
+        ).0;
+        msg!("    new_position_key: {}", new_position_key);
+
+        let (event_authority, _bump) = derive_event_authority_pda();
+
+        // The bin array has changed, so we need to re-initialize the position.
+
+        let main_accounts = dlmm::client::accounts::InitializePositionPda {
+            payer: payer.key(), // Base for the PDA derivation
+            position: new_position_key, // pda
+            base, // unique base for this bin
+            lb_pair: *lb_pair,
+            owner: payer.key(), // User owns the position (for compatibility)
+            system_program: system_program::ID,
+            rent: rent::ID,
+            event_authority,
+            program: DLMM_ID,
+        }
+        .to_account_metas(None);
+
+        let accounts = [
+            transfer_hook_remaining_accounts.clone(),
+            main_accounts.to_vec(),
+        ]
+        .concat();
+
+        let data = dlmm::client::args::InitializePositionPda {
+            lower_bin_id: lower_bin_id,
+            width: 70i32, // widest possible, but we will add liquidity only to the current bin
+        }
+        .data();
+
+        let instruction = Instruction {
+            program_id: DLMM_ID,
+            accounts,
+            data,
+        };
+
+        Core::execute_meteora_instruction(payer, remaining_accounts, vec![instruction])?;
+
+        Ok(new_position_key)
+    }
+
     /// Close a position after withdrawing all liquidity and claiming fees.
     /// Liquidity must have been withdrawn and fees claimed from the position before closing.
-    pub fn close_position<'a>(
+    fn close_position<'a>(
         &self,
         payer: &mut Signer,
         remaining_accounts_in: &'a [AccountInfo<'a>],
@@ -511,18 +619,14 @@ impl Core {
         &self,
         payer: &mut Signer,
         remaining_accounts_in: &'a [AccountInfo<'a>],
-        state: &mut SinglePosition,
+        lb_pair: &Pubkey,
         old_position_key: &Pubkey,
-    ) -> Result<()> {
-        if state.position_pks.len() == 0 {
-            return Ok(());
-        }
+    ) -> Result<bool> {
         msg!("==> Withdrawing old position: {}", old_position_key);
 
         let (event_authority, _bump) = derive_event_authority_pda();
 
-        let lb_pair = state.lb_pair;
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, &lb_pair)?;
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts_in, lb_pair)?;
 
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
 
@@ -540,14 +644,21 @@ impl Core {
             transfer_hook_remaining_accounts = remaining_accounts;
         }
 
+        let mut position_state: &PositionV2;
         let vec_positions = fetch_positions(remaining_accounts_in, &[*old_position_key])?;
-        let position_state = vec_positions
+        if vec_positions.len() == 0 {
+            // nothing to do
+            return Ok(false);
+        }
+        else {
+            position_state = vec_positions
             .get(0)
             .ok_or(error!(CustomError::PositionNotFound))?;
+        }
 
         let bin_arrays_account_meta = position_state.get_bin_array_accounts_meta_coverage()?;
 
-        msg!("    bin_arrays_account_meta: {}", bin_arrays_account_meta);
+        msg!("    bin_arrays_account_meta: {:?}", bin_arrays_account_meta);
 
         let user_token_x = get_associated_token_address_with_program_id(
             &payer.key(),
@@ -589,21 +700,19 @@ impl Core {
         )?;
 
         for (key, ba_state) in bin_array_states {
-            if ba_state.is_none() || ba_state.as_ref().unwrap().lb_pair != lb_pair {
+            if ba_state.is_none() || ba_state.as_ref().unwrap().lb_pair != *lb_pair {
                 bin_array_keys.retain(|k| k != &key);
-                state.bin_array_pks.retain(|k| k != &key);
             }
         }
 
         msg!("    bin_array_keys len: {}", bin_array_keys.len());
-        msg!("    state.bin_array_pks len: {}", state.bin_array_pks.len());
 
         // find out first whether there is anything to withdraw at all?
         // during production, there should always be liquidity to withdraw.
 
         let main_accounts = dlmm::client::accounts::RemoveLiquidity2 {
             position: *old_position_key,
-            lb_pair,
+            lb_pair: *lb_pair,
             bin_array_bitmap_extension: None,
             user_token_x,
             user_token_y,
@@ -654,7 +763,7 @@ impl Core {
         instructions.push(remove_all_ix);
 
         let main_accounts = dlmm::client::accounts::ClaimFee2 {
-            lb_pair,
+            lb_pair: *lb_pair,
             position: *old_position_key,
             sender: payer.key(),
             event_authority,
@@ -702,7 +811,7 @@ impl Core {
         let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, instructions)?;
         // msg!("Close old_position_key: {}, result: {:?}", old_position_key, result);
 
-        Ok(())
+        Ok(true)
     }
 
 
@@ -945,68 +1054,6 @@ impl Core {
             msg!("    Bin array already exists, skipping initialization.");
         }
 
-        // let mut remaining_account_info = RemainingAccountsInfo { slices: vec![] };
-        // let mut transfer_hook_remaining_accounts = vec![];
-
-        // if let Some((slices, remaining_accounts)) =
-        //     get_potential_token_2022_related_ix_data_and_accounts(
-        //         &lb_pair_state,
-        //         remaining_accounts_in,
-        //         ActionType::Liquidity,
-        //     )?
-        // {
-        //     remaining_account_info.slices = slices;
-        //     transfer_hook_remaining_accounts = remaining_accounts;
-        // }
-
-        // let vec_positions = fetch_positions(remaining_accounts_in, &[*poskey])?;
-        // let position_state = vec_positions
-        //     .get(0)
-        //     .ok_or(error!(CustomError::PositionNotFound))?;
-
-        // let bin_arrays_account_meta = position_state.get_bin_array_accounts_meta_coverage()?;
-
-        // // NO new DLMM position - existing positions should not be re-initialized.
-        // // The bin has changed, so we need to re-initialize the position.
-
-        // let main_accounts = dlmm::client::accounts::InitializePosition {
-        //     payer: payer.key(), // Base for the PDA derivation
-        //     position: *poskey, // same old position pubkey
-        //     lb_pair,
-        //     owner: payer.key(), // User owns the position (for compatibility)
-        //     system_program: system_program::ID,
-        //     rent: rent::ID,
-        //     event_authority,
-        //     program: DLMM_ID,
-        // }
-        // .to_account_metas(None);
-
-        // let accounts = [
-        //     transfer_hook_remaining_accounts.clone(),
-        //     bin_arrays_account_meta.clone(),
-        //     main_accounts.to_vec(),
-        // ]
-        // .concat();
-
-        // let data = dlmm::client::args::InitializePosition {
-        //     lower_bin_id: new_price_bin_id,
-        //     width: 1i32, // single bin position
-        // }
-        // .data();
-
-        // let instruction = Instruction {
-        //     program_id: DLMM_ID,
-        //     accounts,
-        //     data,
-        // };
-
-        // msg!("    Initializing position: {}", position);
-
-        // // DLMM program handles PDA creation and signing internally
-        // // No program signing needed from IRMA side
-        // let _result = Core::execute_meteora_instruction(payer, remaining_accounts_in, vec![instruction])?;
-        // msg!("    Position initialized: {}", position);
-
         // TODO implement bitmap extension fetching
         let bin_array_bitmap_extension = None;
 
@@ -1139,7 +1186,7 @@ impl Core {
                     strategy_parameters: StrategyParameters {
                         min_bin_id: new_price_bin_id,
                         max_bin_id: new_price_bin_id,
-                        strategy_type: StrategyType::SpotImBalanced,
+                        strategy_type: StrategyType::BidAskOneSide, // SpotImBalanced,
                         parameteres: [0u8; 64],
                     },
                 }
@@ -1445,22 +1492,44 @@ impl Core {
         state.tokens.clone()
     }
 
-    fn close_position_if_required<'a>(
+    fn replace_position_if_required<'a>(
         &self,
         payer: &mut Signer,
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &mut SinglePosition,
         new_price_bin_id: i32,
         old_position_key: &'a Pubkey,
-    ) -> Result<&'a Pubkey> {
+        position_state: &PositionV2,
+    ) -> Result<Pubkey> {
         // For IRMA, we always have only one bin position at any time.
         // So after withdrawing from the old position, we can close it.
         msg!("    Closing old position if required: {}", old_position_key);
 
-        // use close_position function
+        if position_state.lower_bin_id <= new_price_bin_id &&
+           position_state.upper_bin_id >= new_price_bin_id {
+            msg!("    Position bin matches target bin, no need to replace.");
+            return Ok(*old_position_key);
+        }
 
-        // for now just return the same old position key
-        Ok(old_position_key)
+        let lb_pair = state.lb_pair;
+
+        if position_state.lower_bin_id < position_state.upper_bin_id {
+            msg!("    Input position is real, need to close it first.");
+            self.close_position(
+                payer,
+                remaining_accounts,
+                state,
+                old_position_key,
+            )?;
+        }
+        // if input position is not real, we skip closing and disregard it
+
+        Ok(self.initialize_position(
+            payer,
+            remaining_accounts,
+            &lb_pair,
+            new_price_bin_id,
+        )?)
     }
 
     /// Shift mint position
@@ -1477,38 +1546,77 @@ impl Core {
     ) -> Result<()> {
 
         let pair_address = state.lb_pair;
-        let mut position_keys_with_states = get_matching_positions(
+        let position_keys_with_states = get_matching_positions(
             remaining_accounts,
             &payer.key(), // must be owner of SinglePosition position_pks
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Fetched {} matching positions", position_keys_with_states.len());
 
-        if position_keys_with_states.len() > 0 {
-            // sort position by bin id
-            position_keys_with_states
-                .sort_by(|(_, a), (_, b)| a.lower_bin_id.cmp(&b.lower_bin_id));
-
-            // pick position that is for minting, the one with larger bin id
-            let poskey = position_keys_with_states
-                .last()
-                .unwrap()
-                .0; // pick the one with max bin id
+        let new_position =
+        if state.position_pks.len() > 0 {
+            let poskey = state.position_pks[0];
             msg!("    withdraw from mint position: {}", poskey.to_string());
+            if !self.withdraw(payer, remaining_accounts, &pair_address, &poskey)? {
+                msg!("    Mint position not found in DLMM.");
+                // remove old position key from state
+                state.position_pks.retain(|k| k != &poskey);
+            }
+            if state.position_pks.len() == 0 {
+                msg!("    Mint position does not exist, initializing new position.");
+                self.initialize_position(
+                    payer,
+                    remaining_accounts,
+                    &pair_address,
+                    new_price_bin_id,
+                )?
+            }
+            else {
+                msg!("    Mint position still exists after withdrawal.");
+                let (poskey, position_state) =
+                    position_keys_with_states.iter()
+                        .find(|(key, _)| *key == &state.position_pks[0])
+                        .unwrap();
+                self.replace_position_if_required(
+                    payer,
+                    remaining_accounts,
+                    state,
+                    new_price_bin_id,
+                    &poskey,
+                    &position_state,
+                )?
+            }
+        }
+        else if position_keys_with_states.len() > 0 {
+            msg!("    position_pks not initialized, storing first poskey.");
+            // pick position that is for minting
+            let (poskey, position_state) =
+                position_keys_with_states
+                    .first()
+                    .unwrap();
+            state.position_pks.push(**poskey);
 
-            self.withdraw(payer, remaining_accounts, state, &poskey)?;
-            let new_position = self.close_position_if_required(
+            self.replace_position_if_required(
                 payer,
                 remaining_accounts,
                 state,
                 new_price_bin_id,
                 &poskey,
-            )?;
-            self.deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, new_position)?;
+                &position_state,
+            )?
         }
         else {
-            msg!("    No mint position found, must initialize new mint position.");
-        }
+            msg!("    No mint position found, initialize new minting position.");
+            let poskey = self.initialize_position(
+                payer,
+                remaining_accounts,
+                &state.lb_pair,
+                new_price_bin_id,
+            )?;
+            state.position_pks.push(poskey);
+            poskey
+        };
+        self.deposit(payer, remaining_accounts, state, MINTING_POSITION_AMOUNT, 0, new_price_bin_id, &new_position)?;
         
         Ok(())
     }
@@ -1525,40 +1633,79 @@ impl Core {
     ) -> Result<()> {
 
         let pair_address = state.lb_pair;
-        let mut position_keys_with_states = get_matching_positions(
+        let position_keys_with_states = get_matching_positions(
             remaining_accounts,
             &payer.key(), // must be owner of SinglePosition position_pks
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Redeem: Fetched {} matching positions", position_keys_with_states.len());
 
-        if position_keys_with_states.len() > 1 {
-            // sort position by bin id
-            position_keys_with_states
-                .sort_by(|(_, a), (_, b)| a.lower_bin_id.cmp(&b.lower_bin_id));
-
-            // pick position that is for minting, the one with larger bin id
-            let poskey = position_keys_with_states
-                .first()
-                .unwrap()
-                .0; // pick the one with max bin id
+        let new_position =
+        if state.position_pks.len() > 1 {
+            let poskey = state.position_pks[1];
             msg!("    withdraw from mint position: {}", poskey.to_string());
+            if !self.withdraw(payer, remaining_accounts, &pair_address, &poskey)? {
+                msg!("    Redeem position not found in DLMM.");
+                // remove old position key from state
+                state.position_pks.retain(|k| *k != poskey);
+            }
+            if state.position_pks.len() < 2 {
+                msg!("    Redeem position does not exist, initializing new position.");
+                self.initialize_position(
+                    payer,
+                    remaining_accounts,
+                    &pair_address,
+                    new_price_bin_id,
+                )?
+            }
+            else {
+                msg!("    Redeem position still exists after withdrawal.");
+                let (poskey, position_state) =
+                    position_keys_with_states.iter()
+                        .find(|(key, _)| *key == &state.position_pks[1]) // position_pks[1] is redeem position
+                        .unwrap();
+                self.replace_position_if_required(
+                    payer,
+                    remaining_accounts,
+                    state,
+                    new_price_bin_id,
+                    &poskey,
+                    &position_state,
+                )?
+            }
+        }
+        else if position_keys_with_states.len() > 1 {
+            msg!("    position_pks not initialized, storing second poskey.");
+            // pick position that is for redeeming
+            let (poskey, position_state) =
+                position_keys_with_states
+                    .last()
+                    .unwrap();
+            state.position_pks.push(**poskey);
 
-            self.withdraw(payer, remaining_accounts, state, &poskey)?;
-            let new_position = self.close_position_if_required(
+            self.replace_position_if_required(
                 payer,
                 remaining_accounts,
                 state,
                 new_price_bin_id,
                 &poskey,
-            )?;
-            self.deposit(
-                payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, new_position
-            )?;
+                &position_state,
+            )?
         }
         else {
-            msg!("    No redeem position found, must initialize new redemption position.");
-        }
+            msg!("    No mint position found, initialize new redeeming position.");
+            let poskey = self.initialize_position(
+                payer,
+                remaining_accounts,
+                &pair_address,
+                new_price_bin_id,
+            )?;
+            state.position_pks.push(poskey);
+            poskey
+        };
+        self.deposit(
+            payer, remaining_accounts, state, 0, REDEMPTION_POSITION_AMOUNT, new_price_bin_id, &new_position
+        )?;
 
         Ok(())
     }
