@@ -1187,7 +1187,7 @@ impl Core {
                 LiquidityParameterByStrategy {
                     amount_x: if amount_x > 0 { internal_amount } else { 0u64 },
                     amount_y: if amount_y > 0 { internal_amount } else { 0u64 },
-                    active_id: lb_pair_state.active_id,
+                    active_id: new_price_bin_id,
                     max_active_bin_slippage: 30000, // large slippage to allow single bin deposit far from active
                     strategy_parameters: StrategyParameters {
                         min_bin_id: new_price_bin_id,
