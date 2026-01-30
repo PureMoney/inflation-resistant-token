@@ -1186,7 +1186,7 @@ impl Core {
                     strategy_parameters: StrategyParameters {
                         min_bin_id: new_price_bin_id,
                         max_bin_id: new_price_bin_id,
-                        strategy_type: StrategyType::BidAskOneSide, // SpotImBalanced,
+                        strategy_type: StrategyType::SpotImBalanced,
                         parameteres: [0u8; 64],
                     },
                 }
