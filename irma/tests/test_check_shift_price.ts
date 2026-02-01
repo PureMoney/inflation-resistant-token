@@ -161,10 +161,10 @@ async function test_check_shift_price() {
       "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair
       // "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
       // "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // Example position <-- tremoved
-      "4oWeaemqrBU3BTvvHLwXjigThvtZ4JemNQ4wUjz8of1H", // new position account owned by the fed [0..69]
+      // "EwXxETZiqgVYHFGTwMe5WDgruoyBtYB8LiW9M7hvk3ze", // new position account owned by the fed -- no good
       "9rMc8GnMfbq233ZhqjguRt37iXcKrt35LNgxj4ZVChZs", // position? for devUSDT owned by the fed, latest [0..69]
       "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2 for devUSDT owned by the fed [0..0]
-      "FBX1ZEozZFsN4b74QNR8TAkujU16Ctj9WE6mBkbhwqjb", // position? for devUSDT owned by the fed [0..69]
+      // "FBX1ZEozZFsN4b74QNR8TAkujU16Ctj9WE6mBkbhwqjb", // position? for devUSDT owned by the fed [0..69]
       // "BgUcPgRa4TS9f4Kgjb7GzpELDrF67BUv2CHaPJxSn6xy", // new position (need to derive)
       // "EH42NiHFWBsR4p2CPqzskrsyCksqz6DW5bo79V4dwJVj", // BinArray 1 for usdc
       // "Eb1fKdV6wVVyoVQAdRC7bP6TxutGTDrSerwL1zYgtDpu", // BinArray 2 for usdc
@@ -249,7 +249,7 @@ async function test_check_shift_price() {
                              keyString.includes('SysvarC1ock11111111111111111111111111111111');
             return {
                 pubkey: pubkey,
-                isSigner: index == 12,
+                isSigner: index == 10,
                 isWritable: !isProgram, // Most accounts need to be writable
             };
         }))
