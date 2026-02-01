@@ -151,26 +151,10 @@ impl SinglePosition {
     pub fn get_liquidity_in_position<'a>(
         &self,
         acct_infos: &'a [AccountInfo<'a>],
-        minting: bool,
-    ) -> Result<u128> {
+    ) -> Result<(u64, u64)> {
+        let raw: PositionRaw = self.get_positions_total(acct_infos)?;
 
-        let mut total_liquidity: u128 = 0;
-
-        if self.position_pks.len() == 0 || (self.position_pks.len() == 1 && !minting) {
-            return Ok(total_liquidity);
-        }
-        let i = if minting { 0 } else { 1 };
-        let binding = fetch_positions(acct_infos, &[self.position_pks[i]])?;
-        let position = binding.get(0).ok_or(error!(CustomError::MissingPositionState))?;
-
-        // TODO: return amount, not percentage of liquidity shares
-        for liquidity_share in position.liquidity_shares.iter() {
-            total_liquidity = total_liquidity
-                .checked_add(*liquidity_share as u128)
-                .unwrap();
-        }
-
-        Ok(total_liquidity)
+        Ok((raw.amount_x, raw.amount_y))
     }
 
     /// Calculate total position amounts and fees across all positions

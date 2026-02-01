@@ -509,9 +509,7 @@ impl Core {
         ).0;
         msg!("    new_position_key: {}", new_position_key);
 
-        let pos_index = if minting { 0 } else { 1 };
-
-        if mut_state.position_pks[pos_index] == new_position_key {
+        if mut_state.position_pks[0] == new_position_key || mut_state.position_pks[1] == new_position_key {
             return Ok(new_position_key); // do not re-initialize
         }
 
@@ -966,22 +964,25 @@ impl Core {
     pub fn check_position_health<'a>(
         &self,
         acct_infos: &'a [AccountInfo<'a>],
-        state_index: usize,
-    ) -> Result<(u128, u128)> {
+        state_index: usize, // ;pool or lb_pair index
+    ) -> Result<(u64, u64)> {
         let state = &self.position_data.all_positions
             .get(state_index)
             .ok_or(error!(CustomError::PositionNotFound))?;
-        let mut replenish_x_amount: u128 = state.get_liquidity_in_position(acct_infos, true)?;
-        let mut replenish_y_amount: u128 = state.get_liquidity_in_position(acct_infos, false)?;
-        msg!("    --> replenish_x_amount: {}, replenish_y_amount: {}", replenish_x_amount, replenish_y_amount);
-        if replenish_x_amount < MINTING_THRESHOLD as u128 {
-            replenish_x_amount = MINTING_TARGET as u128 - replenish_x_amount;
+        let (mut replenish_x_amount, mut replenish_y_amount) = 
+                    state.get_liquidity_in_position(acct_infos)?;
+        msg!("    --> amount_x remaining: {}, amount_y remaining: {}", 
+                    replenish_x_amount, replenish_y_amount);
+        // use data in self to calculate actual amounts
+
+        if replenish_x_amount < MINTING_THRESHOLD {
+            replenish_x_amount = MINTING_TARGET - replenish_x_amount;
         }
         else {
             replenish_x_amount = 0;
         }
-        if replenish_y_amount < REDEMPTION_THRESHOLD as u128 {
-            replenish_y_amount = REDEMPTION_TARGET as u128 - replenish_y_amount;
+        if replenish_y_amount < REDEMPTION_THRESHOLD {
+            replenish_y_amount = REDEMPTION_TARGET - replenish_y_amount;
         }
         else {
             replenish_y_amount = 0;
