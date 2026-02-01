@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "No inflation data available" });
     }
 
-    const inflationRate = 4.0; // parseFloat(records[0].value);
+    const inflationRate = 5.5; // parseFloat(records[0].value);
     const eventTime = records[0].eventTime || records[0].event_time;
 
     return res.status(200).json({

@@ -456,17 +456,25 @@ pub mod irma {
         let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == reserve_token)
             .ok_or(Error::from(CustomError::ReserveNotFound))?
             .pool_id.clone();
+
+        // can clone only before changes - not good
+        let core = &ctx.accounts.core.clone();
         
         // Get the core reference and work with it consistently
-        let core = &mut ctx.accounts.core;
-        
-        // Find the core_position index for this lb_pair
-        let pos_index = core.position_data.all_positions.iter()
-            .position(|p| p.lb_pair == lb_pair_key)
-            .ok_or(error!(CustomError::SinglePositionNotFound))?;
+        let core_mut: &mut Core = &mut ctx.accounts.core;
         
         // Clone the core_position to avoid borrowing conflicts
-        let mut core_position = core.position_data.all_positions[pos_index].clone();
+        let core_mut_position: &mut SinglePosition = core_mut.get_mut_position_state(lb_pair_key);
+
+        // this needs to be ever true only once
+        if core_mut_position.position_pks.len() < meteora_integration::MAX_POSITIONS {
+            core_mut_position.position_pks.push(Pubkey::default());
+            core_mut_position.bin_array_pks.push(Pubkey::default());
+            if core_mut_position.position_pks.len() < meteora_integration::MAX_POSITIONS {
+                core_mut_position.position_pks.push(Pubkey::default());
+                core_mut_position.bin_array_pks.push(Pubkey::default());
+            }
+        }
 
         // following code is supposed to be in meteora_integration.rs
         // moved here to avoid stack memory allocation issues
@@ -476,90 +484,105 @@ pub mod irma {
         // Note that each position in IRMA is single-sided and single-bin.
         // In other words, min_bin_id == max_bin_id for each position, and 
         // there are two positions: one for each side of the stablecoin pair.
-        {
-            // Find the reserve coin for this LBPair
-            let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair_key).unwrap();
-            
-            let (mint_price, redemption_price) = pricing::get_prices(
-                reserves, &reserve_token)?;
 
-            // convert prices from f64 to u128 using token decimals
-            // msg!("   --> backing decimals: {}", backing_decimals);
-            // msg!("    --> reserve coin: {}, mint_price: {}, redemption_price: {}", 
-            //     reserve_symbol, mint_price, redemption_price);
-            
-            // Convert prices to token units (multiply by 10^decimals)
-            let backing_decimals = reserve_coin.backing_decimals as i32;
-            let multiplier = 10f64.powi(backing_decimals as i32);
-            let mint_price_u128 = (mint_price * multiplier) as u128;
-            let redemption_price_u128 = (redemption_price * multiplier) as u128;
-            let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
-                                    .checked_div(multiplier as u128)
-                                    .ok_or(Error::from(CustomError::PriceConversionError))?;
-            let redemption_price_u128 = (redemption_price_u128 << SCALE_OFFSET)
-                                    .checked_div(multiplier as u128)
-                                    .ok_or(Error::from(CustomError::PriceConversionError))?;
-            // msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
+        // Find the reserve coin for this LBPair
+        let reserve_coin = reserves.iter().find(|stablecoin| stablecoin.pool_id == lb_pair_key).unwrap();
+        
+        let (mint_price, redemption_price) = pricing::get_prices(
+            reserves, &reserve_token)?;
 
-            let lb_pair_state = fetch_lb_pair_state(
-                remaining_accounts, 
-                &lb_pair_key
-            )?;
-            // let creator = lb_pair_state.creator;
-            let bin_step = lb_pair_state.bin_step;
-            let min_bin_id = lb_pair_state.parameters.min_bin_id;
-            let max_bin_id = lb_pair_state.parameters.max_bin_id;
-            // msg!("    --> lb pair bin step: {}, min bin id: {}, max bin id: {}", bin_step, min_bin_id, max_bin_id);
-            let mut mint_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128) {
-                Ok(bin_id) => bin_id,
-                Err(_) => {
-                    // if out of range, set to max or min bin id
-                    if mint_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
-                        min_bin_id
-                    } else {
-                        max_bin_id
-                    }
+        // convert prices from f64 to u128 using token decimals
+        // msg!("   --> backing decimals: {}", backing_decimals);
+        // msg!("    --> reserve coin: {}, mint_price: {}, redemption_price: {}", 
+        //     reserve_symbol, mint_price, redemption_price);
+        
+        // Convert prices to token units (multiply by 10^decimals)
+        let backing_decimals = reserve_coin.backing_decimals as i32;
+        let multiplier = 10f64.powi(backing_decimals as i32);
+        let mint_price_u128 = (mint_price * multiplier) as u128;
+        let redemption_price_u128 = (redemption_price * multiplier) as u128;
+        let mint_price_u128 = (mint_price_u128 << SCALE_OFFSET)
+                                .checked_div(multiplier as u128)
+                                .ok_or(Error::from(CustomError::PriceConversionError))?;
+        let redemption_price_u128 = (redemption_price_u128 << SCALE_OFFSET)
+                                .checked_div(multiplier as u128)
+                                .ok_or(Error::from(CustomError::PriceConversionError))?;
+        // msg!("    --> mint price: {}, redemption price: {}", mint_price_u128, redemption_price_u128);
+
+        let lb_pair_state = fetch_lb_pair_state(
+            remaining_accounts, 
+            &lb_pair_key
+        )?;
+        // let creator = lb_pair_state.creator;
+        let bin_step = lb_pair_state.bin_step;
+        let min_bin_id = lb_pair_state.parameters.min_bin_id;
+        let max_bin_id = lb_pair_state.parameters.max_bin_id;
+        // msg!("    --> lb pair bin step: {}, min bin id: {}, max bin id: {}", bin_step, min_bin_id, max_bin_id);
+        let mut mint_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, mint_price_u128) {
+            Ok(bin_id) => bin_id,
+            Err(_) => {
+                // if out of range, set to max or min bin id
+                if mint_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                    min_bin_id
+                } else {
+                    max_bin_id
                 }
-            };
-            let redemption_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128) {
-                Ok(bin_id) => bin_id,
-                Err(_) => {
-                    // if out of range, set to max or min bin id
-                    if redemption_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
-                        min_bin_id
-                    } else {
-                        max_bin_id
-                    }
-                }
-            };
-            // msg!("    --> mint price bin id: {}, redemption price bin id: {}", mint_price_bin_id, redemption_price_bin_id);
-            // ensure that mint bin id is higher than redemption bin id
-            if mint_price_bin_id <= redemption_price_bin_id {
-                // adjust mint price bin id by one to ensure they are different
-                mint_price_bin_id = redemption_price_bin_id.saturating_add(1);
             }
-            
-            // check whether out of price range - handle each shift separately to avoid borrowing conflicts
-            let needs_mint_shift = mint_price_bin_id != core_position.max_bin_id;
-            let needs_redeem_shift = redemption_price_bin_id != core_position.min_bin_id;
-            
-            // modify core_position in place
+        };
+        let redemption_price_bin_id = match SinglePosition::search_bin_given_price(&lb_pair_state, redemption_price_u128) {
+            Ok(bin_id) => bin_id,
+            Err(_) => {
+                // if out of range, set to max or min bin id
+                if redemption_price_u128 < get_price_from_id(0i32, bin_step).unwrap() {
+                    min_bin_id
+                } else {
+                    max_bin_id
+                }
+            }
+        };
+        // msg!("    --> mint price bin id: {}, redemption price bin id: {}", mint_price_bin_id, redemption_price_bin_id);
+        // ensure that mint bin id is higher than redemption bin id
+        if mint_price_bin_id <= redemption_price_bin_id {
+            // adjust mint price bin id by one to ensure they are different
+            mint_price_bin_id = redemption_price_bin_id.saturating_add(1);
+        }
+        
+        // check whether out of price range - handle each shift separately to avoid borrowing conflicts
+        let needs_mint_shift = mint_price_bin_id != core_mut_position.max_bin_id;
+        let needs_redeem_shift = redemption_price_bin_id != core_mut_position.min_bin_id;
 
+        // out of all SinglePositions in core, we pass a particular one, core_position
+        {
             if needs_mint_shift {
                 core.shift_mint_position(
-                    payer, remaining_accounts, &mut core_position, mint_price_bin_id)?;
+                    payer, remaining_accounts, core_mut_position, mint_price_bin_id)?;
                 // core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
             }
 
             if needs_redeem_shift {
                 core.shift_redeem_position(
-                    payer, remaining_accounts, &mut core_position, redemption_price_bin_id)?;
+                    payer, remaining_accounts, core_mut_position, redemption_price_bin_id)?;
                 // core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
             }
+
+            // Find the core_position index for this lb_pair
+            let pos_index = core.position_data.all_positions.iter()
+                .position(|p| p.lb_pair == lb_pair_key)
+                .ok_or(error!(CustomError::SinglePositionNotFound))?;
+
+            // check that bid and ask positions are still healthy
+            let (delta_x, delta_y) = core.check_position_health(remaining_accounts, pos_index)?;
+            if delta_x > 0 {
+                msg!("Minting position for lb_pair {} is not healthy, replenishing.", lb_pair_key);
+                core.replenish_minting_position(
+                    payer, remaining_accounts, core_mut_position, delta_x.try_into().unwrap())?;
+            }
+            if delta_y > 0 {
+                msg!("Redeeming position for lb_pair {} is not healthy, replenishing.", lb_pair_key);
+                core.replenish_redeeming_position(
+                    payer, remaining_accounts, core_mut_position, delta_y.try_into().unwrap())?;
+            }
         }
-        
-        // Update the core_position back in core
-        core.position_data.all_positions[pos_index] = core_position;
 
         msg!("check_shift_price_ranges called");
         Ok(())
