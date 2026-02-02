@@ -970,7 +970,7 @@ impl Core {
             .get(state_index)
             .ok_or(error!(CustomError::PositionNotFound))?;
         let (mut replenish_x_amount, mut replenish_y_amount) = 
-                    state.get_liquidity_in_position(acct_infos)?;
+                    state.get_liquidity_in_position(acct_infos, &self.position_data)?;
         msg!("    --> amount_x remaining: {}, amount_y remaining: {}", 
                     replenish_x_amount, replenish_y_amount);
         // use data in self to calculate actual amounts
