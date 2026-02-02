@@ -44,6 +44,7 @@ pub fn fetch_bin_arrays<'a>(
 }
 
 /// Fetch positions dynamically when needed (zero-copy)
+/// NOTE: this does not output a Vec of tuples, just position states
 pub fn fetch_positions<'a>(
     acct_infos: &'a [AccountInfo<'a>], position_pks: &[Pubkey]
 ) -> Result<Vec<&'a PositionV2>> {

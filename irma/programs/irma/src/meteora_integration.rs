@@ -35,10 +35,12 @@ use anchor_lang::solana_program::{
 use anchor_lang::InstructionData;
 use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use anchor_spl::token_interface::{Mint, TokenAccount};
-use anchor_spl::token_2022_extensions::spl_pod::option::Nullable;
+// use anchor_spl::token_2022_extensions::spl_pod::option::Nullable;
 // use anchor_spl::token_2022::spl_token_2022;
 // use anchor_spl::token::spl_token;
 const DLMM_ID: Pubkey = commons::dlmm::ID;
+
+pub use crate::position_manager::MAX_POSITIONS;
 
 // Enum to represent either type of deserializable account
 #[derive(Debug, Clone)]
@@ -47,7 +49,6 @@ pub enum AccountData<T> {
     Anchor(T),
 }
 
-pub const MAX_POSITIONS: usize = 2; // allow only 2 positions per pair
 const MINTING_THRESHOLD: u64 = 1_000_000; // 1 million units for minting positions
 const MINTING_TARGET: u64 = MINTING_THRESHOLD + 100_000;
 const REDEMPTION_THRESHOLD: u64 = 100_000;
@@ -271,11 +272,11 @@ impl Core {
         // let mut position_pks: Vec<&Pubkey> = vec![];
         // Note: We'll fetch PositionV2 positions and bin_arrays dynamically when needed
         // let mut positions = vec![];
-        let mut min_bin_id = 0;
-        let mut max_bin_id = 0;
+        // let mut min_bin_id = 0;
+        // let mut max_bin_id = 0;
         // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
-        let (poskey, position_state) =
+        let (poskey, _position_state) =
             position_keys_with_states.iter()
                 .find(|(key, _)| *key == &poskey)
                 .unwrap();
@@ -470,7 +471,6 @@ impl Core {
         remaining_accounts: &'a [AccountInfo<'a>],
         mut_state: &mut SinglePosition,
         new_price_bin_id: i32,
-        minting: bool,
     ) -> Result<Pubkey> {
         let lb_pair: &Pubkey = &mut_state.lb_pair;
         msg!("==> Initializing new position for lb_pair: {}", lb_pair);
@@ -1006,7 +1006,6 @@ impl Core {
                 remaining_accounts_in,
                 mut_state,
                 mut_state.max_bin_id,
-                true
             )?;
             mut_state.position_pks[0] = new_position_key;
         }
@@ -1033,7 +1032,6 @@ impl Core {
                 remaining_accounts_in,
                 mut_state,
                 mut_state.min_bin_id,
-                false
             )?;
             mut_state.position_pks[1] = new_position_key;
         }
@@ -1545,7 +1543,6 @@ impl Core {
         new_price_bin_id: i32,
         old_position_key: &'a Pubkey,
         position_state: &PositionV2,
-        minting: bool
     ) -> Result<Pubkey> {
         // For IRMA, we always have only one bin position at any time.
         // So after withdrawing from the old position, we can close it.
@@ -1556,8 +1553,6 @@ impl Core {
             msg!("    Position bin matches target bin, no need to replace.");
             return Ok(*old_position_key);
         }
-
-        let lb_pair = mut_state.lb_pair;
 
         // we cannot close if the two positions are one and the same
         if mut_state.position_pks[0] != mut_state.position_pks[1] {
@@ -1575,7 +1570,6 @@ impl Core {
             remaining_accounts,
             mut_state,
             new_price_bin_id,
-            minting
         )?)
     }
 
@@ -1612,7 +1606,6 @@ impl Core {
                     remaining_accounts,
                     mut_state,
                     new_price_bin_id,
-                    true
                 )?;
             }
             else {
@@ -1628,7 +1621,6 @@ impl Core {
                     new_price_bin_id,
                     &poskey,
                     &position_state,
-                    true
                 )?;
             }
             mut_state.position_pks[0]
@@ -1648,7 +1640,6 @@ impl Core {
                 new_price_bin_id,
                 &poskey,
                 &position_state,
-                true
             )?;
             mut_state.position_pks[0]
         }
@@ -1659,7 +1650,6 @@ impl Core {
                 remaining_accounts,
                 mut_state,
                 new_price_bin_id,
-                true
             )?;
             mut_state.position_pks[0]
         };
@@ -1698,7 +1688,6 @@ impl Core {
                     remaining_accounts,
                     mut_state,
                     new_price_bin_id,
-                    false
                 )?;
             }
             else {
@@ -1714,7 +1703,6 @@ impl Core {
                     new_price_bin_id,
                     &poskey,
                     &position_state,
-                    false
                 )?;
             }
             mut_state.position_pks[1]
@@ -1734,7 +1722,6 @@ impl Core {
                 new_price_bin_id,
                 &poskey,
                 &position_state,
-                false
             )?;
             mut_state.position_pks[1]
         }
@@ -1745,7 +1732,6 @@ impl Core {
                 remaining_accounts,
                 mut_state,
                 new_price_bin_id,
-                false
             )?;
             mut_state.position_pks[1]
         };
