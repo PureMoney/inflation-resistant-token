@@ -174,18 +174,8 @@ impl SinglePosition {
         let decimals_x = get_decimals(token_x, &position_data.tokens);
         let decimals_y = get_decimals(token_y, &position_data.tokens);
 
-        let amount_x_ui = safe_mul_shr_cast(
-            raw.amount_x.into(),
-            10u64.pow(decimals_x as u32).into(),
-            SCALE_OFFSET.into(),
-            Rounding::Down
-        )?;
-        let amount_y_ui = safe_mul_shr_cast(
-            raw.amount_y.into(),
-            10u64.pow(decimals_y as u32).into(),
-            SCALE_OFFSET.into(),
-            Rounding::Down
-        )?;
+        let amount_x_ui = raw.amount_x / 10u64.pow(decimals_x as u32);
+        let amount_y_ui = raw.amount_y / 10u64.pow(decimals_y as u32);
 
         Ok((amount_x_ui, amount_y_ui))
     }
