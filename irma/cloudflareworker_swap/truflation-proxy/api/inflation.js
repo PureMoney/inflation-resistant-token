@@ -23,6 +23,7 @@ export default async function handler(req, res) {
 
   try {
     // Create a dummy wallet for identification (read-only, no signing needed)
+    // TODO: Replace with a real wallet, or use chainlink
     const wallet = new Wallet(
       "0x0000000000000000000000000000000000000000000000000000000000000001"
     );
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "No inflation data available" });
     }
 
-    const inflationRate = 5.5; // parseFloat(records[0].value);
+    const inflationRate = parseFloat(records[0].value);
     const eventTime = records[0].eventTime || records[0].event_time;
 
     return res.status(200).json({
