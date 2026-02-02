@@ -23,6 +23,8 @@ use commons::ONE;
 use commons::conversions::*;
 use commons::math::*;
 
+pub const MAX_POSITIONS: usize = 2; // allow only 2 positions per pair
+
 // Serializable version of Mint info
 #[account]
 #[derive(Debug)]
@@ -166,20 +168,26 @@ impl SinglePosition {
         // msg!("Fetching total position for LB Pair {}", self.lb_pair);
 
         // Fetch positions
-        let positions = fetch_positions(acct_infos, &self.position_pks)?;
+        let mut positions = fetch_positions(acct_infos, &self.position_pks)?;
          // msg!("    --> fetched {} positions", positions.len());
 
-        if positions.len() == 0 {
+        if positions.len() == 0 || positions.len() > MAX_POSITIONS {
             return Ok(PositionRaw::default());
+        }
+        if positions[0].lower_bin_id == positions[1].lower_bin_id {
+            positions.remove(1);
         }
         
         // Fetch bin arrays
-        let bin_arrays = fetch_bin_arrays(acct_infos, &self.bin_array_pks)?;
+        let mut bin_arrays = fetch_bin_arrays(acct_infos, &self.bin_array_pks)?;
         // msg!("    --> fetched {} bin arrays", bin_arrays.len());
 
         // bin arrays must be present because positions exist
-        if bin_arrays.len() == 0 {
+        if bin_arrays.len() == 0 || bin_arrays.len() > MAX_POSITIONS {
             Err(Error::from(CustomError::FailedToFetchBinArrays))?;
+        }
+        if bin_arrays[0].0 == bin_arrays[1].0 {
+            bin_arrays.remove(1);
         }
 
         let mut amount_x = 0u64;
