@@ -17,6 +17,7 @@ use crate::errors::CustomError;
 
 use commons::dlmm::accounts::*;
 use commons::dlmm::types::Bin;
+use commons::dlmm::types::Rounding;
 use commons::bin::*;
 use commons::position::*;
 use commons::ONE;
@@ -148,15 +149,45 @@ impl SinglePosition {
         Ok(min_out_amount)
     }
 
+    fn get_token_mints<'a>(
+        acct_infos: &'a [AccountInfo<'a>],
+        lb_pair_pk: &Pubkey,
+    ) -> Result<(Pubkey, Pubkey)> {
+        let lb_pair_state = fetch_lb_pair_state(acct_infos, lb_pair_pk)?;
+
+        Ok((
+            lb_pair_state.token_x_mint,
+            lb_pair_state.token_y_mint,
+        ))
+    }
+
     /// Get total liquidity in a position
     /// This assumes that position_pks has both position keys: [mint_position_pk, redeem_position_pk]
     pub fn get_liquidity_in_position<'a>(
         &self,
         acct_infos: &'a [AccountInfo<'a>],
+        position_data: &AllPosition
     ) -> Result<(u64, u64)> {
         let raw: PositionRaw = self.get_positions_total(acct_infos)?;
 
-        Ok((raw.amount_x, raw.amount_y))
+        let (token_x, token_y) = Self::get_token_mints(acct_infos, &self.lb_pair)?;
+        let decimals_x = get_decimals(token_x, &position_data.tokens);
+        let decimals_y = get_decimals(token_y, &position_data.tokens);
+
+        let amount_x_ui = safe_mul_shr_cast(
+            raw.amount_x.into(),
+            10u64.pow(decimals_x as u32).into(),
+            SCALE_OFFSET.into(),
+            Rounding::Down
+        )?;
+        let amount_y_ui = safe_mul_shr_cast(
+            raw.amount_y.into(),
+            10u64.pow(decimals_y as u32).into(),
+            SCALE_OFFSET.into(),
+            Rounding::Down
+        )?;
+
+        Ok((amount_x_ui, amount_y_ui))
     }
 
     /// Calculate total position amounts and fees across all positions
