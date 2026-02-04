@@ -1,8 +1,14 @@
-const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
-import { Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import { 
+  Connection, 
+  Keypair, 
+  PublicKey, 
+  SystemProgram, 
+  TransactionInstruction, 
+  ComputeBudgetProgram 
+} from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
-import DLMM, { StrategyType } from "@meteora-ag/dlmm";
+import DLMM from "@meteora-ag/dlmm";
 import { POOL_ADDRESS, RESERVE_MINT_STR, RESERVE_SYMBOL } from "./config.js";
 import { Logger, logSwapEvent, updateActiveBins } from "./d1_logs.js";
 import { CustomWallet, getPrices } from "./dlmm.js";
@@ -12,6 +18,8 @@ import irma from "../../target/idl/irma.json";
 // ==================================================================
 // REBALANCING FUNCTION for Swaps
 // ==================================================================
+
+const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
 export const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
 
