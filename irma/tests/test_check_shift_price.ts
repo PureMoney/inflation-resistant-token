@@ -1,3 +1,5 @@
+// TODO: there is a vulnerability in @coral-xyz/anchor
+// Need to fix it.
 import { AnchorProvider, Program, Wallet } from "@coral-xyz/anchor";
 import pkg from "@coral-xyz/anchor";
 const { BN } = pkg;
@@ -216,7 +218,7 @@ async function test_check_shift_price() {
             Buffer.from([112, 111, 115, 105, 116, 105, 111, 110]), //"POSITION"),
             LB_PAIR_DEVUSDT.toBuffer(),
             base.toBuffer(),
-            Buffer.from([0, 0, 0, 0]),
+            Buffer.from([0, 0, 0, 0]), // position lower bin ID
             Buffer.from([0, 0, 0, 70]),
           ],
           DLMM_ID,
