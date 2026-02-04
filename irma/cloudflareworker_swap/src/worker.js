@@ -1,42 +1,34 @@
-// 1. IMPORTS
+// IRMA Cloudflare Worker - Compatible with Workers Runtime
 import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { Program, AnchorProvider } from "@coral-xyz/anchor";
-import { Buffer } from "buffer";
-import IDL from "../../target/idl/irma.json";
-import { processRebalance } from "./process_rebalance.js";
+import { PythHttpClient, getPythProgramKeyForCluster } from "@pythnetwork/client";
+
 import { Logger, logPriceUpdate, queryLogs, getActiveBins } from "./d1_logs.js";
 import { 
   CustomWallet, 
-  getPrices, 
-  setupSolanaConnection, 
-  checkAndRebalanceBins, 
-  manualRebalanceBins } from "./dlmm.js";
+} from "./dlmm.js";
 import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE, ENABLE_TEST_SCAFFOLDING } from "./config.js";
+import irma from "../../target/idl/irma.json";
 
 const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
 
-// ==================================================================
-// HELPER FUNCTIONS
-// ==================================================================
-
 /**
- * Fetch current inflation rate from our Truflation Vercel proxy
- * The proxy handles the SDK/axios complexity in a Node.js environment
- * Returns inflation rate as a percentage (e.g., 2.169 for 2.169%)
+ * Fetch current inflation rate from Truflation Vercel proxy
+ * Returns inflation rate as percentage (e.g., 2.169 for 2.169%)
  */
-async function fetchTruflationRate(env) {
+async function fetch_truflation_rate(env) {
   console.log(`📊 Fetching inflation data from ${env.TRUFLATION_PROXY_URL}...`);
 
-  const proxyUrl = env.TRUFLATION_PROXY_URL;
-  if (!proxyUrl) {
+  const proxy_url = env.TRUFLATION_PROXY_URL;
+  if (!proxy_url) {
     throw new Error("TRUFLATION_PROXY_URL not configured. Deploy truflation-proxy first.");
   }
 
-  const apiUrl = `${proxyUrl}/api/inflation`;
-  console.log(`📡 Querying: ${apiUrl}`);
+  const api_url = `${proxy_url}/api/inflation`;
+  console.log(`📡 Querying: ${api_url}`);
 
   try {
-    const res = await fetch(apiUrl, {
+    const res = await fetch(api_url, {
       method: "GET",
       headers: {
         "Accept": "application/json",
@@ -44,8 +36,8 @@ async function fetchTruflationRate(env) {
     });
 
     if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`HTTP ${res.status}: ${errorText}`);
+      const error_text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${error_text}`);
     }
 
     const data = await res.json();
@@ -54,66 +46,89 @@ async function fetchTruflationRate(env) {
       throw new Error(`Invalid response from proxy: ${JSON.stringify(data)}`);
     }
 
-    const inflationRate = data.data.inflationRate;
-    console.log(`📈 Truflation US Inflation Index: ${inflationRate}%`);
+    const inflation_rate = data.data.inflationRate;
+    console.log(`📈 Truflation US Inflation Index: ${inflation_rate}%`);
     console.log(`📅 Data timestamp: ${new Date(data.data.timestamp).toISOString()}`);
     
-    return inflationRate;
+    return inflation_rate;
   } catch (error) {
     console.error("❌ Failed to fetch Truflation data:", error.message);
     throw error;
   }
 }
 
-
 /**
- * Calculate the IRMA mint price based on Truflation inflation rate
- * Formula:
- *   if (truflation > 2.0) {
- *     mint_price = (1.00 + (truflation - 2.0) / 100.0) / quote_token_price_in_usd;
- *   } else {
- *     mint_price = 1.00 / quote_token_price_in_usd;
- *   }
+ * Calculate IRMA mint price based on Truflation inflation rate
+ * Formula: if inflation > target, adjust upward; otherwise use 1.0
  */
-function calculateMintPrice(inflationRate, quoteTokenPriceUsd) {
-  let mintPrice;
+function calculate_mint_price(inflation_rate, quote_token_price_usd) {
+  let mint_price;
   
-  if (inflationRate > TARGET_INFLATION_RATE) {
+  if (inflation_rate > TARGET_INFLATION_RATE) {
     // Inflation above target: adjust mint price upward
-    const inflationAdjustment = (inflationRate - TARGET_INFLATION_RATE) / 100.0;
-    mintPrice = (1.00 + inflationAdjustment) / quoteTokenPriceUsd;
-    console.log(`📊 Inflation ${inflationRate}% > ${TARGET_INFLATION_RATE}%: adjustment = ${inflationAdjustment}`);
+    let inflation_adjustment = (inflation_rate - TARGET_INFLATION_RATE) / 100.0;
+    mint_price = (1.00 + inflation_adjustment) / quote_token_price_usd;
+    console.log(`📊 Inflation ${inflation_rate}% > ${TARGET_INFLATION_RATE}%: adjustment = ${inflation_adjustment}`);
   } else {
-    // Inflation at or below target: mint price = 1.0 / quote token price
-    mintPrice = 1.00 / quoteTokenPriceUsd;
-    console.log(`📊 Inflation ${inflationRate}% <= ${TARGET_INFLATION_RATE}%: no adjustment`);
+    // Below target: no adjustment
+    mint_price = 1.00 / quote_token_price_usd;
+    console.log(`📊 Inflation ${inflation_rate}% <= ${TARGET_INFLATION_RATE}%: no adjustment`);
   }
   
-  console.log(`💰 Calculated mint price: ${mintPrice} (quote token price: ${quoteTokenPriceUsd} USD)`);
-  return mintPrice;
+  console.log(`💰 Calculated mint price: ${mint_price} (quote token price: ${quote_token_price_usd} USD)`);
+  return mint_price;
 }
 
 /**
- * Fetch the quote token (stablecoin) price in USD
- * For now, we assume it's ~1.0 USD for stablecoins
- * TODO: Integrate with Meteora pool or oracle for real price
+ * Get quote token price using Pyth oracle (compatible with Cloudflare Workers)
+ * Replaces hardcoded 1.0 assumption for better accuracy
  */
-async function getQuoteTokenPriceUsd(connection, poolAddress) {
-  // For stablecoins like USDC or USDT, the price is typically very close to $1
-  // In production, you might want to:
-  // 1. Query Meteora pool for the actual price
-  // 2. Use an oracle like Pyth or Switchboard
-  // 3. Average across multiple DEXs
+async function get_quote_token_price_usd(connection, pool_address, reserve_symbol) {
+  console.log(`📊 Fetching ${reserve_symbol} price from Pyth oracle...`);
   
-  // For now, return 1.0 as a reasonable assumption for devUSDC
-  console.log("📊 Assuming quote token price = $1.00 USD (stablecoin)");
-  return 1.0;
+  try {
+    // Pyth price feed IDs for stablecoins
+    const price_feed_ids = {
+      'USDC': '0x41f3625971ca2ed2263e78573fe5ce23e13d2558ed3f2e47ab0f84fb9e7ae722',
+      'USDT': '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
+      'devUSDC': '0x41f3625971ca2ed2263e78573fe5ce23e13d2558ed3f2e47ab0f84fb9e7ae722',
+      'devUSDT': '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
+    };
+    
+    const price_feed_id = price_feed_ids[reserve_symbol];
+    if (!price_feed_id) {
+      console.log(`⚠️  No Pyth feed for ${reserve_symbol}, defaulting to $1.00`);
+      return 1.0;
+    }
+    
+    // Initialize Pyth client for Workers environment
+    const pyth_client = new PythHttpClient(connection, getPythProgramKeyForCluster('devnet'));
+    
+    // Fetch price data
+    const price_data = await pyth_client.getAssetPricesFromAccounts([price_feed_id]);
+    const price = price_data[0];
+    
+    if (!price || !price.price) {
+      console.log(`⚠️  Failed to get Pyth price for ${reserve_symbol}, defaulting to $1.00`);
+      return 1.0;
+    }
+    
+    const price_usd = price.price * Math.pow(10, price.expo);
+    console.log(`💰 Pyth ${reserve_symbol}/USD price: $${price_usd}`);
+    
+    return price_usd;
+    
+  } catch (error) {
+    console.error(`❌ Pyth oracle error for ${reserve_symbol}:`, error.message);
+    console.log(`⚠️  Falling back to $1.00 for ${reserve_symbol}`);
+    return 1.0;
+  }
 }
 
 /**
- * Update the IRMA mint price on-chain using Truflation data
+ * Update IRMA mint price on-chain using Truflation data
  */
-async function updateMintPriceFromTruflation(env) {
+async function update_mint_price_from_truflation(env) {
   console.log("🔄 Starting mint price update from Truflation...");
   
   const HELIUS_API_KEY = env.HELIUS_API_KEY;
@@ -121,57 +136,56 @@ async function updateMintPriceFromTruflation(env) {
 
   try {
     // 1. Fetch inflation rate from Truflation
-    const inflationRate = await fetchTruflationRate(env);
+    const inflation_rate = await fetch_truflation_rate(env);
     
     // 2. Setup Solana connection and program
-    const secretString = env.ADMIN_PRIVATE_KEY;
-    const secretKey = new Uint8Array(JSON.parse(secretString));
+    const secret_string = env.ADMIN_PRIVATE_KEY;
+    const secret_key = new Uint8Array(JSON.parse(secret_string));
     const connection = new Connection(HELIUS_RPC_URL, "confirmed");
-    const adminKeypair = Keypair.fromSecretKey(secretKey);
+    const admin_keypair = Keypair.fromSecretKey(secret_key);
     
-    const wallet = new CustomWallet(adminKeypair);
+    const wallet = new CustomWallet(admin_keypair);
     const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
-    const program = new Program(IDL, provider);
+    const program = new Program(irma, provider);
     
-    // Derive PDAs
-    const programId = new PublicKey(IDL.address);
-    const [statePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("state_v5")],
-      programId
+    // Derive PDAs following IRMA conventions
+    const program_id = new PublicKey(irma.address);
+    const [state_pda] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("state_v5")], // Using TextEncoder instead of Buffer
+      program_id
     );
-    const [corePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("core_v5")],
-      programId
+    const [core_pda] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("core_v5")], // Using TextEncoder instead of Buffer
+      program_id
     );
     
-    // 3. Get quote token price (USD price of the reserve stablecoin)
-    const quoteTokenPriceUsd = await getQuoteTokenPriceUsd(connection, POOL_ADDRESS);
+    // 3. Get quote token price using Pyth oracle
+    const quote_token_price_usd = await get_quote_token_price_usd(connection, POOL_ADDRESS, RESERVE_SYMBOL);
     
     // 4. Calculate new mint price
-    const newMintPrice = calculateMintPrice(inflationRate, quoteTokenPriceUsd);
+    const new_mint_price = calculate_mint_price(inflation_rate, quote_token_price_usd);
     
-    // 5. Convert to the format expected by the on-chain program (f64 as fixed-point)
-    // The program expects price as f64, we'll pass it directly
-    const priceAsNumber = newMintPrice;
+    // 5. Convert to format expected by on-chain program
+    const price_as_number = new_mint_price;
     
-    console.log(`📝 Setting mint price for ${RESERVE_SYMBOL} to ${priceAsNumber}...`);
+    console.log(`📝 Setting mint price for ${RESERVE_SYMBOL} to ${price_as_number}...`);
     
-    // 6. Call setMintPrice on the IRMA program
-    const txInstruction = await program.methods
-      .setMintPrice(RESERVE_SYMBOL, priceAsNumber)
+    // 6. Call set_mint_price instruction on IRMA program
+    const tx_instruction = await program.methods
+      .setMintPrice(RESERVE_SYMBOL, price_as_number)
       .accounts({
-        state: statePda,
+        state: state_pda,
         irmaAdmin: wallet.publicKey,
-        core: corePda,
+        core: core_pda,
         systemProgram: SystemProgram.programId,
       })
       .transaction();
     
-    txInstruction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    txInstruction.feePayer = adminKeypair.publicKey;
-    txInstruction.sign(adminKeypair);
+    tx_instruction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    tx_instruction.feePayer = admin_keypair.publicKey;
+    tx_instruction.sign(admin_keypair);
     
-    const tx = await connection.sendRawTransaction(txInstruction.serialize(), { 
+    const tx = await connection.sendRawTransaction(tx_instruction.serialize(), { 
       skipPreflight: false,
       maxRetries: 0
     });
@@ -179,13 +193,109 @@ async function updateMintPriceFromTruflation(env) {
     
     return {
       success: true,
-      inflationRate,
-      quoteTokenPriceUsd,
-      newMintPrice,
+      inflation_rate,
+      quote_token_price_usd,
+      new_mint_price,
       transaction: tx,
     };
   } catch (error) {
     console.error("❌ Failed to update mint price:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Simplified check_shift_price_range function for Workers environment
+ * Calls the on-chain instruction without Node.js dependencies
+ */
+async function check_shift_price_range_worker(env) {
+  console.log("🚀 Worker version: Test integration with Meteora DLMM");
+  
+  try {
+    const HELIUS_API_KEY = env.HELIUS_API_KEY;
+    const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+    
+    const secret_string = env.ADMIN_PRIVATE_KEY;
+    const secret_key = new Uint8Array(JSON.parse(secret_string));
+    const connection = new Connection(HELIUS_RPC_URL, "confirmed");
+    const admin_keypair = Keypair.fromSecretKey(secret_key);
+    
+    const wallet = new CustomWallet(admin_keypair);
+    const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
+    const program = new Program(irma, provider);
+    
+    // Derive PDAs
+    const program_id = new PublicKey(irma.address);
+    const [state_pda] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("state_v5")],
+      program_id
+    );
+    const [core_pda] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("core_v5")],
+      program_id
+    );
+    
+    const reserve_token = "devUSDT";
+    
+    // Hardcoded config keys for devUSDT (following IRMA conventions)
+    const config_keys = [
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // DLMM pair
+      "9rMc8GnMfbq233ZhqjguRt37iXcKrt35LNgxj4ZVChZs", // position 1
+      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2
+      "2GPfbE3E972LCqiBSsujyUvziAq1z5NvsBTWdVX8VTR9", // bin array 1
+      "3eEiY1mqyka1E6WsZKLZnC7mDBT5Pn8zUkz1nqg2MEoA", // bin array 2
+      "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // IRMA mint
+      "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // devUSDT mint
+      "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
+      "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
+      "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
+      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
+      "9ZEqmbBp3QaT4z25xnQqdLLeRqb7Vej59vdgvHmVhwrk",
+      "L93d6igVFXZKhcujZNWKeM1rH1XyqWmHttRoy5J3vg6",
+      "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // IRMA account owned by the USDT pool
+      "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj", // devUSDT account owned the USDT pool
+      "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
+      "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
+      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // IRMA token account owned by the-fed
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+      "11111111111111111111111111111111", // System program ID
+      "SysvarRent111111111111111111111111111111111", // Rent sysvar
+      "SysvarC1ock11111111111111111111111111111111", // Clock sysvar
+    ];
+
+    // Call check_shift_price_ranges transaction
+    console.log("🔄 Calling check_shift_price_ranges() transaction...");
+    const tx_sell = await program.methods
+      .checkShiftPriceRanges(reserve_token)
+      .accounts({
+        state: state_pda,
+        irmaAdmin: admin_keypair.publicKey,
+        core: core_pda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(config_keys.map((key, index) => ({
+        pubkey: new PublicKey(key),
+        isSigner: index === 10, // Only the fed wallet should be a signer
+        isWritable: !key.includes('TokenkegQ') && 
+                    !key.includes('LBUZKhRx') && 
+                    !key.includes('11111111') &&
+                    !key.includes('TokenzQdB') &&
+                    !key.includes('MemoSq4gq'), // Programs are read-only
+      })))
+      .transaction();
+
+    const signature = await connection.sendTransaction(tx_sell, [admin_keypair]);
+    console.log("🚀 Transaction sent:", signature);
+
+    // Wait for confirmation
+    await connection.confirmTransaction(signature, "confirmed");
+    console.log("✅ Transaction confirmed:", signature);
+
+    return { success: true, signature };
+  } catch (error) {
+    console.error("❌ Error during check_shift_price_range:", error);
     throw error;
   }
 }
@@ -195,36 +305,36 @@ async function updateMintPriceFromTruflation(env) {
 // ==================================================================
 
 export default {
-  // Handle HTTP requests (webhooks from Helius, manual triggers, etc.)
+  // Handle HTTP requests (webhooks from Helius, manual triggers)
   async fetch(request, env, ctx) {
-    return handleRequest(request, env, ctx);
+    return handle_request(request, env, ctx);
   },
   
-  // Handle scheduled triggers (cron jobs) - runs once daily to update mint price
+  // Handle scheduled triggers (cron jobs) - runs daily to update mint price
   async scheduled(event, env, ctx) {
     console.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
-    ctx.waitUntil(handleScheduledMintPriceUpdate(env));
+    ctx.waitUntil(handle_scheduled_mint_price_update(env));
   }
 };
 
 /**
- * Handle scheduled mint price update (called by cron trigger)
- * Also triggers automatic bin rebalancing after price update
+ * Handle scheduled mint price update with automatic bin rebalancing
+ * Calls on-chain check_shift_price_ranges() after price update
  */
-async function handleScheduledMintPriceUpdate(env) {
+async function handle_scheduled_mint_price_update(env) {
   const logger = new Logger(env.DB);
   
   try {
     await logger.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
     
-    const result = await updateMintPriceFromTruflation(env);
+    const result = await update_mint_price_from_truflation(env);
     await logger.log(`✅ Scheduled mint price update completed: ${JSON.stringify(result)}`);
     
-    // Log price update to D1
+    // Log price update to D1 database
     await logPriceUpdate(env.DB, {
-      inflationRate: result.inflationRate,
-      quoteTokenPriceUsd: result.quoteTokenPriceUsd,
-      newMintPrice: result.newMintPrice,
+      inflationRate: result.inflation_rate,
+      quoteTokenPriceUsd: result.quote_token_price_usd,
+      newMintPrice: result.new_mint_price,
       txSignature: result.transaction,
       triggerType: 'scheduled',
       success: true,
@@ -232,30 +342,21 @@ async function handleScheduledMintPriceUpdate(env) {
     
     // After price update, check and rebalance bins if needed
     if (result.success) {
-      logger.log("🔄 Checking bin synchronization after price update...");
+      await logger.log("🔄 Checking bin synchronization after price update...");
       
       try {
-        // Get current prices from the program to check both mint and redemption
-        const { adminKeypair, program, statePda, corePda } = await setupSolanaConnection(env);
-        const prices = await getPrices(program, statePda, corePda, adminKeypair.publicKey, RESERVE_SYMBOL);
-        
-        const rebalanceResult = await checkAndRebalanceBins(
-          env, 
-          prices.mintPrice, 
-          prices.redemptionPrice, 
-          'auto'
-        );
-        
-        logger.log(`✅ Bin rebalancing check complete: ${JSON.stringify(rebalanceResult)}`);
-      } catch (rebalanceError) {
-        logger.error(`❌ Bin rebalancing after price update failed: ${rebalanceError.message}`);
-        console.error(`❌ Bin rebalancing after price update failed: ${rebalanceError.message}`);
+        // Call on-chain check_shift_price_ranges on-chain transaction
+        const rebalance_result = await check_shift_price_range_worker(env);
+        await logger.log("✅ On-chain check shift price complete");
+      } catch (shift_price_error) {
+        await logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
+        console.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
       }
     }
     
     await logger.flush();
   } catch (error) {
-    logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
+    await logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
     console.error("❌ Scheduled mint price update failed:", error.message);
     
     await logPriceUpdate(env.DB, {
@@ -271,25 +372,21 @@ async function handleScheduledMintPriceUpdate(env) {
   }
 }
 
-async function handleRequest(request, env, ctx) {
+async function handle_request(request, env, ctx) {
   const url = new URL(request.url);
   
-  // ============================================================
   // ACTION ENDPOINTS - Triggered via query parameter or GET request
-  // ============================================================
-  
-  // GET /update-mint-price - Manually trigger mint price update
-  // Also supports: GET /?action=update-mint-price
   if (request.method === 'GET') {
     if (ENABLE_TEST_SCAFFOLDING !== true) {
       return new Response("Not Found", { status: 404 });
     }
+    
     const action = url.searchParams.get('action') || url.pathname.slice(1);
     
     if (action === 'update-mint-price') {
       console.log("🔧 Manual trigger: Update mint price from Truflation");
       try {
-        const result = await updateMintPriceFromTruflation(env);
+        const result = await update_mint_price_from_truflation(env);
         return new Response(JSON.stringify({
           success: true,
           message: "Mint price updated successfully",
@@ -312,11 +409,11 @@ async function handleRequest(request, env, ctx) {
     if (action === 'fetch-inflation') {
       console.log("🔧 Manual trigger: Fetch Truflation inflation rate (test)");
       try {
-        const inflationRate = await fetchTruflationRate(env);
+        const inflation_rate = await fetch_truflation_rate(env);
         return new Response(JSON.stringify({
           success: true,
-          inflationRate,
-          message: `Current inflation rate: ${inflationRate}%`
+          inflationRate: inflation_rate,
+          message: `Current inflation rate: ${inflation_rate}%`
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -332,39 +429,37 @@ async function handleRequest(request, env, ctx) {
       }
     }
     
-    // Manual bin rebalancing endpoint
-    if (action === 'rebalance-bins') {
-      console.log("🔧 Manual trigger: Rebalance bins");
-      try {
-        const result = await manualRebalanceBins(env);
-        return new Response(JSON.stringify({
-          success: true,
-          message: "Bin rebalancing completed",
-          ...result
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      } catch (error) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: error.message
-        }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-    }
+    // if (action === 'rebalance-bins') {
+    //   console.log("🔧 Manual trigger: Rebalance bins");
+    //   try {
+    //     const result = await manualRebalanceBins(env);
+    //     return new Response(JSON.stringify({
+    //       success: true,
+    //       message: "Bin rebalancing completed",
+    //       ...result
+    //     }), {
+    //       status: 200,
+    //       headers: { "Content-Type": "application/json" }
+    //     });
+    //   } catch (error) {
+    //     return new Response(JSON.stringify({
+    //       success: false,
+    //       error: error.message
+    //     }), {
+    //       status: 500,
+    //       headers: { "Content-Type": "application/json" }
+    //     });
+    //   }
+    // }
     
-    // View logs endpoint
     if (action === 'view-logs') {
-      const logType = url.searchParams.get('type') || 'console';
+      const log_type = url.searchParams.get('type') || 'console';
       const limit = parseInt(url.searchParams.get('limit') || '100', 10);
       const offset = parseInt(url.searchParams.get('offset') || '0', 10);
       const expand = url.searchParams.get('expand') === 'true';
       
       try {
-        const result = await queryLogs(env.DB, logType, limit, offset, expand);
+        const result = await queryLogs(env.DB, log_type, limit, offset, expand);
         return new Response(JSON.stringify(result), {
           status: result.error ? 400 : 200,
           headers: { "Content-Type": "application/json" }
@@ -380,11 +475,10 @@ async function handleRequest(request, env, ctx) {
       }
     }
     
-    // View current active bins as stored in D1
     if (action === 'view-bins') {
       try {
-        const activeBins = await getActiveBins(env.DB);
-        if (!activeBins) {
+        const active_bins = await getActiveBins(env.DB);
+        if (!active_bins) {
           return new Response(JSON.stringify({
             success: true,
             message: "No active bins stored yet",
@@ -396,7 +490,7 @@ async function handleRequest(request, env, ctx) {
         }
         return new Response(JSON.stringify({
           success: true,
-          data: activeBins
+          data: active_bins
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -433,9 +527,7 @@ async function handleRequest(request, env, ctx) {
     return new Response("Unknown action", { status: 400 });
   }
   
-  // ============================================================
   // POST ENDPOINT - Helius webhook for swap events
-  // ============================================================
   if (request.method !== 'POST') {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -444,15 +536,15 @@ async function handleRequest(request, env, ctx) {
     const data = await request.json();
     const tx = data[0]; 
 
-    // --- BASIC CHECKS ---
+    // Basic checks
     if (!tx) return new Response("Ignored", { status: 200 });
 
     console.log(`🔔 tx.meta.logMessages: ${JSON.stringify(tx.meta.logMessages)}`);
-    // --- LOOP PREVENTION ---
-    // Check for our specific Memo tag in the logs
+    
+    // Loop prevention - check for worker memo string
     const logs = tx.meta.logMessages || [];
-    const isWorkerSwap = logs.some(log => log.includes(WORKER_MEMO_STRING));
-    if (isWorkerSwap) {
+    const is_worker_swap = logs.some(log => log.includes(WORKER_MEMO_STRING));
+    if (is_worker_swap) {
       console.log("🚫 Ignored Worker-Initiated Swap (Loop Prevention)");
       return new Response("Ignored (Worker Swap)", { status: 200 });
     }
@@ -460,13 +552,13 @@ async function handleRequest(request, env, ctx) {
     console.log(`🔍 Is there an error? ${tx.meta.err}`);
     if (!tx.meta || tx.meta.err !== null) return new Response("Ignored", { status: 200 });
 
-    const isSwapInstruction = logs.some(log => 
+    const is_swap_instruction = logs.some(log => 
       log.includes("Instruction: Swap2") || log.includes("Instruction: Swap")
     );
-    if (!isSwapInstruction) return new Response("Ignored (Not a Swap)", { status: 200 });
+    if (!is_swap_instruction) return new Response("Ignored (Not a Swap)", { status: 200 });
 
     // Use waitUntil to allow processing to complete after response
-    ctx.waitUntil(processRebalance(tx, env, ctx));
+    ctx.waitUntil(process_rebalance(tx, env, ctx));
     
     return new Response("Processing started", { status: 200 });
 
@@ -474,4 +566,30 @@ async function handleRequest(request, env, ctx) {
     console.error("Worker Error:", err);
     return new Response("Error handled", { status: 200 });
   }
+}
+
+/**
+ * Process rebalancing logic after detecting a swap event
+ */
+async function process_rebalance(tx, env, ctx) {
+  const logger = new Logger(env.DB);
+  
+  try {
+    await logger.log(`🔄 Processing rebalance for transaction: ${tx.transaction.signatures[0]}`);
+      
+    try {
+      // Call on-chain check_shift_price_ranges on-chain transaction
+      const rebalance_result = await check_shift_price_range_worker(env);
+      await logger.log("✅ On-chain check shift price complete");
+    } catch (shift_price_error) {
+      await logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
+      console.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
+    }
+    
+  } catch (error) {
+    await logger.error(`❌ Rebalancing failed: ${error.message}`);
+    console.error("❌ Rebalancing failed:", error.message);
+  }
+  
+  await logger.flush();
 }
