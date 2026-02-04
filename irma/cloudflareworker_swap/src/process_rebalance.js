@@ -3,17 +3,17 @@ import { Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction }
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import DLMM, { StrategyType } from "@meteora-ag/dlmm";
-import { check_shift_price_range } from "./check_shift_price_ranges.js";
 import { POOL_ADDRESS, RESERVE_MINT_STR, RESERVE_SYMBOL } from "./config.js";
 import { Logger, logSwapEvent, updateActiveBins } from "./d1_logs.js";
 import { CustomWallet, getPrices } from "./dlmm.js";
-import IDL from "../../target/idl/irma.json";
+import irma from "../../target/idl/irma.json";
 
 
 // ==================================================================
 // REBALANCING FUNCTION for Swaps
 // ==================================================================
 
+export const WORKER_MEMO_STRING = "IRMA_WORKER_SWAP";
 
 export async function processRebalance(tx, env, ctx) {
   const logger = new Logger(env.DB);
@@ -64,10 +64,10 @@ export async function processRebalance(tx, env, ctx) {
       
       const wallet = new CustomWallet(adminKeypair);
       const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
-      const program = new Program(IDL, provider);
+      const program = new Program(irma, provider);
 
       // Derive PDAs with v5 seeds
-      const programId = new PublicKey(IDL.address);
+      const programId = new PublicKey(irma.address);
       const [statePda] = PublicKey.findProgramAddressSync(
         [Buffer.from("state_v5")],
         programId
@@ -269,7 +269,7 @@ export async function processRebalance(tx, env, ctx) {
 
         logger.log(`👉 Step 2: Call on-chain function check_shift_price_range`);
         // TODO: pass necessary parameters to remove hardwired vars in check_shift_price_range()
-        await check_shift_price_range();
+        await check_shift_price_range_worker(env);
         // const rebalanceResult = await checkAndRebalanceBins(
         //   env, 
         //   prices.mintPrice, 
@@ -363,7 +363,7 @@ export async function processRebalance(tx, env, ctx) {
 
         await logger.log(`👉 Step 2: Call check_shift_price_ranges ...`);
         // TODO: pass necessary parameters to remove hardwired vars in check_shift_price_range()
-        await check_shift_price_range();
+        await check_shift_price_range_worker(env);
         // const rebalanceResult = await checkAndRebalanceBins(
         //   env, 
         //   prices.mintPrice, 
@@ -447,5 +447,114 @@ export async function processRebalance(tx, env, ctx) {
       await logSwapEvent(env.DB, swapEventData);
       await logger.flush();
     }
+  }
+}
+
+
+/**
+ * Simplified check_shift_price_range function for Workers environment
+ * Calls the on-chain instruction without Node.js dependencies
+ */
+async function check_shift_price_range_worker(env) {
+  console.log("🚀 Worker version: Test integration with Meteora DLMM");
+  
+  try {
+    const HELIUS_API_KEY = env.HELIUS_API_KEY;
+    const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+    
+    const secret_string = env.ADMIN_PRIVATE_KEY;
+    const secret_key = new Uint8Array(JSON.parse(secret_string));
+    const connection = new Connection(HELIUS_RPC_URL, "confirmed");
+    const admin_keypair = Keypair.fromSecretKey(secret_key);
+    
+    const wallet = new CustomWallet(admin_keypair);
+    const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
+    const program = new Program(irma, provider);
+    
+    // Derive PDAs
+    const program_id = new PublicKey(irma.address);
+    const [state_pda] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("state_v5")],
+      program_id
+    );
+    const [core_pda] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("core_v5")],
+      program_id
+    );
+    
+    const reserve_token = "devUSDT";
+    
+    // Hardcoded config keys for devUSDT (following IRMA conventions)
+    const config_keys = [
+      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // DLMM pair
+      "9rMc8GnMfbq233ZhqjguRt37iXcKrt35LNgxj4ZVChZs", // position 1
+      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2
+      "2GPfbE3E972LCqiBSsujyUvziAq1z5NvsBTWdVX8VTR9", // bin array 1
+      "3eEiY1mqyka1E6WsZKLZnC7mDBT5Pn8zUkz1nqg2MEoA", // bin array 2
+      "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // IRMA mint
+      "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // devUSDT mint
+      "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
+      "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
+      "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
+      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
+      "9ZEqmbBp3QaT4z25xnQqdLLeRqb7Vej59vdgvHmVhwrk",
+      "L93d6igVFXZKhcujZNWKeM1rH1XyqWmHttRoy5J3vg6",
+      "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // IRMA account owned by the USDT pool
+      "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj", // devUSDT account owned the USDT pool
+      "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
+      "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
+      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // IRMA token account owned by the-fed
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+      "11111111111111111111111111111111", // System program ID
+      "SysvarRent111111111111111111111111111111111", // Rent sysvar
+      "SysvarC1ock11111111111111111111111111111111", // Clock sysvar
+    ];
+
+    // Call check_shift_price_ranges transaction
+    console.log("🔄 Calling check_shift_price_ranges() transaction...");
+    const tx_sell = await program.methods
+      .checkShiftPriceRanges(reserve_token)
+      .accounts({
+        state: state_pda,
+        irmaAdmin: admin_keypair.publicKey,
+        core: core_pda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(config_keys.map((key, index) => ({
+        pubkey: new PublicKey(key),
+        isSigner: index === 10, // Only the fed wallet should be a signer
+        isWritable: !key.includes('TokenkegQ') && 
+                    !key.includes('LBUZKhRx') && 
+                    !key.includes('11111111') &&
+                    !key.includes('TokenzQdB') &&
+                    !key.includes('MemoSq4gq'), // Programs are read-only
+      })))
+      .transaction();
+
+    // Add compute budget instructions to increase CU limit
+    const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 1_000_000, // Request 1M compute units (5x the default)
+    });
+    
+    const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 1000, // Set higher priority fee for faster processing
+    });
+
+    // Add compute budget instructions at the beginning
+    tx_sell.instructions.unshift(computeLimitIx, computePriceIx);
+
+    const signature = await connection.sendTransaction(tx_sell, [admin_keypair]);
+    console.log("🚀 On-chain checkShiftPriceRanges transaction sent:", signature);
+
+    // Wait for confirmation
+    await connection.confirmTransaction(signature, "confirmed");
+    console.log("✅ On-chain checkShiftPriceRanges transaction confirmed:", signature);
+
+    return { success: true, signature };
+  } catch (error) {
+    console.error("❌ Error during check_shift_price_range:", error);
+    throw error;
   }
 }
