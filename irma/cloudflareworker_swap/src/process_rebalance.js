@@ -3,9 +3,10 @@ import { Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction }
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import DLMM, { StrategyType } from "@meteora-ag/dlmm";
+import { check_shift_price_range } from "./check_shift_price_ranges.js";
 import { POOL_ADDRESS, RESERVE_MINT_STR, RESERVE_SYMBOL } from "./config.js";
-import { Logger, /* getActiveBins, */  logSwapEvent, logRebalancingEvent, updateActiveBins } from "./d1_logs.js";
-import { CustomWallet, getPrices, rebalanceMintBin, rebalanceRedemptionBin, getActivePositionBins } from "./dlmm.js";
+import { Logger, logSwapEvent, updateActiveBins } from "./d1_logs.js";
+import { CustomWallet, getPrices } from "./dlmm.js";
 import IDL from "../../target/idl/irma.json";
 
 
@@ -46,6 +47,9 @@ export async function processRebalance(tx, env, ctx) {
     const decimals = preBalanceEntry.uiTokenAmount.decimals;
 
     if (delta !== 0) {
+      // The kind of swap it is can be reliably detected by whether it increased the reserve or not.
+      // A trade that increases the reserve can only be a mint tx because the buyer of IRMA pays
+      // using a reserve token. A trade that decreases the reserve can only be a redemption tx.
       swapEventData.eventType = delta > 0 ? 'MINT' : 'REDEMPTION';
       swapEventData.amountUi = Math.abs(delta);
       
@@ -209,7 +213,7 @@ export async function processRebalance(tx, env, ctx) {
       
       // --- GET STORED ACTIVE BINS FOR REBALANCING ---
       // const storedActiveBins = await getActiveBins(env.DB);
-      const currentActiveBins = await getActivePositionBins(dlmmPool, adminKeypair, logger);
+      // const currentActiveBins = await getActivePositionBins(dlmmPool, adminKeypair, logger);
 
       // =========================================================
       // LOGIC: MINT EVENT (User bought IRMA using reserve token or quote token)
@@ -263,99 +267,15 @@ export async function processRebalance(tx, env, ctx) {
         logger.log(`✅ Counter-swap sent: ${swapSig}`);
         swapEventData.counterSwapSignature = swapSig;
 
-        logger.log(`👉 Step 2: Adding ${RESERVE_SYMBOL} to redemption bin ${redemptionBinId}...`);
-
-        // Check if redemption bin has changed and we need to rebalance
-        const oldRedemptionBinId = currentActiveBins?.redemption_bin_id;
-        let totalReserveToAdd = reserveOutputAmount;
-        
-        if (oldRedemptionBinId && oldRedemptionBinId !== redemptionBinId) {
-          logger.log(`🔄 Redemption bin changed: ${oldRedemptionBinId} → ${redemptionBinId}, rebalancing...`);
-          
-          // Remove liquidity from old redemption bin first
-          try {
-            const rebalanceResult = await rebalanceRedemptionBin(
-              env, oldRedemptionBinId, redemptionBinId,
-              dlmmPool, connection, adminKeypair, userPositions, logger
-            );
-            
-            // Add the recovered reserve to our total
-            if (rebalanceResult.usdcAmountMoved && rebalanceResult.usdcAmountMoved !== '0') {
-              totalReserveToAdd = totalReserveToAdd.add(new BN(rebalanceResult.usdcAmountMoved));
-              logger.log(`📦 Added ${rebalanceResult.usdcAmountMoved} ${RESERVE_SYMBOL} from old bin to deposit`);
-            }
-            
-            await logRebalancingEvent(env.DB, {
-              rebalanceType: 'redemption_bin',
-              oldRedemptionBinId,
-              newRedemptionBinId: redemptionBinId,
-              usdcAmountMoved: rebalanceResult.usdcAmountMoved,
-              removeLiquiditySignature: rebalanceResult.removeLiquiditySignature,
-              triggerType: 'auto_swap',
-              success: true,
-            });
-          } catch (rebalanceErr) {
-            logger.error(`❌ Redemption bin rebalancing failed: ${rebalanceErr.message}`);
-            console.error(`❌ Redemption bin rebalancing failed: ${rebalanceErr.message}`);
-            // Continue with original amount
-          }
-        }
-        
-        // Refresh positions after potential rebalancing
-        const { userPositions: refreshedPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
-
-        // Find or create position for redemption bin
-        let redemptionPosition = refreshedPositions.find(pos => 
-          pos.positionData.lowerBinId <= redemptionBinId && pos.positionData.upperBinId >= redemptionBinId
-        );
-        
-        let liquiditySig = null;
-        if (!redemptionPosition) {
-          await logger.log(`📍 No position covers redemption bin ${redemptionBinId}, creating new position...`);
-          
-          const newPositionKeypair = Keypair.generate();
-          const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
-            positionPubKey: newPositionKeypair.publicKey,
-            user: adminKeypair.publicKey,
-            totalXAmount: new BN(0),
-            totalYAmount: totalReserveToAdd,
-            strategy: {
-              minBinId: redemptionBinId,
-              maxBinId: redemptionBinId,
-              strategyType: StrategyType.Spot,
-            },
-          });
-          
-          for (const tx of Array.isArray(createPositionTx) ? createPositionTx : [createPositionTx]) {
-            tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            tx.feePayer = adminKeypair.publicKey;
-            tx.partialSign(adminKeypair, newPositionKeypair);
-            liquiditySig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-            await logger.log(`✅ Created position and added liquidity: ${liquiditySig}`);
-          }
-        } else {
-          await logger.log(`📍 Using existing position: ${redemptionPosition.publicKey.toBase58()}`);
-          
-          const addLiquidityTx = await dlmmPool.addLiquidityByStrategy({
-            positionPubKey: redemptionPosition.publicKey,
-            user: adminKeypair.publicKey,
-            totalXAmount: new BN(0),
-            totalYAmount: totalReserveToAdd,
-            strategy: {
-              minBinId: redemptionBinId,
-              maxBinId: redemptionBinId,
-              strategyType: StrategyType.Spot,
-            },
-          });
-
-          for (const tx of Array.isArray(addLiquidityTx) ? addLiquidityTx : [addLiquidityTx]) {
-            tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            tx.feePayer = adminKeypair.publicKey;
-            tx.sign(adminKeypair);
-            liquiditySig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-            await logger.log(`✅ Liquidity addition sent to redemption bin: ${liquiditySig}`);
-          }
-        }
+        logger.log(`👉 Step 2: Call on-chain function check_shift_price_range`);
+        // TODO: pass necessary parameters to remove hardwired vars in check_shift_price_range()
+        await check_shift_price_range();
+        // const rebalanceResult = await checkAndRebalanceBins(
+        //   env, 
+        //   prices.mintPrice, 
+        //   prices.redemptionPrice, 
+        //   'auto'
+        // );
         
         swapEventData.liquiditySignature = liquiditySig;
 
@@ -441,101 +361,15 @@ export async function processRebalance(tx, env, ctx) {
         await logger.log(`✅ Counter-swap sent: ${swapSig}`);
         swapEventData.counterSwapSignature = swapSig;
 
-        await logger.log(`👉 Step 2: Adding IRMA to mint bin ${mintBinId}...`);
-
-        // Check if mint bin has changed and we need to rebalance
-        const oldMintBinId = currentActiveBins?.mint_bin_id;
-        let totalIrmaToAdd = irmaOutputAmount;
-        
-        if (oldMintBinId && oldMintBinId !== mintBinId) {
-          await logger.log(`🔄 Mint bin changed: ${oldMintBinId} → ${mintBinId}, rebalancing...`);
-          
-          // Remove liquidity from old mint bin first
-          try {
-            const rebalanceResult = await rebalanceMintBin(
-              oldMintBinId, mintBinId,
-              dlmmPool, connection, adminKeypair, userPositions, logger
-            );
-            
-            // Add the recovered IRMA to our total
-            if (rebalanceResult.irmaAmountMoved && rebalanceResult.irmaAmountMoved !== '0') {
-              totalIrmaToAdd = totalIrmaToAdd.add(new BN(rebalanceResult.irmaAmountMoved));
-              await logger.log(`📦 Added ${rebalanceResult.irmaAmountMoved} IRMA from old bin to deposit`);
-            }
-            
-            await logRebalancingEvent(env.DB, {
-              rebalanceType: 'mint_bin',
-              oldMintBinId,
-              newMintBinId: mintBinId,
-              irmaAmountMoved: rebalanceResult.irmaAmountMoved,
-              removeLiquiditySignature: rebalanceResult.removeLiquiditySignature,
-              triggerType: 'auto_swap',
-              success: true,
-            });
-          } catch (rebalanceErr) {
-            await logger.error(`❌ Mint bin rebalancing failed: ${rebalanceErr.message}`);
-            console.error(`❌ Mint bin rebalancing failed: ${rebalanceErr.message}`);
-            // Continue with original amount
-          }
-        }
-
-        await logger.log(`💰 IRMA amount to add: ${totalIrmaToAdd.toString()}`);
-        
-        // Refresh positions after potential rebalancing
-        const { userPositions: refreshedPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
-        
-        // Find or create position for mint bin
-        let mintPosition = refreshedPositions.find(pos => 
-          pos.positionData.lowerBinId <= mintBinId && pos.positionData.upperBinId >= mintBinId
-        );
-        
-        let liquiditySig = null;
-        if (!mintPosition) {
-          await logger.log(`📍 No position covers mint bin ${mintBinId}, creating new position...`);
-          
-          const newPositionKeypair = Keypair.generate();
-          const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
-            positionPubKey: newPositionKeypair.publicKey,
-            user: adminKeypair.publicKey,
-            totalXAmount: totalIrmaToAdd,
-            totalYAmount: new BN(0),
-            strategy: {
-              minBinId: mintBinId,
-              maxBinId: mintBinId,
-              strategyType: StrategyType.Spot,
-            },
-          });
-          
-          for (const tx of Array.isArray(createPositionTx) ? createPositionTx : [createPositionTx]) {
-            tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            tx.feePayer = adminKeypair.publicKey;
-            tx.partialSign(adminKeypair, newPositionKeypair);
-            liquiditySig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-            await logger.log(`✅ Created position and added liquidity: ${liquiditySig}`);
-          }
-        } else {
-          await logger.log(`📍 Using existing position: ${mintPosition.publicKey.toBase58()}`);
-          
-          const addLiquidityTx = await dlmmPool.addLiquidityByStrategy({
-            positionPubKey: mintPosition.publicKey,
-            user: adminKeypair.publicKey,
-            totalXAmount: totalIrmaToAdd,
-            totalYAmount: new BN(0),
-            strategy: {
-              minBinId: mintBinId,
-              maxBinId: mintBinId,
-              strategyType: StrategyType.Spot,
-            },
-          });
-
-          for (const tx of Array.isArray(addLiquidityTx) ? addLiquidityTx : [addLiquidityTx]) {
-            tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            tx.feePayer = adminKeypair.publicKey;
-            tx.sign(adminKeypair);
-            liquiditySig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-            await logger.log(`✅ Liquidity addition sent to mint bin: ${liquiditySig}`);
-          }
-        }
+        await logger.log(`👉 Step 2: Call check_shift_price_ranges ...`);
+        // TODO: pass necessary parameters to remove hardwired vars in check_shift_price_range()
+        await check_shift_price_range();
+        // const rebalanceResult = await checkAndRebalanceBins(
+        //   env, 
+        //   prices.mintPrice, 
+        //   prices.redemptionPrice, 
+        //   'auto'
+        // );
         
         swapEventData.liquiditySignature = liquiditySig;
 
@@ -585,7 +419,7 @@ export async function processRebalance(tx, env, ctx) {
     if (ctx) {
       ctx.waitUntil(Promise.all([
         logSwapEvent(env.DB, swapEventData),
-        await logger.flush()
+        logger.flush()
       ]));
     } else {
       await logSwapEvent(env.DB, swapEventData);
