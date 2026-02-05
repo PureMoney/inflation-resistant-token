@@ -9,7 +9,7 @@ import {
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import DLMM from "@meteora-ag/dlmm";
-import { POOL_ADDRESS, RESERVE_MINT_STR, RESERVE_SYMBOL } from "./config.js";
+import { POOL_ADDRESS, RESERVE_MINT_STR, IRMA_MINT_STR, RESERVE_SYMBOL } from "./config.js";
 import { Logger, logSwapEvent, updateActiveBins } from "./d1_logs.js";
 import { CustomWallet, getPrices } from "./dlmm.js";
 import irma from "../../target/idl/irma.json";
@@ -42,6 +42,7 @@ export async function processRebalance(tx, env, ctx) {
     // --- DELTA CALC ---
     const preBalanceEntry = tx.meta.preTokenBalances.find(b => b.mint === RESERVE_MINT_STR && b.owner === POOL_ADDRESS);
     const postBalanceEntry = tx.meta.postTokenBalances.find(b => b.mint === RESERVE_MINT_STR && b.owner === POOL_ADDRESS);
+    const irmaOnTheWrongSide = tx.meta.postTokenBalances.find(b => b.mint === IRMA_MINT_STR && b.owner === POOL_ADDRESS);
 
     if (!preBalanceEntry || !postBalanceEntry) {
         logger.log("Ignored (No Pool Balance)");
@@ -115,7 +116,7 @@ export async function processRebalance(tx, env, ctx) {
       }
 
       // --- INITIALIZE DLMM POOL ---
-      await logger.log(`📊 Initializing DLMM pool...`);
+      logger.log(`📊 Initializing DLMM pool...`);
       const poolKey = new PublicKey(POOL_ADDRESS);
       let dlmmPool;
       try {
@@ -167,7 +168,7 @@ export async function processRebalance(tx, env, ctx) {
           logger.log(`✅ Sale trade event sent (no rebalancing): ${tradeTx}`);
           swapEventData.txSignature = tradeTx;
         } else {
-          logger.log(`📝 Building buyTradeEvent transaction...`);
+          logger.log(`📝 Building buyTradeEvent notification to IRMA...`);
           const tradeTxInstruction = await program.methods
             .buyTradeEvent(RESERVE_SYMBOL, amountAtomic)
             .accounts({
@@ -207,7 +208,7 @@ export async function processRebalance(tx, env, ctx) {
           await logSwapEvent(env.DB, swapEventData);
           await logger.flush();
         }
-        logger.log(`📝 Returning from early exit`);
+        logger.log(`📝 Early exit from processBalance`);
         return;
       }
 
@@ -233,11 +234,14 @@ export async function processRebalance(tx, env, ctx) {
         
         logger.log("DEBUG: Fetching bin arrays...");
         const binArrays = await dlmmPool.getBinArrayForSwap(swapForY);
+
+        // sum up all active bin total amount for
         
         logger.log("DEBUG: Getting swap quote...");
         const irmaSwapAmount = amountAtomic.mul(new BN(95)).div(new BN(100));
         logger.log(`💰 User delta: ${amountAtomic.toString()}, Counter-swap IRMA amount: ${irmaSwapAmount.toString()}`);
-        
+        await logger.flush();
+
         const swapQuote = await dlmmPool.swapQuote(
           irmaSwapAmount, 
           swapForY,
@@ -274,10 +278,11 @@ export async function processRebalance(tx, env, ctx) {
         const swapSig = await connection.sendRawTransaction(swapTx.serialize(), { skipPreflight: false });
         logger.log(`✅ Counter-swap sent: ${swapSig}`);
         swapEventData.counterSwapSignature = swapSig;
+        await logger.flush();
 
         logger.log(`👉 Step 2: Call on-chain function check_shift_price_range`);
         // TODO: pass necessary parameters to remove hardwired vars in check_shift_price_range()
-        await check_shift_price_range_worker(env);
+        await check_shift_price_range_worker(env, logger);
         // const rebalanceResult = await checkAndRebalanceBins(
         //   env, 
         //   prices.mintPrice, 
@@ -287,8 +292,8 @@ export async function processRebalance(tx, env, ctx) {
         
         swapEventData.liquiditySignature = liquiditySig;
 
-        await logger.log(`👉 Step 3: Recording sale trade event...`);
-        await logger.log(`💰 Recording sale with token: "${RESERVE_SYMBOL}", amount: ${amountAtomic.toString()}`);
+        logger.log(`👉 Step 3: Recording sale trade event...`);
+        logger.log(`💰 Recording sale with token: "${RESERVE_SYMBOL}", amount: ${amountAtomic.toString()}`);
         
         const tradeTxInstruction = await program.methods
           .saleTradeEvent(RESERVE_SYMBOL, amountAtomic)
@@ -314,23 +319,25 @@ export async function processRebalance(tx, env, ctx) {
           maxRetries: 0
         });
 
-        await logger.log(`✅ Sale trade event sent: ${tradeTx}`);
+        logger.log(`✅ Sale trade event sent: ${tradeTx}`);
+        await logger.flush();
         swapEventData.txSignature = tradeTx;
 
       } else {
         // =========================================================
         // LOGIC: REDEMPTION EVENT (User sold IRMA for reserve token or quote token)
         // =========================================================
-        await logger.log(`👉 Step 1: Performing counter-swap (${RESERVE_SYMBOL} -> IRMA)...`);
+        logger.log(`👉 Step 1: Performing counter-swap (${RESERVE_SYMBOL} -> IRMA)...`);
 
         const swapForY = false; 
         
-        await logger.log("DEBUG: Fetching bin arrays...");
+        logger.log("DEBUG: Fetching bin arrays...");
         const binArrays = await dlmmPool.getBinArrayForSwap(swapForY);
-        
-        await logger.log("DEBUG: Getting swap quote...");
+
+        logger.log("DEBUG: Getting swap quote...");
         const reserveSwapAmount = amountAtomic.abs().mul(new BN(95)).div(new BN(100));
-        await logger.log(`💰 User delta: ${amountAtomic.toString()}, Counter-swap ${RESERVE_SYMBOL} amount: ${reserveSwapAmount.toString()}`);
+        logger.log(`💰 User delta: ${amountAtomic.toString()}, Counter-swap ${RESERVE_SYMBOL} amount: ${reserveSwapAmount.toString()}`);
+        await logger.flush();
 
         const swapQuote = await dlmmPool.swapQuote(
           reserveSwapAmount,
@@ -340,9 +347,11 @@ export async function processRebalance(tx, env, ctx) {
         );
 
         const irmaOutputAmount = swapQuote.minOutAmount;
-        await logger.log(`💰 Expected IRMA output: ${irmaOutputAmount.toString()}`);
-        
-        await logger.log("DEBUG: Creating swap transaction...");
+        logger.log(`💰 Expected IRMA output: ${irmaOutputAmount.toString()}`);
+
+        logger.log("DEBUG: Creating swap transaction...");
+        await logger.flush();
+
         const swapTx = await dlmmPool.swap({
           inToken: dlmmPool.tokenY.publicKey,
           outToken: dlmmPool.tokenX.publicKey,
@@ -361,27 +370,29 @@ export async function processRebalance(tx, env, ctx) {
             }));
         }
 
-        await logger.log("DEBUG: Sending transaction...");
+        logger.log("DEBUG: Sending transaction...");
         swapTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
         swapTx.feePayer = adminKeypair.publicKey;
         swapTx.sign(adminKeypair);
         const swapSig = await connection.sendRawTransaction(swapTx.serialize(), { skipPreflight: false });
-        await logger.log(`✅ Counter-swap sent: ${swapSig}`);
+        logger.log(`✅ Counter-swap sent: ${swapSig}`);
         swapEventData.counterSwapSignature = swapSig;
+        await logger.flush();
 
-        await logger.log(`👉 Step 2: Call check_shift_price_ranges ...`);
+        logger.log(`👉 Step 2: Call check_shift_price_ranges ...`);
         // TODO: pass necessary parameters to remove hardwired vars in check_shift_price_range()
-        await check_shift_price_range_worker(env);
+        await check_shift_price_range_worker(env, logger);
         // const rebalanceResult = await checkAndRebalanceBins(
         //   env, 
         //   prices.mintPrice, 
         //   prices.redemptionPrice, 
         //   'auto'
         // );
+        await logger.flush();
         
         swapEventData.liquiditySignature = liquiditySig;
 
-        await logger.log(`👉 Step 3: Recording buy trade event...`);
+        logger.log(`👉 Step 3: Recording buy trade event...`);
 
         const tradeTxInstruction = await program.methods
           .buyTradeEvent(RESERVE_SYMBOL, totalIrmaToAdd)
@@ -407,7 +418,8 @@ export async function processRebalance(tx, env, ctx) {
           maxRetries: 0
         });
 
-        await logger.log(`✅ Buy trade event sent: ${tradeTx}`);
+        logger.log(`✅ Buy trade event sent: ${tradeTx}`);
+        await logger.flush();
         swapEventData.txSignature = tradeTx;
       }
 
@@ -421,6 +433,7 @@ export async function processRebalance(tx, env, ctx) {
 
       swapEventData.success = true;
       logger.log(`✅ Workflow Complete`);
+      await logger.flush();
     }
     
     // Log the swap event and flush with waitUntil to ensure completion
@@ -463,8 +476,8 @@ export async function processRebalance(tx, env, ctx) {
  * Simplified check_shift_price_range function for Workers environment
  * Calls the on-chain instruction without Node.js dependencies
  */
-async function check_shift_price_range_worker(env) {
-  console.log("🚀 Worker version: Test integration with Meteora DLMM");
+async function check_shift_price_range_worker(env, logger) {
+  logger.log("🚀 Worker version: Test integration with Meteora DLMM");
   
   try {
     const HELIUS_API_KEY = env.HELIUS_API_KEY;
@@ -521,7 +534,7 @@ async function check_shift_price_range_worker(env) {
     ];
 
     // Call check_shift_price_ranges transaction
-    console.log("🔄 Calling check_shift_price_ranges() transaction...");
+    logger.log("🔄 Calling check_shift_price_ranges() transaction...");
     const tx_sell = await program.methods
       .checkShiftPriceRanges(reserve_token)
       .accounts({
@@ -554,15 +567,17 @@ async function check_shift_price_range_worker(env) {
     tx_sell.instructions.unshift(computeLimitIx, computePriceIx);
 
     const signature = await connection.sendTransaction(tx_sell, [admin_keypair]);
-    console.log("🚀 On-chain checkShiftPriceRanges transaction sent:", signature);
+    logger.log("🚀 On-chain checkShiftPriceRanges transaction sent:", signature);
 
     // Wait for confirmation
     await connection.confirmTransaction(signature, "confirmed");
-    console.log("✅ On-chain checkShiftPriceRanges transaction confirmed:", signature);
+    logger.log("✅ On-chain checkShiftPriceRanges transaction confirmed:", signature);
+    await logger.flush();
 
     return { success: true, signature };
   } catch (error) {
-    console.error("❌ Error during check_shift_price_range:", error);
+    logger.error("❌ Error during check_shift_price_range:", error);
+    await logger.flush();
     throw error;
   }
 }

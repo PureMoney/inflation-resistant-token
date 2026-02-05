@@ -5,6 +5,7 @@
 
 // CONSTANTS
 export const RESERVE_MINT_STR = "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"; // devUSDT mint on Devnet
+export const IRMA_MINT_STR = "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm"; // IRMA mint on Devnet
 export const RESERVE_SYMBOL = "devUSDT";
 export const POOL_ADDRESS = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; // Meteora DLMM pool for IRMA/devUSDT
 
