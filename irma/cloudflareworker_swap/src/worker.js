@@ -9,6 +9,7 @@ import {
 } from "./dlmm.js";
 import { processRebalance, WORKER_MEMO_STRING } from "./process_rebalance.js";
 import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE, ENABLE_TEST_SCAFFOLDING } from "./config.js";
+import irma from "../../target/idl/irma.json";
 
 /**
  * Fetch current inflation rate from Truflation Vercel proxy
@@ -44,7 +45,7 @@ async function fetch_truflation_rate(env) {
       throw new Error(`Invalid response from proxy: ${JSON.stringify(data)}`);
     }
 
-    const inflation_rate = data.data.inflationRate;
+    const inflation_rate = 2.1; // data.data.inflationRate;
     console.log(`📈 Truflation US Inflation Index: ${inflation_rate}%`);
     console.log(`📅 Data timestamp: ${new Date(data.data.timestamp).toISOString()}`);
     
@@ -86,6 +87,7 @@ async function get_quote_token_price_usd(connection, pool_address, reserve_symbo
   
   try {
     // Pyth price feed IDs for stablecoins
+    // TODO: these are not base58-encoded, need to convert to PublicKey format or use correct IDs for devnet and prod
     const price_feed_ids = {
       'USDC': '0x41f3625971ca2ed2263e78573fe5ce23e13d2558ed3f2e47ab0f84fb9e7ae722',
       'USDT': '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
@@ -227,10 +229,10 @@ async function handle_scheduled_mint_price_update(env) {
   const logger = new Logger(env.DB);
   
   try {
-    await logger.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
+    logger.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
     
     const result = await update_mint_price_from_truflation(env);
-    await logger.log(`✅ Scheduled mint price update completed: ${JSON.stringify(result)}`);
+    logger.log(`✅ Scheduled mint price update completed: ${JSON.stringify(result)}`);
     
     // Log price update to D1 database
     await logPriceUpdate(env.DB, {
@@ -244,21 +246,21 @@ async function handle_scheduled_mint_price_update(env) {
     
     // After price update, check and rebalance bins if needed
     if (result.success) {
-      await logger.log("🔄 Checking bin synchronization after price update...");
+      logger.log("🔄 Checking bin synchronization after price update...");
       
       try {
         // Call on-chain check_shift_price_ranges on-chain transaction
         const rebalance_result = await check_shift_price_range_worker(env);
-        await logger.log("✅ On-chain check shift price complete");
+        logger.log("✅ On-chain check shift price complete");
       } catch (shift_price_error) {
-        await logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
+        logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
         console.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
       }
     }
     
     await logger.flush();
   } catch (error) {
-    await logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
+    logger.error(`❌ Scheduled mint price update failed: ${error.message}`);
     console.error("❌ Scheduled mint price update failed:", error.message);
     
     await logPriceUpdate(env.DB, {
