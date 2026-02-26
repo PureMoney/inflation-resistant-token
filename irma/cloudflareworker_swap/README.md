@@ -7,7 +7,8 @@ This Cloudflare Worker monitors the IRMA/devUSDC Meteora DLMM pool and automatic
 The worker:
 1. Receives webhooks from Helius when swaps occur on the Meteora pool
 2. Detects MINT (buy IRMA) or REDEMPTION (sell IRMA) events
-3. Performs counter-swaps to maintain market balance
+3. Performs counter-swaps to maintain two separate prices for minting and redeeming
+   (this is a kludge to counteract the AMM nature of DLMM and make it behave like an order-book DEX)
 4. Adds liquidity to appropriate bins (mint or redemption price bins)
 5. Automatically rebalances bins when prices change
 6. Records trade events in the IRMA on-chain program
@@ -357,6 +358,13 @@ The worker automatically rebalances liquidity when mint or redemption bins chang
 2. **During Swap Processing**: When processing a MINT or REDEMPTION event, if the stored active bins differ from the current calculated bins, the worker will:
    - Remove liquidity from the old bin
    - Add it to the new bin (combined with the counter-swap output)
+   MODIFIED:
+   --> rather than just counter-swapping the last swap, the program should look for the bin with both coins in it
+   --> that's the bin that should be counter-swapped
+    1. Check that there are indeed only two non-empty bins
+    2. If so, then the bin at the lower price is the redemption bin and the bin at the higher price is the mint bin
+    3. Check that the redemption bin contains only the quote token and that the mint bin contains only IRMA
+    4. Perform counter-swap on any bin that contains both tokens
 
 3. **Manual Trigger**: Use `GET /?action=rebalance-bins` to force a rebalancing check.
 

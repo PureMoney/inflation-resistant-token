@@ -1,15 +1,15 @@
 // IRMA Cloudflare Worker - Compatible with Workers Runtime
-import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { Program, AnchorProvider } from "@coral-xyz/anchor";
+import {  SystemProgram } from "@solana/web3.js";
 import { PythHttpClient, getPythProgramKeyForCluster } from "@pythnetwork/client";
 
 import { Logger, logPriceUpdate, queryLogs, getActiveBins } from "./d1_logs.js";
 import { 
-  CustomWallet, 
-} from "./dlmm.js";
-import { processRebalance, WORKER_MEMO_STRING } from "./process_rebalance.js";
+  processRebalance, 
+  setupSolanaConnection, 
+  check_shift_price_range_worker, 
+  WORKER_MEMO_STRING 
+} from "./process_rebalance.js";
 import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE, ENABLE_TEST_SCAFFOLDING } from "./config.js";
-import irma from "../../target/idl/irma.json";
 
 /**
  * Fetch current inflation rate from Truflation Vercel proxy
@@ -137,27 +137,8 @@ async function update_mint_price_from_truflation(env) {
   try {
     // 1. Fetch inflation rate from Truflation
     const inflation_rate = await fetch_truflation_rate(env);
-    
     // 2. Setup Solana connection and program
-    const secret_string = env.ADMIN_PRIVATE_KEY;
-    const secret_key = new Uint8Array(JSON.parse(secret_string));
-    const connection = new Connection(HELIUS_RPC_URL, "confirmed");
-    const admin_keypair = Keypair.fromSecretKey(secret_key);
-    
-    const wallet = new CustomWallet(admin_keypair);
-    const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
-    const program = new Program(irma, provider);
-    
-    // Derive PDAs following IRMA conventions
-    const program_id = new PublicKey(irma.address);
-    const [state_pda] = PublicKey.findProgramAddressSync(
-      [new TextEncoder().encode("state_v5")], // Using TextEncoder instead of Buffer
-      program_id
-    );
-    const [core_pda] = PublicKey.findProgramAddressSync(
-      [new TextEncoder().encode("core_v5")], // Using TextEncoder instead of Buffer
-      program_id
-    );
+    const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
     
     // 3. Get quote token price using Pyth oracle
     const quote_token_price_usd = await get_quote_token_price_usd(connection, POOL_ADDRESS, RESERVE_SYMBOL);
@@ -174,16 +155,16 @@ async function update_mint_price_from_truflation(env) {
     const tx_instruction = await program.methods
       .setMintPrice(RESERVE_SYMBOL, price_as_number)
       .accounts({
-        state: state_pda,
+        state: statePda,
         irmaAdmin: wallet.publicKey,
-        core: core_pda,
+        core: corePda,
         systemProgram: SystemProgram.programId,
       })
       .transaction();
     
     tx_instruction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    tx_instruction.feePayer = admin_keypair.publicKey;
-    tx_instruction.sign(admin_keypair);
+    tx_instruction.feePayer = adminKeypair.publicKey;
+    tx_instruction.sign(adminKeypair);
     
     const tx = await connection.sendRawTransaction(tx_instruction.serialize(), { 
       skipPreflight: false,
@@ -250,7 +231,7 @@ async function handle_scheduled_mint_price_update(env) {
       
       try {
         // Call on-chain check_shift_price_ranges on-chain transaction
-        const rebalance_result = await check_shift_price_range_worker(env);
+        const rebalance_result = await check_shift_price_range_worker(env, logger);
         logger.log("✅ On-chain check shift price complete");
       } catch (shift_price_error) {
         logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
@@ -479,19 +460,20 @@ async function process_rebalance(tx, env, ctx) {
   const logger = new Logger(env.DB);
   
   try {
-    await logger.log(`🔄 Processing rebalance for transaction: ${tx.transaction.signatures[0]}`);
+    logger.log(`🔄 Processing rebalance for transaction: ${tx.transaction.signatures[0]}`);
       
     try {
-      // Call on-chain check_shift_price_ranges on-chain transaction
-      const rebalance_result = await processRebalance(tx, env, ctx);
-      await logger.log("✅ Processing of rebalance complete");
-    } catch (shift_price_error) {
-      await logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
+      // Notify IRMA on swap event, then call on-chain check_shift_price_ranges on-chain transaction
+      await processRebalance(tx, env, ctx);
+      logger.log("✅ Processing of rebalance complete");
+    }
+    catch (shift_price_error) {
+      logger.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
       console.error(`❌ Bin rebalancing after price update failed: ${shift_price_error.message}`);
     }
     
   } catch (error) {
-    await logger.error(`❌ Rebalancing failed: ${error.message}`);
+    logger.error(`❌ Rebalancing failed: ${error.message}`);
     console.error("❌ Rebalancing failed:", error.message);
   }
   

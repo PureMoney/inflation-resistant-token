@@ -415,15 +415,16 @@ pub mod irma {
 
     /// Send swap instruction to Meteora DLMM
     /// (This can be used by us only. In practice, traders will interact directly with Meteora or Jupiter.)
-    pub fn swap<'info>(
-        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: String, amount: u64, swap_for_reserve: bool
+    pub fn c_swap<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, 
+        symbol: String, amount: u64, exact_out: u64, swap_for_reserve: bool
     ) -> Result<()> {
         // Extract references to avoid double mutable borrow
         let corei = &ctx.accounts.core.clone();
         let core = &mut ctx.accounts.core;
         let payer = &mut ctx.accounts.irma_admin; // this is wrong; payer should be the trader
         let reserves = &mut ctx.accounts.state.reserves;
-        let remaining_accounts: &[AccountInfo<'info>] = &ctx.remaining_accounts;
+        let remaining_accounts: &[AccountInfo<'info>] = ctx.remaining_accounts;
 
         let lb_pair_key = reserves.iter().find(|r| r.symbol == symbol)
             .ok_or(error!(CustomError::ReserveNotFound))?
@@ -432,11 +433,13 @@ pub mod irma {
         // look for positions matching the symbol
         let position = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
             .ok_or(error!(CustomError::PositionNotFound))?;
-        corei.swap(
+
+        corei.counter_swap(
             payer,
             remaining_accounts,
             position,
             amount,
+            exact_out,
             swap_for_reserve,
         )?;
         msg!("swap called for symbol: {}, amount: {}, swap_for_reserve: {}", symbol, amount, swap_for_reserve);
