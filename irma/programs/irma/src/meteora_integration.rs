@@ -54,6 +54,8 @@ const MINTING_TARGET: u64 = MINTING_THRESHOLD + 100_000;
 const REDEMPTION_THRESHOLD: u64 = 100_000;
 const REDEMPTION_TARGET: u64 = REDEMPTION_THRESHOLD + 10_000;
 
+const WORKER_MEMO_STRING: &str = "IRMA_WORKER_SWAP";
+
 impl<T> AccountData<T> {
     pub fn into_inner(self) -> T {
         match self {
@@ -798,12 +800,14 @@ impl Core {
     /// Swap tokens on the DLMM.
     /// We may need this to overcome AMM behavior, in case off-chain swap is too slow.
     /// If not, according to Taha, we can use withdraw() above instead.
-    pub fn swap<'a>(
+    /// Using this for counter-swaps.
+    pub fn counter_swap<'a>(
         &self,
         payer: &mut Signer<'a>,
         remaining_accounts: &'a [AccountInfo<'a>],
         state: &SinglePosition,
         amount_in: u64,
+        exact_out: u64,
         swap_for_y: bool
     ) -> Result<()> {
 
@@ -818,38 +822,10 @@ impl Core {
 
         msg!("    event authority: {}", event_authority);
 
-        let (bin_array_bitmap_extension, _bump) = derive_bin_array_bitmap_extension(lb_pair, &dlmm::ID);
-
-        // let accounts = dlmm::client::accounts::InitializeBinArrayBitmapExtension {
-        //     lb_pair,
-        //     bin_array_bitmap_extension,
-        //     program: DLMM_ID,
-        // }
-        // .to_account_metas(None);
-
-        let bitmap_extension: &BinArrayBitmapExtension;
-        let default_bitmap_extension = BinArrayBitmapExtension::default();
-        let acct_info = remaining_accounts.iter()
-            .find(|acc| acc.key == &bin_array_bitmap_extension);
-        if let Some(acct_info) = acct_info {
-            bitmap_extension = match get_bytemuck_account_ref::<BinArrayBitmapExtension>(acct_info) {
-                Some(bitmap_ext) => bitmap_ext,
-                None => &default_bitmap_extension,
-            };
-        } else {
-            bitmap_extension = &default_bitmap_extension;
-        }
-
-        // let bitmap_extension = get_bytemuck_account::<BinArrayBitmapExtension>(
-        //     remaining_accounts,
-        //     &bin_array_bitmap_extension,
-        // );
-        // msg!("    bin array bitmap extension: {:?}", bitmap_extension);
-
         let bin_arrays_account_meta = get_bin_array_pubkeys_for_swap(
             lb_pair,
             &lb_pair_state,
-            Some(bitmap_extension),
+            None, // Some(bitmap_extension),
             swap_for_y,
             3,
         )?
@@ -909,31 +885,31 @@ impl Core {
 
         remaining_accounts_vec.extend(bin_arrays_account_meta);
 
-        let main_accounts = dlmm::client::accounts::Swap2 {
+        let main_accounts = dlmm::client::accounts::SwapExactOut2 {
             lb_pair,
             bin_array_bitmap_extension: None, // bitmap_extension.lb_pair),
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
-            token_x_mint: lb_pair_state.token_x_mint,
-            token_y_mint: lb_pair_state.token_y_mint,
-            token_x_program,
-            token_y_program,
-            user: payer.key(),
             user_token_in,
             user_token_out,
+            token_x_mint: lb_pair_state.token_x_mint,
+            token_y_mint: lb_pair_state.token_y_mint,
             oracle: lb_pair_state.oracle,
-            host_fee_in: Some(DLMM_ID),
+            host_fee_in: None, // Some(host_fee_in), // for swap, host fee accounts are optional
+            user: payer.key(),
+            token_x_program,
+            token_y_program,
+            memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
             event_authority,
             program: DLMM_ID,
-            memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
         }
         .to_account_metas(None);
 
         // msg!("    main accounts.token_y_mint: {:?}", main_accounts.token_y_mint);
 
-        let data = dlmm::client::args::Swap2 {
-            amount_in,
-            min_amount_out: state.get_min_out_amount_with_slippage_rate(amount_in, swap_for_y, &lb_pair_state)?,
+        let data = dlmm::client::args::SwapExactOut2 {
+            max_in_amount: amount_in, // we are willing to pay up to this amount
+            out_amount: exact_out, // min_amount_out: state.get_min_out_amount_with_slippage_rate(amount_in, swap_for_y, &lb_pair_state)?,
             remaining_accounts_info,
         }
         .data();
@@ -948,17 +924,26 @@ impl Core {
             data,
         };
 
+        let memo_ix = Instruction {
+            program_id: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
+            accounts: vec![
+                AccountMeta::new(payer.key(), true),
+            ],
+            data: WORKER_MEMO_STRING.try_to_vec()?,
+        };
+
         // let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
 
-        let instructions = [swap_ix];
+        let instructions = [swap_ix, memo_ix];
 
-        msg!("    Executing swap instruction...");
+        msg!("    Executing exact out swap instruction...");
 
         let result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions.to_vec())?;
         msg!("Swap amount_in: {}, swap_for_y: {}, result: {:?}", amount_in, swap_for_y, result);
 
         Ok(())
     }
+
 
     /// Check the health of a position, returning the amounts needed to replenish it.
     pub fn check_position_health<'a>(
@@ -1415,7 +1400,8 @@ impl Core {
                     max_deposit_x_amount: u64::MAX,
                     min_withdraw_y_amount: 1u64,
                     max_deposit_y_amount: u64::MAX,
-                    padding: [0u8; 32],
+                    padding: [0u8; 31], // used to be 32, now getting compile error
+                    shrink_mode: 0u8, // 0 for no shrink, 1 for shrink to new_price_bin_id
                     removes: vec![
                         RemoveLiquidityParams {
                             min_bin_id: Some(position_state.lower_bin_id),
