@@ -89,7 +89,8 @@ mod core_test {
             operator: Pubkey::new_unique(),
             lock_release_point: 0u64,
             fee_owner: Pubkey::new_unique(),
-            _reserved: [0u8; 87],
+            _reserved: [0u8; 86],  // used to be 87, now getting compile error
+            version: 0u8,
             _padding_0: 0u8,
         }
     }
@@ -224,7 +225,8 @@ mod core_test {
             creator: Pubkey::default(),
             token_mint_x_program_flag: 0u8,
             token_mint_y_program_flag: 0u8,
-            _reserved: [0u8; 22],
+            _reserved: [0u8; 21],  // used to be 22, now getting compile error
+            version: 0u8,
         };
         let lb_pair_data_vec = bytemuck::bytes_of(&lb_pair_state).to_vec();
         let mut lb_pair_data = vec![33, 11, 49, 98, 181, 101, 177, 13]; // discriminator
@@ -451,6 +453,12 @@ mod core_test {
             mut_state.clone() // Clone the state to end the mutable borrow
         };
 
-        core.swap(&mut irma_admin_account, remaining_accounts, &state, 1000000, true).unwrap();
+        core.counter_swap(
+            &mut irma_admin_account, 
+            remaining_accounts, 
+            &state,
+            1_000_000,
+              990_000,
+            true).unwrap();
     }
 }
