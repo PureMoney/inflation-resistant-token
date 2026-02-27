@@ -263,8 +263,6 @@ export async function cSwap(program, statePda, corePda, adminKeyPair, quoteToken
   ];
 
   try {
-    amount = amount.div(new BN(10).pow(new BN(6))); // convert from atomic units to human-readable (assuming 6 decimals)
-    exact_out = exact_out.div(new BN(10).pow(new BN(6))); // convert from atomic units to human-readable (assuming 6 decimals)
     console.log(`Simulating cSwap with quoteToken=${quoteToken}, amount=${amount}, exact_out=${exact_out}, isMint=${isMint}...`);
     const simulation = await program.methods
       .cSwap(quoteToken, amount, exact_out, isMint)
