@@ -296,11 +296,11 @@ export async function processRebalance(tx, env, ctx) {
       
       // SwapExactOut parameters for Y->X:
       // - max_in_amount: max IRMA (Y) we're willing to pay = mpositionYAmount * 1.1 (with slippage)
-      // - out_amount: exact devUSDT (X) we want to receive = mpositionYAmount / mintPrice * 0.95 (conservative)
+      // - out_amount: exact devUSDT (X) we want to receive = mpositionYAmount / mintPrice * 0.9985 (conservative)
       // mintPrice is in devUSDT/IRMA, so IRMA/mintPrice = devUSDT
       const maxIrmaIn = mpositionYAmount.mul(new BN(Math.floor(1.1 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
       const exactDevUsdtOut = mpositionYAmount.mul(new BN(PRICE_PRECISION)).div(new BN(mintPriceScaled))
-        .mul(new BN(Math.floor(0.95 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
+        .mul(new BN(Math.floor(0.9985 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
       
       logger.log(`💱 Mint bin counter-swap: maxIrmaIn=${maxIrmaIn.toString()}, exactDevUsdtOut=${exactDevUsdtOut.toString()}, mintPrice=${mintPrice}`);
       await cSwap(
@@ -309,19 +309,19 @@ export async function processRebalance(tx, env, ctx) {
 
     if (rpositionXAmount.gt(new BN(0)) && rpositionYAmount.gt(new BN(0))) {
       logger.log(`✅ Redemption bin ${rbinId} has both tokens. Candidate for counter-swap.`);
-      // Counter-swap: Swap X (devUSDT) for Y (IRMA) to remove devUSDT from redemption bin
-      // swap_for_y = true means we're swapping X->Y (devUSDT -> IRMA)
+      // Counter-swap: Swap X (IRMA) for Y (devUSDT) to remove devUSDT from mint bin
+      // swap_for_y = true means we're swapping X->Y (IRMA -> devUSDT)
       
       const PRICE_PRECISION = 1e9;
       const redemptionPriceScaled = Math.floor(redemptionPrice * PRICE_PRECISION);
       
       // SwapExactOut parameters for X->Y:
-      // - max_in_amount: max devUSDT (X) we're willing to pay = rpositionXAmount * 1.1 (with slippage)
-      // - out_amount: exact IRMA (Y) we want to receive = rpositionXAmount / redemptionPrice * 0.95 (conservative)
+      // - max_in_amount: max IRMA (X) we're willing to pay = rpositionXAmount * 1.1 (with slippage)
+      // - out_amount: exact devUSDT (Y) we want to receive = rpositionXAmount / redemptionPrice * 0.9985 (conservative)
       // redemptionPrice is in devUSDT/IRMA, so devUSDT/redemptionPrice = IRMA
       const maxDevUsdtIn = rpositionXAmount.mul(new BN(Math.floor(1.1 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
       const exactIrmaOut = rpositionXAmount.mul(new BN(PRICE_PRECISION)).div(new BN(redemptionPriceScaled))
-        .mul(new BN(Math.floor(0.95 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
+        .mul(new BN(Math.floor(0.9985 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
       
       logger.log(`💱 Redemption bin counter-swap: maxDevUsdtIn=${maxDevUsdtIn.toString()}, exactIrmaOut=${exactIrmaOut.toString()}, redemptionPrice=${redemptionPrice}`);
       await cSwap(connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxDevUsdtIn, exactIrmaOut, false);
