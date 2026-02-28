@@ -230,7 +230,8 @@ export async function getPrices(program, statePda, corePda, adminPublicKey, quot
 /**
  * Execute counter swap in the on-chain program
  */
-export async function cSwap(program, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, isMint) {
+export async function cSwap(
+  connection, program, logger, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, callerGetsQuoteToken) {
     
   // Hardcoded config keys for devUSDT (following IRMA conventions)
   const config_keys = [
@@ -263,9 +264,9 @@ export async function cSwap(program, statePda, corePda, adminKeyPair, quoteToken
   ];
 
   try {
-    console.log(`Simulating cSwap with quoteToken=${quoteToken}, amount=${amount}, exact_out=${exact_out}, isMint=${isMint}...`);
+    console.log(`Simulating cSwap with quoteToken=${quoteToken}, amount=${amount}, exact_out=${exact_out}, getQuoteToken=${callerGetsQuoteToken}...`);
     const simulation = await program.methods
-      .cSwap(quoteToken, amount, exact_out, isMint)
+      .cSwap(quoteToken, amount, exact_out, callerGetsQuoteToken)
       .accounts({
         state: statePda,
         irmaAdmin: adminKeyPair.publicKey,
@@ -291,7 +292,7 @@ export async function cSwap(program, statePda, corePda, adminKeyPair, quoteToken
     }
     console.log("Counter swap simulation successful:", simulation);
     const swapTx = await program.methods
-      .cSwap(quoteToken, amount, exact_out, isMint)
+      .cSwap(quoteToken, amount, exact_out, callerGetsQuoteToken)
       .accounts({
         state: statePda,
         irmaAdmin: adminKeyPair.publicKey,
