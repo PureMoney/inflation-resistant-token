@@ -288,18 +288,43 @@ export async function processRebalance(tx, env, ctx) {
     
     if (mpositionXAmount.gt(new BN(0)) && mpositionYAmount.gt(new BN(0))) {
       logger.log(`✅ Mint bin ${mbinId} has both tokens. Candidate for counter-swap.`);
-      // call on-chain IRMA swap routine to counter-swap IRMA for reserve token from mint_bin_id
-      // swapEventData.counterSwapSignature = await dlmmCounterSwap(connection, dlmmPool, logger, adminKeypair, amountAtomic, true);
-      const xAmount = mpositionYAmount.mul(new BN(1.05)).div(new BN(mintPrice)); // how much x we need to remove ALL y in mint bin
-      await cSwap(program, statePda, corePda, adminKeypair, RESERVE_SYMBOL, xAmount, mpositionYAmount, false);
+      // Counter-swap: Swap Y (IRMA) for X (devUSDT) to remove IRMA from mint bin
+      // swap_for_y = false means we're swapping Y->X (IRMA -> devUSDT)
+      
+      const PRICE_PRECISION = 1e9;
+      const mintPriceScaled = Math.floor(mintPrice * PRICE_PRECISION);
+      
+      // SwapExactOut parameters for Y->X:
+      // - max_in_amount: max IRMA (Y) we're willing to pay = mpositionYAmount * 1.1 (with slippage)
+      // - out_amount: exact devUSDT (X) we want to receive = mpositionYAmount / mintPrice * 0.95 (conservative)
+      // mintPrice is in devUSDT/IRMA, so IRMA/mintPrice = devUSDT
+      const maxIrmaIn = mpositionYAmount.mul(new BN(Math.floor(1.1 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
+      const exactDevUsdtOut = mpositionYAmount.mul(new BN(PRICE_PRECISION)).div(new BN(mintPriceScaled))
+        .mul(new BN(Math.floor(0.95 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
+      
+      logger.log(`💱 Mint bin counter-swap: maxIrmaIn=${maxIrmaIn.toString()}, exactDevUsdtOut=${exactDevUsdtOut.toString()}, mintPrice=${mintPrice}`);
+      await cSwap(
+        connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxIrmaIn, exactDevUsdtOut, true);
     }
 
     if (rpositionXAmount.gt(new BN(0)) && rpositionYAmount.gt(new BN(0))) {
       logger.log(`✅ Redemption bin ${rbinId} has both tokens. Candidate for counter-swap.`);
-      // call on-chain IRMA swap routine to swap reserve token for IRMA from redemption_bin_id
-      // swapEventData.counterSwapSignature = await dlmmCounterSwap(connection, dlmmPool, logger, adminKeypair, amountAtomic, false);
-      const yAmount = rpositionXAmount.mul(new BN(redemptionPrice)); // how much y we need to remove ALL x in redemption bin
-      await cSwap(program, statePda, corePda, adminKeypair, RESERVE_SYMBOL, yAmount, rpositionXAmount, true);
+      // Counter-swap: Swap X (devUSDT) for Y (IRMA) to remove devUSDT from redemption bin
+      // swap_for_y = true means we're swapping X->Y (devUSDT -> IRMA)
+      
+      const PRICE_PRECISION = 1e9;
+      const redemptionPriceScaled = Math.floor(redemptionPrice * PRICE_PRECISION);
+      
+      // SwapExactOut parameters for X->Y:
+      // - max_in_amount: max devUSDT (X) we're willing to pay = rpositionXAmount * 1.1 (with slippage)
+      // - out_amount: exact IRMA (Y) we want to receive = rpositionXAmount / redemptionPrice * 0.95 (conservative)
+      // redemptionPrice is in devUSDT/IRMA, so devUSDT/redemptionPrice = IRMA
+      const maxDevUsdtIn = rpositionXAmount.mul(new BN(Math.floor(1.1 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
+      const exactIrmaOut = rpositionXAmount.mul(new BN(PRICE_PRECISION)).div(new BN(redemptionPriceScaled))
+        .mul(new BN(Math.floor(0.95 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
+      
+      logger.log(`💱 Redemption bin counter-swap: maxDevUsdtIn=${maxDevUsdtIn.toString()}, exactIrmaOut=${exactIrmaOut.toString()}, redemptionPrice=${redemptionPrice}`);
+      await cSwap(connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxDevUsdtIn, exactIrmaOut, false);
     }
     await logger.flush();
 
