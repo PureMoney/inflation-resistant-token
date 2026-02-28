@@ -121,7 +121,7 @@ pub struct SinglePosition {
     pub last_update_timestamp: u64,
 }
 
-const SLIPPAGE_RATE: u64 = 300; // 3%
+const SLIPPAGE_RATE: u64 = 15; // 0.15%
 const BASIC_POINT_MAX: u64 = 10_000;
 
 impl SinglePosition {
