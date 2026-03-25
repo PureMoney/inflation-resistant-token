@@ -58,9 +58,6 @@ anchor idl fetch --out openbook.idl <address of OpenBook program>
 
 The tsc config file tsconfig.json must be used, and the only way I found to do this (that also transpiles the .ts files) is to simply do the CLI command "tsc".
 
-### Install Nodejs and yarn
-(Ref: https://solana.com/docs/intro/installation)
-
 ### Install mocha (for running tests)
 (Ref: https://installati.one/install-mocha-ubuntu-20-04/)
 
