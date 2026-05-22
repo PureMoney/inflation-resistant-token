@@ -2,21 +2,62 @@
   "network": "devnet",
   "tokens": {
     "irma": {
-      "mint": "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm",
+      "mint": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
       "name": "IRMA",
       "symbol": "IRMA",
       "decimals": 6,
-      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "keypair": "irma/keypairs/irma-mint.json"
     },
     "usdc": {
       "mint": "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
       "name": "devUSDC",
       "symbol": "USDC",
       "decimals": 6,
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    },
+    "usdt": {
+      "mint": "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni",
+      "name": "devUSDT",
+      "symbol": "USDT",
+      "decimals": 6,
       "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    },
+    "pyusd": {
+      "mint": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d",
+      "name": "devPYUSD",
+      "symbol": "PYUSD",
+      "decimals": 6,
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "keypair": "irma/keypairs/devpyusd-mint.json"
+    },
+    "usds": {
+      "mint": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD",
+      "name": "devUSDS",
+      "symbol": "USDS",
+      "decimals": 6,
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "keypair": "irma/keypairs/devusds-mint.json"
+    },
+    "usdg": {
+      "mint": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx",
+      "name": "devUSDG",
+      "symbol": "USDG",
+      "decimals": 6,
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "keypair": "irma/keypairs/devusdg-mint.json"
+    },
+    "fdusd": {
+      "mint": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo",
+      "name": "devFDUSD",
+      "symbol": "FDUSD",
+      "decimals": 6,
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "keypair": "irma/keypairs/devfdusd-mint.json"
     }
   },
   "program": {
     "programId": "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
-  }
+  },
+  "pools": {}
 }
