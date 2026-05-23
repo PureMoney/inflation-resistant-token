@@ -88,10 +88,11 @@ mod core_test {
             total_claimed_rewards: [0u64; 2],
             operator: Pubkey::new_unique(),
             lock_release_point: 0u64,
-            fee_owner: Pubkey::new_unique(),
-            _reserved: [0u8; 86],  // used to be 87, now getting compile error
-            version: 0u8,
             _padding_0: 0u8,
+            fee_owner: Pubkey::new_unique(),
+            version: 0u8,
+            permissionless_operation_bits: 0u8,
+            _reserved: [0u8; 85],
         }
     }
 

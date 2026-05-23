@@ -521,8 +521,8 @@ impl Core {
 
         let main_accounts = dlmm::client::accounts::InitializePositionPda {
             payer: payer.key(), // Base for the PDA derivation
-            position: new_position_key, // pda
             base, // unique base for this bin
+            position: new_position_key, // pda
             lb_pair: *lb_pair,
             owner: payer.key(), // User owns the position (for compatibility)
             system_program: system_program::ID,
@@ -574,9 +574,9 @@ impl Core {
         let main_accounts = dlmm::client::accounts::ClosePosition2 {
             position: *position_key,
             sender: payer.key(),
+            rent_receiver: payer.key(), // receive rent lamports
             event_authority,
             program: DLMM_ID,
-            rent_receiver: payer.key(), // receive rent lamports
         }
         .to_account_metas(None);
 
@@ -747,17 +747,17 @@ impl Core {
             lb_pair: *lb_pair,
             position: *old_position_key,
             sender: payer.key(),
-            event_authority,
-            program: DLMM_ID,
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
+            user_token_x,
+            user_token_y,
             token_x_mint: lb_pair_state.token_x_mint,
             token_y_mint: lb_pair_state.token_y_mint,
             token_program_x: token_x_program,
             token_program_y: token_y_program,
             memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
-            user_token_x,
-            user_token_y,
+            event_authority,
+            program: DLMM_ID,
         }
         .to_account_metas(None);
 
@@ -1078,9 +1078,9 @@ impl Core {
         if mut_state.bin_array_pks[pos_index] != bin_array {
             msg!("    Bin array account is new, initializing...");
             let accounts = dlmm::client::accounts::InitializeBinArray {
+                lb_pair,
                 bin_array, // derived
                 funder: payer.key(),
-                lb_pair,
                 system_program: system_program::ID,
             }
             .to_account_metas(None);
@@ -1210,20 +1210,20 @@ impl Core {
         
         // Use AddLiquidityByStrategy2 which can expand position range
         let main_accounts = dlmm::client::accounts::AddLiquidityByStrategy2 {
-            lb_pair,
             position: *poskey,
+            lb_pair,
             bin_array_bitmap_extension,
-            sender: payer.key(),
-            event_authority,
-            program: DLMM_ID,
+            user_token_x,
+            user_token_y,
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
             token_x_mint: lb_pair_state.token_x_mint,
             token_y_mint: lb_pair_state.token_y_mint,
             token_x_program,
             token_y_program,
-            user_token_x,
-            user_token_y,
+            sender: payer.key(),
+            event_authority,
+            program: DLMM_ID,
         }
         .to_account_metas(None);
 

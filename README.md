@@ -1,4 +1,5 @@
 # Inflation-Resistant Medium of Account (IRMA)
+Updated: 03/24/2026
 
 This is a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using DEX (Meteora) and switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
 
@@ -20,38 +21,24 @@ The problem with previous versions of Ubuntu is that the glibc version that come
 
 wsl --install Ubuntu-24.04
 
-## 1. Installing Solana, Cargo, and Anchor
+## 1. Installing Rust, Solana CLI, Anchor CLI, Node.js, and Yarn:
+Ref: https://solana.com/docs/intro/installation
 
 ```shell
 # Using Ubuntu WSL
 
-@ Install solana cli
-sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"
+@ Install
+curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
 
-# Cargo installation
-sudo apt install cargo
-
-# Anchor installation
-cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-
-# Below is optional if cargo install fails
-sudo apt-get update && sudo apt-get upgrade && sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev
-
-# Install the latest version of the CLI using avm and set to latest
-avm install latest
-avm use latest
-```
-
-Add the `/home/<username>/.cargo/bin` to the $PATH.
-
-Verify installation by:
+When installation completes, restart the terminal and verify installation by:
 
 ```shell
-avm --version
+rustc --version
+solana --version
 anchor --version
+node --version
+yarn --version
 ```
-
-Source: [here](https://www.anchor-lang.com/docs/installation)
 
 Anchor is installed at this point
 
@@ -61,27 +48,20 @@ anchor init hello-world
 
 this prepares files for Rust - not what we need - but good enough to start somewhere.
 
-## 2. Rustc Installation
-(Ref: https://solana.com/docs/intro/installation)
-
 ### To integrate with a pre-existing, external contract:
 
 ```shell
 anchor idl fetch --out openbook.idl <address of OpenBook program>
-cargo add openbook.idl
 ```
 
 ### To compile all TypeScript source files
 
 The tsc config file tsconfig.json must be used, and the only way I found to do this (that also transpiles the .ts files) is to simply do the CLI command "tsc".
 
-### Install Nodejs and yarn
-(Ref: https://solana.com/docs/intro/installation)
-
 ### Install mocha (for running tests)
 (Ref: https://installati.one/install-mocha-ubuntu-20-04/)
 
-## 3. Possible Issues
+## 2. Possible Issues
 
 If your contract increases in size as you develop it, "anchor deploy" can fail with "Error: Deploying program failed: RPC response error -32002: Transaction simulation failed: Error processing Instruction 0: account data too small for instruction [3 log messages]". Anchor deploy calculates the necessary data size, but if you modify the contract, the memory size requirement of your contract can increase. This is the reason for this error. Another error that can come up during testing is "Error: failed to send transaction: Transaction simulation failed: Error processing Instruction 0: incorrect program ID for instruction".
 
