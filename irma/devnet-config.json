@@ -6,8 +6,7 @@
       "name": "IRMA",
       "symbol": "IRMA",
       "decimals": 6,
-      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "keypair": "irma/keypairs/irma-mint.json"
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
     },
     "usdc": {
       "mint": "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
@@ -28,32 +27,28 @@
       "name": "devPYUSD",
       "symbol": "PYUSD",
       "decimals": 6,
-      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "keypair": "irma/keypairs/devpyusd-mint.json"
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "usds": {
       "mint": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD",
       "name": "devUSDS",
       "symbol": "USDS",
       "decimals": 6,
-      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "keypair": "irma/keypairs/devusds-mint.json"
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "usdg": {
       "mint": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx",
       "name": "devUSDG",
       "symbol": "USDG",
       "decimals": 6,
-      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "keypair": "irma/keypairs/devusdg-mint.json"
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "fdusd": {
       "mint": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo",
       "name": "devFDUSD",
       "symbol": "FDUSD",
       "decimals": 6,
-      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "keypair": "irma/keypairs/devfdusd-mint.json"
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     }
   },
   "program": {
