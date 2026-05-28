@@ -9,18 +9,18 @@
       "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
     },
     "usdc": {
-      "mint": "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+      "mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       "name": "devUSDC",
       "symbol": "USDC",
       "decimals": 6,
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "usdt": {
-      "mint": "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni",
+      "mint": "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW",
       "name": "devUSDT",
       "symbol": "USDT",
       "decimals": 6,
-      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "pyusd": {
       "mint": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d",
@@ -54,5 +54,36 @@
   "program": {
     "programId": "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
   },
-  "pools": {}
+  "pools": {
+    "usdc": {
+      "address": "DyweFxgq7VzoViT6EWHw9o1Z9rmwifJ82bpLqh1rF6z3",
+      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "tokenY": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    },
+    "usdt": {
+      "address": "BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1",
+      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "tokenY": "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW"
+    },
+    "pyusd": {
+      "address": "82tugvnxW6AwkRm2Ntf4YRK4he1acuyosazR57LWJjU6",
+      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "tokenY": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d"
+    },
+    "usds": {
+      "address": "FQbLMLreVZkokwWubMSSXgjsiGRJjfDHDM7WH3Jg8DYh",
+      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "tokenY": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD"
+    },
+    "usdg": {
+      "address": "4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ",
+      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "tokenY": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx"
+    },
+    "fdusd": {
+      "address": "hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9",
+      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "tokenY": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo"
+    }
+  }
 }
