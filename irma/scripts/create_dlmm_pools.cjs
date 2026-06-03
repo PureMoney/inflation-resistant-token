@@ -5,7 +5,7 @@
 //
 // Pool parameters (per SOW):
 //   - Bin step : 5 bps (0.05% price range per bin — tight, suited for stablecoins)
-//   - Fee      : 40 bps (0.40%)
+//   - Fee      : 25 bps (0.25%)
 //   - Initial price: 1.0 (1 IRMA = 1 stablecoin at launch)
 //
 // Run from irma/ directory:
