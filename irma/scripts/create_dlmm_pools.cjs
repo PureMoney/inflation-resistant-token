@@ -43,7 +43,7 @@ const DLMM_PROGRAM_ID = new PublicKey(
 );
 
 const BIN_STEP = new BN(5);   // 5 bps per bin — tight for stablecoins
-const FEE_BPS  = new BN(40);  // 40 bps swap fee (per SOW)
+const FEE_BPS  = new BN(25);  // 25 bps swap fee (0.25%)
 const ACTIVE_ID = new BN(0);  // bin 0 = price 1.0 (1 IRMA per stablecoin at launch)
 
 // The 6 stablecoins we're pairing IRMA with
