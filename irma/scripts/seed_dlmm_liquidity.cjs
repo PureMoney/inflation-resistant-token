@@ -1,9 +1,16 @@
-// Seed Initial Liquidity into IRMA DLMM Pools on Meteora Devnet
+// Seed Initial Mint-Position Liquidity into IRMA DLMM Pools on Meteora Devnet
+//
+// The IRMA on-chain program manages two single-bin positions per pool:
+//   - Mint position: a single bin holding only IRMA (X), at the mint price.
+//     This is the position we open here — it's the only one our script should create.
+//   - Redemption position: a single bin holding only the stablecoin (Y), at the
+//     redemption price. The IRMA program opens this itself after the first swap —
+//     we must NOT create it.
 //
 // For each of the 6 pools this script:
-//   1. Mints extra tokens into our wallet where we hold mint authority
-//   2. Opens a new position centered on the active bin (price = 1.0)
-//   3. Deposits SEED_AMOUNT of IRMA + stablecoin into that position
+//   1. Mints extra IRMA into our wallet (if we hold mint authority)
+//   2. Opens a new single-bin position at the active bin (price = 1.0)
+//   3. Deposits SEED_AMOUNT of IRMA only (no stablecoin) into that position
 //
 // Run from irma/ directory:
 //   node scripts/seed_dlmm_liquidity.cjs
@@ -26,6 +33,7 @@ const {
 } = require("@solana/spl-token");
 const BN = require("bn.js");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "../.env") });
 
@@ -33,11 +41,8 @@ const config = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../devnet-config.json"), "utf-8")
 );
 
-// 10 tokens each side (6 decimals = 10_000_000 base units)
+// 10 IRMA (6 decimals = 10_000_000 base units) for the mint position
 const SEED_AMOUNT = new BN(10_000_000);
-
-// Spread across 10 bins on each side of active price (-10 to +10)
-const BIN_RANGE = 10;
 
 // Tokens we hold mint authority for — we can self-mint these
 const CAN_MINT = new Set(["irma", "usdt", "pyusd", "usds", "usdg", "fdusd"]);
@@ -46,7 +51,7 @@ async function ensureFunded(connection, keypair, symbol) {
   const token = config.tokens[symbol];
   const mint = new PublicKey(token.mint);
   const programId =
-    token.program === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    token.program === TOKEN_2022_PROGRAM_ID.toBase58()
       ? TOKEN_2022_PROGRAM_ID
       : TOKEN_PROGRAM_ID;
 
@@ -78,7 +83,9 @@ async function main() {
 
   const connection = new Connection(rpcUrl, "confirmed");
 
-  const keypairPath = path.join(process.env.HOME, ".config/solana/phantom1.json");
+  const keypairPath =
+    process.env.SOLANA_KEYPAIR_PATH ||
+    path.join(os.homedir(), ".config/solana/phantom1.json");
   const keypair = Keypair.fromSecretKey(
     new Uint8Array(JSON.parse(fs.readFileSync(keypairPath, "utf-8")))
   );
@@ -108,16 +115,15 @@ async function main() {
     console.log(`   Pool: ${poolCfg.address}`);
 
     try {
-      // Step 1 — ensure wallet has enough of both tokens
+      // Step 1 — ensure wallet has enough IRMA (mint position holds only IRMA)
       console.log("   Funding wallet...");
-      const irmaOk  = await ensureFunded(connection, keypair, "irma");
-      const stableOk = await ensureFunded(connection, keypair, symbol);
-      if (!irmaOk || !stableOk) {
+      const irmaOk = await ensureFunded(connection, keypair, "irma");
+      if (!irmaOk) {
         failed.push(symbol);
         continue;
       }
 
-      // Step 2 — load pool and get active bin
+      // Step 2 — load pool and get active bin (this is the mint price, bin = 0)
       const dlmmPool = await DLMM.create(
         connection,
         new PublicKey(poolCfg.address),
@@ -130,26 +136,34 @@ async function main() {
       const positionKeypair = Keypair.generate();
       console.log(`   Position  : ${positionKeypair.publicKey.toBase58()}`);
 
-      // Step 4 — build the tx: open position + add liquidity in one shot
-      const tx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
+      // Step 4 — open a single-bin mint position at the active bin, IRMA (X) only.
+      // The redemption position (stablecoin/Y, single bin below) is opened by the
+      // IRMA on-chain program itself after the first swap — we must not create it.
+      const result = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
         positionPubKey: positionKeypair.publicKey,
         user: keypair.publicKey,
         totalXAmount: SEED_AMOUNT,
-        totalYAmount: SEED_AMOUNT,
+        totalYAmount: new BN(0),
         strategy: {
-          minBinId: activeBin.binId - BIN_RANGE,
-          maxBinId: activeBin.binId + BIN_RANGE,
+          minBinId: activeBin.binId,
+          maxBinId: activeBin.binId,
           strategyType: StrategyType.Spot,
         },
       });
 
-      const { blockhash } = await connection.getLatestBlockhash();
-      tx.feePayer = keypair.publicKey;
-      tx.recentBlockhash = blockhash;
+      // The SDK can return either a single Transaction or an array of them
+      const txs = Array.isArray(result) ? result : [result];
 
-      const sig = await sendAndConfirmTransaction(
-        connection, tx, [keypair, positionKeypair], { commitment: "confirmed" }
-      );
+      let sig;
+      for (const tx of txs) {
+        const { blockhash } = await connection.getLatestBlockhash();
+        tx.feePayer = keypair.publicKey;
+        tx.recentBlockhash = blockhash;
+
+        sig = await sendAndConfirmTransaction(
+          connection, tx, [keypair, positionKeypair], { commitment: "confirmed" }
+        );
+      }
 
       console.log(`   ✅ Done. Tx: ${sig}`);
       seeded.push({ symbol, sig });
