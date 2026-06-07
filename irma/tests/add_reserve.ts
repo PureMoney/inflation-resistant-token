@@ -109,8 +109,7 @@ async function add_reserve() {
     ];
     
     const tx = await program.methods
-      // .addReserve("devUSDC", new PublicKey("BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"), 6)
-      .addReserve("devUSDT", new PublicKey("J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"), 6)
+      .addReserve(symbol, new PublicKey(mintAddress), decimals)
       .accounts({
         state: statePda,
         irmaAdmin: payer,
@@ -150,12 +149,18 @@ async function add_reserve() {
   }
 }
 
-console.log("Starting add_reserve script...");
-console.log("=================================");
-console.log("NOTE: This just adds the reserve stablecoin to the pricing.rs state map data account.");
-console.log("To get the IRMA program to work with this new stablecoin, its DLMM pair must be connected to it.");
-console.log("There is another test script, connect_lb_pair.ts, that needs to run after this one.");
-console.log("=================================\n");
+// Usage: yarn ts-mocha ... tests/add_reserve.ts <symbol> <mintAddress> [decimals]
+// Example: yarn ts-mocha ... tests/add_reserve.ts devUSDC 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU 6
+const args = process.argv.slice(2);
+if (args.length < 2) {
+  console.error("Usage: ts-node tests/add_reserve.ts <symbol> <mintAddress> [decimals]");
+  process.exit(1);
+}
+const symbol = args[0];
+const mintAddress = args[1];
+const decimals = args[2] ? parseInt(args[2]) : 6;
 
-// Run the function
-add_reserve(); // .catch(console.error);
+console.log("Starting add_reserve script...");
+console.log(`Symbol: ${symbol}, Mint: ${mintAddress}, Decimals: ${decimals}\n`);
+
+add_reserve();
