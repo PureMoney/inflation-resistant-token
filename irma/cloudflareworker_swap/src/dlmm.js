@@ -1,10 +1,7 @@
 import { StrategyType } from "@meteora-ag/dlmm";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-// import { POOL_ADDRESS, RESERVE_SYMBOL } from "./config.js";
-// import { getActiveBins, updateActiveBins, Logger, logRebalancingEvent } from "./d1_logs.js";
-// import IDL from "../../target/idl/irma.json";
-// import { min } from "bn.js";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
 // --- HELPER FUNCTIONS ---
 
@@ -157,6 +154,91 @@ async function addLiquidityToBin(dlmmPool, connection, adminKeypair, userPositio
 
 // --- START EXPORTS ---
 
+const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
+const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
+/**
+ * Build the remainingAccounts array for checkShiftPriceRanges / cSwap by
+ * fetching live pool state rather than relying on hardcoded addresses.
+ *
+ * Accounts included:
+ *  - DLMM LbPair (pool)
+ *  - All admin positions in the pool (fetched on-chain)
+ *  - Bin arrays covering both swap directions (fetched on-chain)
+ *  - IRMA and reserve mints
+ *  - Admin ATAs for IRMA and reserve
+ *  - Pool vault accounts (tokenX.reserve, tokenY.reserve)
+ *  - Pool authority (vault owner PDA)
+ *  - Oracle account
+ *  - Admin wallet (signer)
+ *  - Event authority PDA, program IDs, sysvars
+ */
+export async function buildRemainingAccounts(dlmmPool, adminKeypair, env) {
+  const irmaMint    = new PublicKey(env.IRMA_MINT_STR);
+  const reserveMint = new PublicKey(env.RESERVE_MINT_STR);
+
+  // Fetch live positions and bin arrays concurrently
+  const [{ userPositions }, binArraysX2Y, binArraysY2X] = await Promise.all([
+    dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey),
+    dlmmPool.getBinArrayForSwap(false),
+    dlmmPool.getBinArrayForSwap(true),
+  ]);
+
+  const binArrayKeySet = new Set([
+    ...binArraysX2Y.map(b => b.publicKey.toBase58()),
+    ...binArraysY2X.map(b => b.publicKey.toBase58()),
+  ]);
+
+  // Admin ATAs (synchronous derivation)
+  const adminIrmaAta    = getAssociatedTokenAddressSync(irmaMint,    adminKeypair.publicKey, false, TOKEN_2022_PROGRAM_ID);
+  const adminReserveAta = getAssociatedTokenAddressSync(reserveMint, adminKeypair.publicKey, false, TOKEN_PROGRAM_ID);
+
+  // Pool vault addresses and authority come from the loaded pool state
+  const poolIrmaVault    = dlmmPool.tokenX.reserve;
+  const poolReserveVault = dlmmPool.tokenY.reserve;
+  const poolAuthority    = dlmmPool.tokenX.owner;   // PDA that owns the vault accounts
+  const oracle           = dlmmPool.lbPair.oracle;
+
+  // Anchor event authority PDA (standard for all Anchor programs)
+  const [eventAuthority] = PublicKey.findProgramAddressSync(
+    [Buffer.from("__event_authority")],
+    DLMM_PROGRAM_ID
+  );
+
+  const entries = [
+    { pubkey: dlmmPool.pubkey,            isSigner: false, isWritable: true  },
+    ...userPositions.map(p => ({ pubkey: p.publicKey,      isSigner: false, isWritable: true  })),
+    ...[...binArrayKeySet].map(k => ({ pubkey: new PublicKey(k), isSigner: false, isWritable: true })),
+    { pubkey: irmaMint,                   isSigner: false, isWritable: false },
+    { pubkey: reserveMint,                isSigner: false, isWritable: false },
+    { pubkey: adminIrmaAta,               isSigner: false, isWritable: true  },
+    { pubkey: adminReserveAta,            isSigner: false, isWritable: true  },
+    { pubkey: poolIrmaVault,              isSigner: false, isWritable: true  },
+    { pubkey: poolReserveVault,           isSigner: false, isWritable: true  },
+    { pubkey: poolAuthority,              isSigner: false, isWritable: false },
+    { pubkey: oracle,                     isSigner: false, isWritable: true  },
+    { pubkey: adminKeypair.publicKey,     isSigner: true,  isWritable: true  },
+    { pubkey: eventAuthority,             isSigner: false, isWritable: false },
+    ...(dlmmPool.tokenX.transferHookAccountMetas || []),
+    { pubkey: DLMM_PROGRAM_ID,            isSigner: false, isWritable: false },
+    { pubkey: TOKEN_2022_PROGRAM_ID,      isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID,           isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId,    isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_RENT_PUBKEY,         isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_CLOCK_PUBKEY,        isSigner: false, isWritable: false },
+    { pubkey: MEMO_PROGRAM,               isSigner: false, isWritable: false },
+  ];
+
+  // Deduplicate by pubkey (keep first occurrence)
+  const seen = new Set();
+  return entries.filter(({ pubkey }) => {
+    const key = pubkey.toBase58();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // --- CUSTOM WALLET ---
 // Used as wallet adapter for AnchorProvider in Cloudflare Workers environment
 export class CustomWallet {
@@ -228,40 +310,14 @@ export async function getPrices(program, statePda, corePda, adminPublicKey, quot
 }
 
 /**
- * Execute counter swap in the on-chain program
+ * Execute counter swap in the on-chain program.
+ * Pool accounts (positions, bin arrays, vaults, oracle) are fetched live from
+ * the DLMM pool rather than hardcoded — see buildRemainingAccounts().
  */
 export async function cSwap(
-  connection, program, logger, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, callerGetsQuoteToken) {
-    
-  // Hardcoded config keys for devUSDT (following IRMA conventions)
-  const config_keys = [
-    "147jRQy4cyE3jCuiCYoKwvfYjLkkoPxhaJPZovU9oSNS", // host fee account
-    "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // DLMM pair
-    "9rMc8GnMfbq233ZhqjguRt37iXcKrt35LNgxj4ZVChZs", // position 1
-    "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2
-    "2GPfbE3E972LCqiBSsujyUvziAq1z5NvsBTWdVX8VTR9", // bin array 1
-    "3eEiY1mqyka1E6WsZKLZnC7mDBT5Pn8zUkz1nqg2MEoA", // bin array 2
-    "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // IRMA mint
-    "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // devUSDT mint
-    "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
-    "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
-    "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
-    "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
-    "9ZEqmbBp3QaT4z25xnQqdLLeRqb7Vej59vdgvHmVhwrk",
-    "L93d6igVFXZKhcujZNWKeM1rH1XyqWmHttRoy5J3vg6",
-    "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // IRMA account owned by the USDT pool
-    "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj", // devUSDT account owned the USDT pool
-    "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
-    "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
-    "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // IRMA token account owned by the-fed
-    "6NnDoJeGdo5vdMwc9eMpJyNSbbz7xMnH8eVqascPCXR1", // Oracle
-    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
-    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
-    "11111111111111111111111111111111", // System program ID
-    "SysvarRent111111111111111111111111111111111", // Rent sysvar
-    "SysvarC1ock11111111111111111111111111111111", // Clock sysvar
-  ];
+  connection, program, logger, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, callerGetsQuoteToken, dlmmPool, env) {
+
+  const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env);
 
   try {
     console.log(`Simulating cSwap with quoteToken=${quoteToken}, amount=${amount}, exact_out=${exact_out}, getQuoteToken=${callerGetsQuoteToken}...`);
@@ -273,18 +329,9 @@ export async function cSwap(
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts(config_keys.map((key, index) => ({
-        pubkey: new PublicKey(key),
-        isSigner: index === 11, // Only the fed wallet should be a signer
-        isWritable: // !key.startsWith('6NnDoJeGd') && 
-                    !key.startsWith('TokenkegQ') && 
-                    !key.startsWith('LBUZKhRx') &&
-                    !key.startsWith('11111111') &&
-                    !key.startsWith('TokenzQdB') &&
-                    !key.startsWith('MemoSq4gq'), // Programs are read-only
-      })))
+      .remainingAccounts(remainingAccounts)
       .simulate();
-    
+
     if (simulation.err) {
       console.error("Simulation returned error:", JSON.stringify(simulation.err, null, 2));
       console.error("Simulation logs:", simulation.logs);
@@ -299,16 +346,7 @@ export async function cSwap(
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts(config_keys.map((key, index) => ({
-        pubkey: new PublicKey(key),
-        isSigner: index === 11, // Only the fed wallet should be a signer
-        isWritable: // !key.startsWith('6NnDoJeGd') && 
-                    !key.startsWith('TokenkegQ') && 
-                    !key.startsWith('11111111') &&
-                    !key.startsWith('LBUZKhRx') &&
-                    !key.startsWith('TokenzQdB') &&
-                    !key.startsWith('MemoSq4gq'), // Programs are read-only
-      })))
+      .remainingAccounts(remainingAccounts)
       .transaction();
 
     logger.log("DEBUG: Sending cSwap transaction...");
