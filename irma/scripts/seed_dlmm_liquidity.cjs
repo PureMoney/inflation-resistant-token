@@ -41,8 +41,9 @@ const config = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../devnet-config.json"), "utf-8")
 );
 
-// 10 IRMA (6 decimals = 10_000_000 base units) for the mint position
-const SEED_AMOUNT = new BN(10_000_000);
+// 1 billion IRMA (6 decimals = 1_000_000_000 * 10^6 base units) for the mint position.
+// Must be large enough that no single user swap can exhaust the mint bin.
+const SEED_AMOUNT = new BN("1000000000000000");
 
 // Tokens we hold mint authority for — we can self-mint these
 const CAN_MINT = new Set(["irma", "usdt", "pyusd", "usds", "usdg", "fdusd"]);
