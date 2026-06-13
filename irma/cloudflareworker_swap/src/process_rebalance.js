@@ -107,7 +107,7 @@ async function dlmmCounterSwap(connection, dlmmPool, logger, poolKey, adminKeypa
 
 /// Main function to process a rebalance based on a swap event
 export async function processRebalance(tx, env, ctx) {
-  const logger = new Logger(env.DB);
+  const logger = new Logger();
   
   // Track swap event data for logging
   let swapEventData = {

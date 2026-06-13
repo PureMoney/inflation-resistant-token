@@ -30,11 +30,6 @@
 			"head_sampling_rate": 1
 		}
 	},
-	// D1 Database binding for persistent logging
-	// Create with: npx wrangler d1 create irma-logs
-	// Then update the database_id below with the ID from the output
-	"d1_databases": [
-	],
 	// Truflation proxy URL - set via deploy script from truflation-proxy/.vercel-url
 	// This gets populated when you run: ./deploy.sh
 	"vars": {
