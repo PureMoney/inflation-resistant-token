@@ -1,0 +1,110 @@
+name = "irma-client"
+account_id = "a40160575af8ebbeff7d70fd666a5a64"
+main = "src/worker.js"
+workers_dev = true
+preview_urls = false
+compatibility_flags = ["nodejs_compat_v2"]
+compatibility_date = "2025-11-21"
+
+# Secrets (set per environment via `npx wrangler secret put <NAME> --env <env>`):
+#   ADMIN_PRIVATE_KEY — JSON byte array of the admin keypair (phantom1.json)
+#   HELIUS_API_KEY    — Helius RPC API key
+
+[triggers]
+crons = ["0 6 * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
+# Default vars (used for local `wrangler dev` — not deployed directly)
+[vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1"
+RESERVE_SYMBOL = "devUSDT"
+RESERVE_MINT_STR = "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
+
+# =============================================================================
+# Per-pool environments — deploy with: npx wrangler deploy --env <env>
+# Secrets must be set separately: npx wrangler secret put ADMIN_PRIVATE_KEY --env <env>
+# =============================================================================
+
+[env.usdc]
+name = "irma-client-usdc"
+[env.usdc.vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "DyweFxgq7VzoViT6EWHw9o1Z9rmwifJ82bpLqh1rF6z3"
+RESERVE_SYMBOL = "devUSDC"
+RESERVE_MINT_STR = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
+
+[env.usdt]
+name = "irma-client-usdt"
+[env.usdt.vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1"
+RESERVE_SYMBOL = "devUSDT"
+RESERVE_MINT_STR = "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
+
+[env.pyusd]
+name = "irma-client-pyusd"
+[env.pyusd.vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "82tugvnxW6AwkRm2Ntf4YRK4he1acuyosazR57LWJjU6"
+RESERVE_SYMBOL = "devPYUSD"
+RESERVE_MINT_STR = "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
+
+[env.usds]
+name = "irma-client-usds"
+[env.usds.vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "FQbLMLreVZkokwWubMSSXgjsiGRJjfDHDM7WH3Jg8DYh"
+RESERVE_SYMBOL = "devUSDS"
+RESERVE_MINT_STR = "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
+
+[env.usdg]
+name = "irma-client-usdg"
+[env.usdg.vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ"
+RESERVE_SYMBOL = "devUSDG"
+RESERVE_MINT_STR = "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
+
+[env.fdusd]
+name = "irma-client-fdusd"
+[env.fdusd.vars]
+TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
+POOL_ADDRESS = "hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9"
+RESERVE_SYMBOL = "devFDUSD"
+RESERVE_MINT_STR = "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo"
+IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
+TARGET_INFLATION_RATE = "2.0"
+ENABLE_TEST_SCAFFOLDING = "true"
