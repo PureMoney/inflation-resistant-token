@@ -234,6 +234,22 @@ export async function buildRemainingAccounts(dlmmPool, adminKeypair, env) {
     ];
   });
 
+  // Admin ATAs (synchronous derivation)
+  const adminIrmaAta    = getAssociatedTokenAddressSync(irmaMint,    adminKeypair.publicKey, false, TOKEN_2022_PROGRAM_ID);
+  const adminReserveAta = getAssociatedTokenAddressSync(reserveMint, adminKeypair.publicKey, false, TOKEN_PROGRAM_ID);
+
+  // Pool vault addresses and authority come from the loaded pool state
+  const poolIrmaVault    = dlmmPool.tokenX.reserve;
+  const poolReserveVault = dlmmPool.tokenY.reserve;
+  const poolAuthority    = dlmmPool.tokenX.owner;
+  const oracle           = dlmmPool.lbPair.oracle;
+
+  // Anchor event authority PDA (standard for all Anchor programs)
+  const [eventAuthority] = PublicKey.findProgramAddressSync(
+    [Buffer.from("__event_authority")],
+    DLMM_PROGRAM_ID
+  );
+
   const entries = [
     { pubkey: dlmmPool.pubkey,            isSigner: false, isWritable: true  },
     ...derivedMetas,
