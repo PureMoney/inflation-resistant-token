@@ -189,24 +189,54 @@ export async function buildRemainingAccounts(dlmmPool, adminKeypair, env) {
     ...binArraysY2X.map(b => b.publicKey.toBase58()),
   ]);
 
-  // Admin ATAs (synchronous derivation)
-  const adminIrmaAta    = getAssociatedTokenAddressSync(irmaMint,    adminKeypair.publicKey, false, TOKEN_2022_PROGRAM_ID);
-  const adminReserveAta = getAssociatedTokenAddressSync(reserveMint, adminKeypair.publicKey, false, TOKEN_PROGRAM_ID);
+  // Include nearby bin-array + position PDAs so on-chain shifts can initialize/replace
+  // positions (and initialize bin arrays) without requiring hardcoded addresses.
+  const BIN_ARRAY_SIZE = 70;
+  const i32le = (n) => {
+    const b = Buffer.alloc(4);
+    b.writeInt32LE(n, 0);
+    return b;
+  };
+  const i64le = (n) => {
+    const b = Buffer.alloc(8);
+    b.writeBigInt64LE(BigInt(n), 0);
+    return b;
+  };
 
-  // Pool vault addresses and authority come from the loaded pool state
-  const poolIrmaVault    = dlmmPool.tokenX.reserve;
-  const poolReserveVault = dlmmPool.tokenY.reserve;
-  const poolAuthority    = dlmmPool.tokenX.owner;   // PDA that owns the vault accounts
-  const oracle           = dlmmPool.lbPair.oracle;
+  const nearbyIndices = new Set();
+  for (const p of userPositions) {
+    if (p?.positionData?.lowerBinId === undefined) continue;
+    const idx = Math.floor(p.positionData.lowerBinId / BIN_ARRAY_SIZE);
+    for (const d of [-1, 0, 1]) nearbyIndices.add(idx + d);
+  }
 
-  // Anchor event authority PDA (standard for all Anchor programs)
-  const [eventAuthority] = PublicKey.findProgramAddressSync(
-    [Buffer.from("__event_authority")],
-    DLMM_PROGRAM_ID
-  );
+  const derivedMetas = [...nearbyIndices].flatMap((idx) => {
+    const lowerBinId = idx * BIN_ARRAY_SIZE;
+    const [positionPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("position"),
+        dlmmPool.pubkey.toBuffer(),
+        adminKeypair.publicKey.toBuffer(),
+        i32le(lowerBinId),
+        i32le(BIN_ARRAY_SIZE),
+      ],
+      DLMM_PROGRAM_ID
+    );
+
+    const [binArrayPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("bin_array"), dlmmPool.pubkey.toBuffer(), i64le(idx)],
+      DLMM_PROGRAM_ID
+    );
+
+    return [
+      { pubkey: positionPda, isSigner: false, isWritable: true },
+      { pubkey: binArrayPda, isSigner: false, isWritable: true },
+    ];
+  });
 
   const entries = [
     { pubkey: dlmmPool.pubkey,            isSigner: false, isWritable: true  },
+    ...derivedMetas,
     ...userPositions.map(p => ({ pubkey: p.publicKey,      isSigner: false, isWritable: true  })),
     ...[...binArrayKeySet].map(k => ({ pubkey: new PublicKey(k), isSigner: false, isWritable: true })),
     { pubkey: irmaMint,                   isSigner: false, isWritable: false },
