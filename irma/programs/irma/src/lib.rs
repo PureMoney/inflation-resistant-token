@@ -559,22 +559,18 @@ pub mod irma {
             if needs_mint_shift {
                 core.shift_mint_position(
                     payer, remaining_accounts, core_mut_position, mint_price_bin_id)?;
-                // core.refresh_position_data(&creator, remaining_accounts, &mut core_position, true)?;
             }
 
             if needs_redeem_shift {
                 core.shift_redeem_position(
                     payer, remaining_accounts, core_mut_position, redemption_price_bin_id)?;
-                // core.refresh_position_data(&creator, remaining_accounts, &mut core_position, false)?;
             }
 
-            // Find the core_position index for this lb_pair
-            let pos_index = core.position_data.all_positions.iter()
-                .position(|p| p.lb_pair == lb_pair_key)
-                .ok_or(error!(CustomError::SinglePositionNotFound))?;
-
-            // check that bid and ask positions are still healthy
-            let (delta_x, delta_y) = core.check_position_health(remaining_accounts, pos_index)?;
+            // check that bid and ask positions are still healthy - read from
+            // core_mut_position (the live position, reflecting any deposits made
+            // by the shifts above), not from `core`, which is a snapshot cloned
+            // before this function ran and would otherwise show stale liquidity.
+            let (delta_x, delta_y) = core.check_position_health(remaining_accounts, core_mut_position)?;
             if delta_x > 0 {
                 msg!("Minting position for lb_pair {} is not healthy, replenishing.", lb_pair_key);
                 core.replenish_minting_position(
