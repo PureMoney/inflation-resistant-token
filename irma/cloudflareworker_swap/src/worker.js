@@ -207,7 +207,7 @@ export default {
  * Calls on-chain check_shift_price_ranges() after price update
  */
 async function handle_scheduled_mint_price_update(env) {
-  const logger = new Logger(env.DB);
+  const logger = new Logger();
   
   try {
     logger.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
@@ -457,7 +457,7 @@ async function handle_request(request, env, ctx) {
  * Process rebalancing logic after detecting a swap event
  */
 async function process_rebalance(tx, env, ctx) {
-  const logger = new Logger(env.DB);
+  const logger = new Logger();
   
   try {
     logger.log(`🔄 Processing rebalance for transaction: ${tx.transaction.signatures[0]}`);
