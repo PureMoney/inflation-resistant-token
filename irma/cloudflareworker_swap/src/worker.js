@@ -323,29 +323,32 @@ async function handle_request(request, env, ctx) {
       }
     }
     
-    // if (action === 'rebalance-bins') {
-    //   console.log("🔧 Manual trigger: Rebalance bins");
-    //   try {
-    //     const result = await manualRebalanceBins(env);
-    //     return new Response(JSON.stringify({
-    //       success: true,
-    //       message: "Bin rebalancing completed",
-    //       ...result
-    //     }), {
-    //       status: 200,
-    //       headers: { "Content-Type": "application/json" }
-    //     });
-    //   } catch (error) {
-    //     return new Response(JSON.stringify({
-    //       success: false,
-    //       error: error.message
-    //     }), {
-    //       status: 500,
-    //       headers: { "Content-Type": "application/json" }
-    //     });
-    //   }
-    // }
-    
+    if (action === 'rebalance-bins') {
+      console.log("🔧 Manual trigger: Rebalance bins");
+      const consoleLogger = { log: console.log.bind(console), error: console.error.bind(console), flush: async () => {} };
+      try {
+        const result = await check_shift_price_range_worker(env, consoleLogger);
+        return new Response(JSON.stringify({
+          success: true,
+          message: "Bin rebalancing completed",
+          result
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (error) {
+        const logs = error.getLogs ? await error.getLogs() : null;
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message,
+          logs
+        }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+
     if (action === 'view-logs') {
       const log_type = url.searchParams.get('type') || 'console';
       const limit = parseInt(url.searchParams.get('limit') || '100', 10);
