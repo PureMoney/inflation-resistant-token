@@ -946,15 +946,15 @@ impl Core {
 
 
     /// Check the health of a position, returning the amounts needed to replenish it.
+    /// Takes the position directly (rather than an index into `self.position_data`)
+    /// so callers can pass the live, just-mutated `SinglePosition` from the current
+    /// instruction instead of a pre-shift snapshot of `self`.
     pub fn check_position_health<'a>(
         &self,
         acct_infos: &'a [AccountInfo<'a>],
-        state_index: usize, // ;pool or lb_pair index
+        state: &SinglePosition,
     ) -> Result<(u64, u64)> {
-        let state = &self.position_data.all_positions
-            .get(state_index)
-            .ok_or(error!(CustomError::PositionNotFound))?;
-        let (mut replenish_x_amount, mut replenish_y_amount) = 
+        let (mut replenish_x_amount, mut replenish_y_amount) =
                     state.get_liquidity_in_position(acct_infos, &self.position_data)?;
         msg!("    --> amount_x remaining: {}, amount_y remaining: {}", 
                     replenish_x_amount, replenish_y_amount);
