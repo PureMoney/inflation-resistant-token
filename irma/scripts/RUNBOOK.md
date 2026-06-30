@@ -226,6 +226,27 @@ yarn test
 
 **Full context & test results**: `docs/phase4-integration-testing.md`
 
+### 4d. Manual swap smoke test (Meteora devnet UI)
+
+Verify each pool is live and swappable via the UI:
+
+1. Import `phantom1.json` into Phantom wallet and switch to Devnet
+2. Open each pool link below and perform a small swap (e.g. 0.01 stablecoin → IRMA)
+3. Confirm the transaction succeeds and the pool state updates
+
+| Pool | Meteora Devnet UI |
+|------|-------------------|
+| IRMA/USDC | https://devnet.meteora.ag/dlmm/DyweFxgq7VzoViT6EWHw9o1Z9rmwifJ82bpLqh1rF6z3 |
+| IRMA/USDT | https://devnet.meteora.ag/dlmm/BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1 |
+| IRMA/PYUSD | https://devnet.meteora.ag/dlmm/82tugvnxW6AwkRm2Ntf4YRK4he1acuyosazR57LWJjU6 |
+| IRMA/USDS | https://devnet.meteora.ag/dlmm/FQbLMLreVZkokwWubMSSXgjsiGRJjfDHDM7WH3Jg8DYh |
+| IRMA/USDG | https://devnet.meteora.ag/dlmm/4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ |
+| IRMA/FDUSD | https://devnet.meteora.ag/dlmm/hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9 |
+
+> **Token names not visible?** Token names and symbols require a separate on-chain Metaplex metadata account — `spl-token create-token` only creates the mint, not the metadata. The pools are fully functional; the UI just shows raw mint addresses instead of names until metadata is added. This is a known gap and can be addressed by running a metadata-creation script for each of the 7 mints (IRMA + 6 stablecoins).
+
+> **Note**: devUSDC swaps may silently no-op due to the known mint mis-registration bug — see Phase 3 known issue.
+
 ---
 
 ## Phase 5 — Cloudflare Worker
