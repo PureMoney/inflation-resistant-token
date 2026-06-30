@@ -54,7 +54,7 @@ SOLANA_PRIVATE_KEY=<phantom1 private key as JSON byte array>
 | IRMA/USDG | `4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ` |
 | IRMA/FDUSD | `hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9` |
 
-> Meteora's web UI only indexes mainnet — devnet pools won't appear there. Verify a pool on Solana Explorer: `https://explorer.solana.com/address/<POOL_ADDRESS>?cluster=devnet`
+> Devnet pools are visible on the Meteora devnet UI: `https://devnet.meteora.ag`. You can also verify any pool directly on Solana Explorer: `https://explorer.solana.com/address/<POOL_ADDRESS>?cluster=devnet`
 
 ---
 
