@@ -91,7 +91,8 @@ mod core_test {
             _padding_0: 0u8,
             fee_owner: Pubkey::new_unique(),
             version: 0u8,
-            _reserved: [0u8; 86],
+            permissionless_operation_bits: 0u8,
+            _reserved: [0u8; 85],
         }
     }
 
