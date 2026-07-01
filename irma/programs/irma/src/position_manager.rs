@@ -195,7 +195,7 @@ impl SinglePosition {
         if positions.len() == 0 || positions.len() > MAX_POSITIONS {
             return Ok(PositionRaw::default());
         }
-        if positions[0].lower_bin_id == positions[1].lower_bin_id {
+        if positions.len() > 1 && positions[0].lower_bin_id == positions[1].lower_bin_id {
             positions.remove(1);
         }
         
@@ -207,7 +207,7 @@ impl SinglePosition {
         if bin_arrays.len() == 0 || bin_arrays.len() > MAX_POSITIONS {
             Err(Error::from(CustomError::FailedToFetchBinArrays))?;
         }
-        if bin_arrays[0].0 == bin_arrays[1].0 {
+        if bin_arrays.len() > 1 && bin_arrays[0].0 == bin_arrays[1].0 {
             bin_arrays.remove(1);
         }
 
