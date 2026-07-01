@@ -83,3 +83,60 @@ to approach the mint price for each stablecoin, even when no minting is going on
 
 ![IRMA_Circulation_with_labels](https://github.com/user-attachments/assets/f73d90a7-80ae-43be-b07d-2154eaf3a732)
 
+---
+
+## Phase 4 — Devnet Integration Test Matrix (IRMA-11)
+
+Ran the parameterized `tests/test_swap.ts` (see `tests/update_reserve_lbpair.ts` and
+`docs/phase4-integration-testing.md` for the linking prerequisite) against every linkable
+reserve on devnet, exercising both `sale_trade_event` (mint) and `buy_trade_event` (redeem)
+for each:
+
+```bash
+npx ts-node tests/test_swap.ts mo <symbol>   # mint  — sale_trade_event(symbol, 110_000_000)
+npx ts-node tests/test_swap.ts ro <symbol>   # redeem — buy_trade_event(symbol, 10_000_000)
+```
+
+`devUSDC` is excluded from this matrix — it remains blocked on the mint mis-registration bug
+documented in `docs/phase4-integration-testing.md` (`update_reserve_lbpair` rejects it with
+`InvalidLbPairState` before any trade event can run).
+
+### Results
+
+| Reserve | Mint (`sale_trade_event`) | Redeem (`buy_trade_event`) | Mint Price | Redemption Price |
+|---|---|---|---|---|
+| devUSDT | ✅ confirmed `pvByz8BU...sChksiMhSM` | ✅ confirmed `u2rXbTMc...EKjoByVb` | 1.001 | 1.0 |
+| devPYUSD | ✅ confirmed `4MrUa9qg...2MKVm5ttAL` | ✅ confirmed `2Ehb2x4m...JarYbAXr7k5U` | 1.0 | 1.0 |
+| devUSDS | ✅ confirmed `4UjUMrLR...c1ogsZbSYm` | ✅ confirmed `3NEwiLwp...RbL8B2pxL` | 1.0 | 1.0 |
+| devUSDG | ✅ confirmed `214Jxhrp...6i9xM8h` | ✅ confirmed `1ZSSN7LY...iwBad5yHv1` | 1.0 | 1.0 |
+| devFDUSD | ✅ confirmed `pjjZTdrC...kJ9ZpPK` | ✅ confirmed `45ReCoKF...Rpp7dtJVE` | 1.0 | 1.0 |
+| devUSDC | ⛔ skipped — blocked by `InvalidLbPairState` (see docs/phase4-integration-testing.md) | ⛔ skipped | — | — |
+
+### Reserve / Decimals check (post-run `stateMap` snapshot)
+
+All 6 reserves report `backingDecimals: 6`, `mintPrice` near 1.0 (consistent with devnet's
+near-zero inflation conditions described above), and `backingReserves == irmaInCirculation`
+for every pool we exercised — confirming the mint and redeem paths update both counters in
+lockstep as expected for the "Total Redemption" fungibility model described earlier in this
+doc:
+
+| Reserve | Backing Reserves | IRMA in Circulation | Mint Price | Decimals |
+|---|---|---|---|---|
+| devUSDT | 211 | 211 | 1.001 | 6 |
+| devPYUSD | 101 | 101 | 1.0 | 6 |
+| devUSDS | 101 | 101 | 1.0 | 6 |
+| devUSDG | 101 | 101 | 1.0 | 6 |
+| devFDUSD | 101 | 101 | 1.0 | 6 |
+| devUSDC | 1979 | 1976 | 1.0 | 6 |
+
+Note: `devUSDC`'s figures predate this test run (carried over from earlier registration-phase
+activity) and were not touched here, since its trades remain blocked.
+
+### Reserve Ratio
+
+Reserve ratio (= `backingReserves ÷ irmaInCirculation`, i.e. redemption price) holds at 1.0
+for every reserve we exercised, matching the "mint price ≈ redemption price under low
+inflation" expectation laid out at the top of this doc — `devUSDT` shows the only deviation
+(`mintPrice = 1.001` vs `redemptionPrice = 1.0`), reflecting a slightly elevated inflation
+input recorded for that reserve at test time; the redemption price is already tracking
+toward it as designed.

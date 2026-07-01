@@ -146,29 +146,17 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean, reserve_token: 
   console.log(`   Core PDA: ${corePda.toBase58()}\n`);
 
   try {
-    let signer = null;
-    switch (reserve_token) {
-      case "devUSDC":
-        signer = "68bjdGBTr4yRxLW56s7LvpQehMn9jBvaJvV134NQjpmP";
-        break;
-      case "devUSDT":
-        signer = "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95";
-        break;
-      default:
-        console.log("❌ Unknown reserve token:", reserve_token);
-        return;
+    const knownSymbols = Object.values(config.tokens).map((t: any) => t.name);
+    if (!knownSymbols.includes(reserve_token)) {
+      console.log("❌ Unknown reserve token:", reserve_token);
+      console.log("   Known reserves:", knownSymbols.join(", "));
+      return;
     }
 
-    const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
-      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // devUSDT pair
-      "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // position owned by the-fed
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // devUSDC pair
-      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // devUSDC position owned by phantom1
-      "GqYCNoYqc61fj22LuJty2eqMFHSpcNjiD6JdjYnNHpSs",
-      "5Lay7YxaK1yNfTcnwymiCQCZUdoxUKn2AK3dbvh2MEKM",
-      signer,
-    ];
+    // Note: sale_trade_event / buy_trade_event never read ctx.remaining_accounts
+    // (verified in programs/irma/src/lib.rs) — both delegate straight to
+    // refresh_position_data_with_accounts, which only touches ctx.accounts.state
+    // and ctx.accounts.core. No remaining accounts are needed for these calls.
 
     if (mintOnly) {
         // Sale Trade Event
@@ -181,13 +169,6 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean, reserve_token: 
             core: corePda,
             systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(configKeys.map((key, index) => {
-          return {
-            pubkey: new PublicKey(key),
-            isSigner: index === configKeys.length - 1,
-            isWritable: index < configKeys.length - 1,
-          };
-        }))
         .transaction();
 
         // Send transaction
@@ -235,11 +216,6 @@ async function test_swap(mintOnly: boolean, redeemOnly: boolean, reserve_token: 
             core: corePda,
             systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts(configKeys.map((key) => ({
-            pubkey: new PublicKey(key),
-            isSigner: false,
-            isWritable: false,
-        })))
         .transaction();
 
         // Send transaction

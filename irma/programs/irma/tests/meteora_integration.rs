@@ -226,7 +226,7 @@ mod core_test {
             creator: Pubkey::default(),
             token_mint_x_program_flag: 0u8,
             token_mint_y_program_flag: 0u8,
-            _reserved: [0u8; 21],  // used to be 22, now getting compile error
+            _reserved: [0u8; 21],
             version: 0u8,
         };
         let lb_pair_data_vec = bytemuck::bytes_of(&lb_pair_state).to_vec();
