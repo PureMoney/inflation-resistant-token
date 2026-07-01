@@ -1,22 +1,13 @@
 
-// ==================================================================
-// CONFIGURATION
-// ==================================================================
-
-// CONSTANTS
-export const RESERVE_MINT_STR = "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni"; // devUSDT mint on Devnet
-export const IRMA_MINT_STR = "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm"; // IRMA mint on Devnet
-export const RESERVE_SYMBOL = "devUSDT";
-export const POOL_ADDRESS = "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD"; // Meteora DLMM pool for IRMA/devUSDT
-
-// TRUFLATION CONFIGURATION
-// Inflation data is fetched via our Vercel proxy (truflation-proxy)
-// The proxy URL is set in wrangler.jsonc vars.TRUFLATION_PROXY_URL
-// Deploy the proxy first: cd truflation-proxy && ./deploy.sh
-
-// Target inflation rate (below this, mint price = 1.0 / quote_token_price)
-export const TARGET_INFLATION_RATE = 2.0;
-
-// Production should remove all test logging and test scaffolding
-export const ENABLE_TEST_LOGGING = true;
-export const ENABLE_TEST_SCAFFOLDING = true;
+// All pool/token configuration is read from Cloudflare Worker environment variables.
+// Set these in wrangler.toml [vars] or as Cloudflare Worker secrets:
+//
+//   POOL_ADDRESS          — Meteora DLMM LbPair address for this environment
+//   RESERVE_SYMBOL        — Human-readable symbol, e.g. "devUSDT"
+//   RESERVE_MINT_STR      — Reserve (stablecoin) token mint address
+//   IRMA_MINT_STR         — IRMA token mint address
+//   TARGET_INFLATION_RATE — Inflation threshold above which mint price is adjusted (default "2.0")
+//   ENABLE_TEST_SCAFFOLDING — Set "true" to expose GET test endpoints (default "false")
+//   ADMIN_PRIVATE_KEY     — JSON array of the admin keypair bytes (Cloudflare secret)
+//   HELIUS_API_KEY        — Helius RPC API key (Cloudflare secret)
+//   TRUFLATION_PROXY_URL  — URL of the deployed Truflation Vercel proxy
