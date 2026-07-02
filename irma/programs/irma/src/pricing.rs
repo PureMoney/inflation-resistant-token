@@ -372,8 +372,10 @@ impl StateMap {
             msg!("Stablecoin {} not found in reserves.", symbol);
             return None;
         }
-        let i = self.reserves.partition_point(|e| e.symbol > symbol.to_string());
-        Some(self.reserves.remove(i - 1))
+        // reserves is sorted ascending by symbol (add_reserve uses partition_point with `< symbol`);
+        // so partition_point with `< symbol` gives the index of this exact element.
+        let i = self.reserves.partition_point(|e| e.symbol.as_str() < symbol);
+        Some(self.reserves.remove(i))
     }
 
     pub fn disable_reserve(&mut self, symbol: &str) {

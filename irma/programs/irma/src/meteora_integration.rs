@@ -984,8 +984,11 @@ impl Core {
         mut_state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_x: u64,
     ) -> Result<()> {
-        if mut_state.position_pks[0] == Pubkey::default() {
-            // initialize a new position and add to position_pks
+        // Treat a missing or unfindable position (e.g. a stale V1 keypair position
+        // that predates V2 PDAs) the same as an uninitialized key: create a fresh V2 PDA.
+        let needs_init = mut_state.position_pks[0] == Pubkey::default()
+            || fetch_positions(remaining_accounts_in, &[mut_state.position_pks[0]])?.is_empty();
+        if needs_init {
             let new_position_key = self.initialize_position(
                 payer,
                 remaining_accounts_in,
@@ -1010,8 +1013,9 @@ impl Core {
         mut_state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_y: u64,
     ) -> Result<()> {
-        if mut_state.position_pks[1] == Pubkey::default() {
-            // initialize a new position and add to position_pks
+        let needs_init = mut_state.position_pks[1] == Pubkey::default()
+            || fetch_positions(remaining_accounts_in, &[mut_state.position_pks[1]])?.is_empty();
+        if needs_init {
             let new_position_key = self.initialize_position(
                 payer,
                 remaining_accounts_in,
