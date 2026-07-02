@@ -21,7 +21,6 @@ const {
   ComputeBudgetProgram,
   SYSVAR_RENT_PUBKEY,
   SYSVAR_CLOCK_PUBKEY,
-  sendAndConfirmTransaction,
 } = require("@solana/web3.js");
 const { AnchorProvider, Program } = require("@coral-xyz/anchor");
 const {
