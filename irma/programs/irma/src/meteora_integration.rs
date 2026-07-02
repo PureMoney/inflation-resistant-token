@@ -984,6 +984,10 @@ impl Core {
         mut_state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_x: u64,
     ) -> Result<()> {
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
         // Treat a missing or unfindable position (e.g. a stale V1 keypair position
         // that predates V2 PDAs) the same as an uninitialized key: create a fresh V2 PDA.
         let needs_init = mut_state.position_pks[0] == Pubkey::default()
@@ -1013,6 +1017,10 @@ impl Core {
         mut_state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_y: u64,
     ) -> Result<()> {
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
         let needs_init = mut_state.position_pks[1] == Pubkey::default()
             || fetch_positions(remaining_accounts_in, &[mut_state.position_pks[1]])?.is_empty();
         if needs_init {
@@ -1585,6 +1593,11 @@ impl Core {
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Fetched {} matching positions", position_keys_with_states.len());
 
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
+
         let new_position =
         if mut_state.position_pks[0] != Pubkey::default() {
             let poskey = mut_state.position_pks[0];
@@ -1666,6 +1679,11 @@ impl Core {
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Redeem: Fetched {} matching positions", position_keys_with_states.len());
+
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
 
         let new_position =
         if mut_state.position_pks[1] != Pubkey::default() {
