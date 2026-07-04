@@ -9,7 +9,16 @@ import {
   check_shift_price_range_worker, 
   WORKER_MEMO_STRING 
 } from "./process_rebalance.js";
-import { POOL_ADDRESS, RESERVE_SYMBOL, TARGET_INFLATION_RATE, ENABLE_TEST_SCAFFOLDING } from "./config.js";
+// Pool/token configuration comes from Worker environment variables — see config.js for the full list.
+
+/**
+ * Target inflation rate (%) below which the mint price is not adjusted.
+ * Read from env so each pool environment can tune it; defaults to 2.0.
+ */
+function get_target_inflation_rate(env) {
+  const parsed = parseFloat(env.TARGET_INFLATION_RATE);
+  return Number.isFinite(parsed) ? parsed : 2.0;
+}
 
 /**
  * Fetch current inflation rate from Truflation Vercel proxy
@@ -60,18 +69,18 @@ async function fetch_truflation_rate(env) {
  * Calculate IRMA mint price based on Truflation inflation rate
  * Formula: if inflation > target, adjust upward; otherwise use 1.0
  */
-function calculate_mint_price(inflation_rate, quote_token_price_usd) {
+function calculate_mint_price(inflation_rate, quote_token_price_usd, target_inflation_rate) {
   let mint_price;
-  
-  if (inflation_rate > TARGET_INFLATION_RATE) {
+
+  if (inflation_rate > target_inflation_rate) {
     // Inflation above target: adjust mint price upward
-    let inflation_adjustment = (inflation_rate - TARGET_INFLATION_RATE) / 100.0;
+    let inflation_adjustment = (inflation_rate - target_inflation_rate) / 100.0;
     mint_price = (1.00 + inflation_adjustment) / quote_token_price_usd;
-    console.log(`📊 Inflation ${inflation_rate}% > ${TARGET_INFLATION_RATE}%: adjustment = ${inflation_adjustment}`);
+    console.log(`📊 Inflation ${inflation_rate}% > ${target_inflation_rate}%: adjustment = ${inflation_adjustment}`);
   } else {
     // Below target: no adjustment
     mint_price = 1.00 / quote_token_price_usd;
-    console.log(`📊 Inflation ${inflation_rate}% <= ${TARGET_INFLATION_RATE}%: no adjustment`);
+    console.log(`📊 Inflation ${inflation_rate}% <= ${target_inflation_rate}%: no adjustment`);
   }
   
   console.log(`💰 Calculated mint price: ${mint_price} (quote token price: ${quote_token_price_usd} USD)`);
@@ -141,19 +150,19 @@ async function update_mint_price_from_truflation(env) {
     const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
     
     // 3. Get quote token price using Pyth oracle
-    const quote_token_price_usd = await get_quote_token_price_usd(connection, POOL_ADDRESS, RESERVE_SYMBOL);
-    
+    const quote_token_price_usd = await get_quote_token_price_usd(connection, env.POOL_ADDRESS, env.RESERVE_SYMBOL);
+
     // 4. Calculate new mint price
-    const new_mint_price = calculate_mint_price(inflation_rate, quote_token_price_usd);
-    
+    const new_mint_price = calculate_mint_price(inflation_rate, quote_token_price_usd, get_target_inflation_rate(env));
+
     // 5. Convert to format expected by on-chain program
     const price_as_number = new_mint_price;
-    
-    console.log(`📝 Setting mint price for ${RESERVE_SYMBOL} to ${price_as_number}...`);
-    
+
+    console.log(`📝 Setting mint price for ${env.RESERVE_SYMBOL} to ${price_as_number}...`);
+
     // 6. Call set_mint_price instruction on IRMA program
     const tx_instruction = await program.methods
-      .setMintPrice(RESERVE_SYMBOL, price_as_number)
+      .setMintPrice(env.RESERVE_SYMBOL, price_as_number)
       .accounts({
         state: statePda,
         irmaAdmin: wallet.publicKey,
@@ -207,7 +216,7 @@ export default {
  * Calls on-chain check_shift_price_ranges() after price update
  */
 async function handle_scheduled_mint_price_update(env) {
-  const logger = new Logger(env.DB);
+  const logger = new Logger();
   
   try {
     logger.log("⏰ Scheduled trigger: Updating mint price from Truflation...");
@@ -262,7 +271,7 @@ async function handle_request(request, env, ctx) {
   
   // ACTION ENDPOINTS - Triggered via query parameter or GET request
   if (request.method === 'GET') {
-    if (ENABLE_TEST_SCAFFOLDING !== true) {
+    if (env.ENABLE_TEST_SCAFFOLDING !== "true") {
       return new Response("Not Found", { status: 404 });
     }
     
@@ -314,29 +323,32 @@ async function handle_request(request, env, ctx) {
       }
     }
     
-    // if (action === 'rebalance-bins') {
-    //   console.log("🔧 Manual trigger: Rebalance bins");
-    //   try {
-    //     const result = await manualRebalanceBins(env);
-    //     return new Response(JSON.stringify({
-    //       success: true,
-    //       message: "Bin rebalancing completed",
-    //       ...result
-    //     }), {
-    //       status: 200,
-    //       headers: { "Content-Type": "application/json" }
-    //     });
-    //   } catch (error) {
-    //     return new Response(JSON.stringify({
-    //       success: false,
-    //       error: error.message
-    //     }), {
-    //       status: 500,
-    //       headers: { "Content-Type": "application/json" }
-    //     });
-    //   }
-    // }
-    
+    if (action === 'rebalance-bins') {
+      console.log("🔧 Manual trigger: Rebalance bins");
+      const consoleLogger = { log: console.log.bind(console), error: console.error.bind(console), flush: async () => {} };
+      try {
+        const result = await check_shift_price_range_worker(env, consoleLogger);
+        return new Response(JSON.stringify({
+          success: true,
+          message: "Bin rebalancing completed",
+          result
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (error) {
+        const logs = error.getLogs ? await error.getLogs() : null;
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message,
+          logs
+        }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+
     if (action === 'view-logs') {
       const log_type = url.searchParams.get('type') || 'console';
       const limit = parseInt(url.searchParams.get('limit') || '100', 10);
@@ -457,7 +469,7 @@ async function handle_request(request, env, ctx) {
  * Process rebalancing logic after detecting a swap event
  */
 async function process_rebalance(tx, env, ctx) {
-  const logger = new Logger(env.DB);
+  const logger = new Logger();
   
   try {
     logger.log(`🔄 Processing rebalance for transaction: ${tx.transaction.signatures[0]}`);

@@ -946,15 +946,15 @@ impl Core {
 
 
     /// Check the health of a position, returning the amounts needed to replenish it.
+    /// Takes the position directly (rather than an index into `self.position_data`)
+    /// so callers can pass the live, just-mutated `SinglePosition` from the current
+    /// instruction instead of a pre-shift snapshot of `self`.
     pub fn check_position_health<'a>(
         &self,
         acct_infos: &'a [AccountInfo<'a>],
-        state_index: usize, // ;pool or lb_pair index
+        state: &SinglePosition,
     ) -> Result<(u64, u64)> {
-        let state = &self.position_data.all_positions
-            .get(state_index)
-            .ok_or(error!(CustomError::PositionNotFound))?;
-        let (mut replenish_x_amount, mut replenish_y_amount) = 
+        let (mut replenish_x_amount, mut replenish_y_amount) =
                     state.get_liquidity_in_position(acct_infos, &self.position_data)?;
         msg!("    --> amount_x remaining: {}, amount_y remaining: {}", 
                     replenish_x_amount, replenish_y_amount);
@@ -984,8 +984,15 @@ impl Core {
         mut_state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_x: u64,
     ) -> Result<()> {
-        if mut_state.position_pks[0] == Pubkey::default() {
-            // initialize a new position and add to position_pks
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
+        // Treat a missing or unfindable position (e.g. a stale V1 keypair position
+        // that predates V2 PDAs) the same as an uninitialized key: create a fresh V2 PDA.
+        let needs_init = mut_state.position_pks[0] == Pubkey::default()
+            || fetch_positions(remaining_accounts_in, &[mut_state.position_pks[0]])?.is_empty();
+        if needs_init {
             let new_position_key = self.initialize_position(
                 payer,
                 remaining_accounts_in,
@@ -1010,8 +1017,13 @@ impl Core {
         mut_state: &mut SinglePosition, // modify only position_pks, bin_array_pks
         amount_y: u64,
     ) -> Result<()> {
-        if mut_state.position_pks[1] == Pubkey::default() {
-            // initialize a new position and add to position_pks
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
+        let needs_init = mut_state.position_pks[1] == Pubkey::default()
+            || fetch_positions(remaining_accounts_in, &[mut_state.position_pks[1]])?.is_empty();
+        if needs_init {
             let new_position_key = self.initialize_position(
                 payer,
                 remaining_accounts_in,
@@ -1581,6 +1593,11 @@ impl Core {
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Fetched {} matching positions", position_keys_with_states.len());
 
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
+
         let new_position =
         if mut_state.position_pks[0] != Pubkey::default() {
             let poskey = mut_state.position_pks[0];
@@ -1662,6 +1679,11 @@ impl Core {
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
         msg!("==> Redeem: Fetched {} matching positions", position_keys_with_states.len());
+
+        // Ensure position_pks always has 2 initialized slots (legacy on-chain state may be empty).
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
 
         let new_position =
         if mut_state.position_pks[1] != Pubkey::default() {

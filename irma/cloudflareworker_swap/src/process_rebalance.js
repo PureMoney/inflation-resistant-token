@@ -9,9 +9,8 @@ import {
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import DLMM from "@meteora-ag/dlmm";
-import { POOL_ADDRESS, RESERVE_MINT_STR, RESERVE_SYMBOL } from "./config.js";
 import { Logger, logSwapEvent, updateActiveBins } from "./d1_logs.js";
-import { CustomWallet, getPrices, getCurrentPriceBins, cSwap } from "./dlmm.js";
+import { CustomWallet, getPrices, getCurrentPriceBins, cSwap, buildRemainingAccounts } from "./dlmm.js";
 import irma from "../../target/idl/irma.json";
 
 
@@ -54,13 +53,13 @@ export async function setupSolanaConnection(env) {
 
 
 /// Function to perform the counter-swap on the DLMM pool
-async function dlmmCounterSwap(connection, dlmmPool, logger, poolKey, adminKeypair, bigNumAmount, swapForY) {
+async function dlmmCounterSwap(connection, dlmmPool, logger, poolKey, adminKeypair, bigNumAmount, swapForY, reserveSymbol) {
       logger.log("DEBUG: Fetching bin arrays...");
       const binArrays = await dlmmPool.getBinArrayForSwap(swapForY);
 
       logger.log("DEBUG: Getting swap quote...");
       const reserveSwapAmount = bigNumAmount.abs().mul(new BN(95)).div(new BN(100));
-      logger.log(`💰 User delta: ${bigNumAmount.toString()}, Counter-swap ${RESERVE_SYMBOL} amount: ${reserveSwapAmount.toString()}`);
+      logger.log(`💰 User delta: ${bigNumAmount.toString()}, Counter-swap ${reserveSymbol} amount: ${reserveSwapAmount.toString()}`);
       await logger.flush();
 
       const swapQuote = await dlmmPool.swapQuote(
@@ -107,9 +106,13 @@ async function dlmmCounterSwap(connection, dlmmPool, logger, poolKey, adminKeypa
 
 /// Main function to process a rebalance based on a swap event
 export async function processRebalance(tx, env, ctx) {
-  const logger = new Logger(env.DB);
+  const logger = new Logger();
   
   // Track swap event data for logging
+  const RESERVE_SYMBOL = env.RESERVE_SYMBOL;
+  const RESERVE_MINT_STR = env.RESERVE_MINT_STR;
+  const POOL_ADDRESS = env.POOL_ADDRESS;
+
   let swapEventData = {
     timestamp: Date.now(),
     eventType: null,
@@ -304,7 +307,7 @@ export async function processRebalance(tx, env, ctx) {
       
       logger.log(`💱 Mint bin counter-swap: maxIrmaIn=${maxIrmaIn.toString()}, exactDevUsdtOut=${exactDevUsdtOut.toString()}, mintPrice=${mintPrice}`);
       await cSwap(
-        connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxIrmaIn, exactDevUsdtOut, true);
+        connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxIrmaIn, exactDevUsdtOut, true, dlmmPool, env);
     }
 
     if (rpositionXAmount.gt(new BN(0)) && rpositionYAmount.gt(new BN(0))) {
@@ -324,7 +327,7 @@ export async function processRebalance(tx, env, ctx) {
         .mul(new BN(Math.floor(0.9985 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
       
       logger.log(`💱 Redemption bin counter-swap: maxDevUsdtIn=${maxDevUsdtIn.toString()}, exactIrmaOut=${exactIrmaOut.toString()}, redemptionPrice=${redemptionPrice}`);
-      await cSwap(connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxDevUsdtIn, exactIrmaOut, false);
+      await cSwap(connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxDevUsdtIn, exactIrmaOut, false, dlmmPool, env);
     }
     await logger.flush();
 
@@ -385,36 +388,12 @@ export async function check_shift_price_range_worker(env, logger) {
   
   try {
     const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
-    
-    const reserve_token = "devUSDT";
-    
-    // Hardcoded config keys for devUSDT (following IRMA conventions)
-    const config_keys = [
-      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // DLMM pair
-      "9rMc8GnMfbq233ZhqjguRt37iXcKrt35LNgxj4ZVChZs", // position 1
-      "BjE6syL6oswibYwzhVFFWWmPGYuBDKuRgjfjGFQu5HAt", // position 2
-      "2GPfbE3E972LCqiBSsujyUvziAq1z5NvsBTWdVX8VTR9", // bin array 1
-      "3eEiY1mqyka1E6WsZKLZnC7mDBT5Pn8zUkz1nqg2MEoA", // bin array 2
-      "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // IRMA mint
-      "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // devUSDT mint
-      "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
-      "8q6mdAFNQTqgJdUxFQTYyzAAsnwRstgVKchTdAjxbnPT",
-      "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // devUSDT account owned by the fed
-      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // "the fed" wallet account
-      "9ZEqmbBp3QaT4z25xnQqdLLeRqb7Vej59vdgvHmVhwrk",
-      "L93d6igVFXZKhcujZNWKeM1rH1XyqWmHttRoy5J3vg6",
-      "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5", // IRMA account owned by the USDT pool
-      "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj", // devUSDT account owned the USDT pool
-      "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6", // authority
-      "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // DLMM program ID
-      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // IRMA token account owned by the-fed
-      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // token program ID
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // token program ID
-      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
-      "11111111111111111111111111111111", // System program ID
-      "SysvarRent111111111111111111111111111111111", // Rent sysvar
-      "SysvarC1ock11111111111111111111111111111111", // Clock sysvar
-    ];
+
+    const reserve_token = env.RESERVE_SYMBOL;
+
+    // Load the pool and derive all required accounts live from chain state
+    const dlmmPool = await DLMM.create(connection, new PublicKey(env.POOL_ADDRESS));
+    const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeypair, env);
 
     // Call check_shift_price_ranges transaction
     logger.log("🔄 Calling check_shift_price_ranges() transaction...");
@@ -426,15 +405,7 @@ export async function check_shift_price_range_worker(env, logger) {
         core: corePda,
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts(config_keys.map((key, index) => ({
-        pubkey: new PublicKey(key),
-        isSigner: index === 10, // Only the fed wallet should be a signer
-        isWritable: !key.includes('TokenkegQ') && 
-                    !key.includes('LBUZKhRx') && 
-                    !key.includes('11111111') &&
-                    !key.includes('TokenzQdB') &&
-                    !key.includes('MemoSq4gq'), // Programs are read-only
-      })))
+      .remainingAccounts(remainingAccounts)
       .transaction();
 
     // Add compute budget instructions to increase CU limit
