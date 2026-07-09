@@ -91,8 +91,8 @@ mod core_test {
             _padding_0: 0u8,
             fee_owner: Pubkey::new_unique(),
             version: 0u8,
-            permissionless_operation_bits: 0u8, // <-- 1. Added missing field
-            _reserved: [0u8; 85],               // <-- 2. Shrunk from 86 to 85
+            permissionless_operation_bits: 0u8,
+            _reserved: [0u8; 85],
         }
     }
 
