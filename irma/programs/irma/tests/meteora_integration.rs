@@ -68,7 +68,7 @@ mod core_test {
         StateMap::new()
     }
 
-    fn create_position(lb_pair: &Pubkey, owner: &Pubkey) -> PositionV2 {
+ fn create_position(lb_pair: &Pubkey, owner: &Pubkey) -> PositionV2 {
         // Debug: Print the expected size
         println!("----Expected PositionV2 size: {}", std::mem::size_of::<PositionV2>());
         println!("    UserRewardInfo size: {}", std::mem::size_of::<UserRewardInfo>());
@@ -91,7 +91,8 @@ mod core_test {
             _padding_0: 0u8,
             fee_owner: Pubkey::new_unique(),
             version: 0u8,
-            _reserved: [0u8; 86],
+            permissionless_operation_bits: 0u8, // <-- 1. Added missing field
+            _reserved: [0u8; 85],               // <-- 2. Shrunk from 86 to 85
         }
     }
 

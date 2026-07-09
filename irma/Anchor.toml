@@ -11,7 +11,8 @@ skip-lint = false
 rustflags = ["--cfg", "getrandom_custom"]
 
 [programs.devnet]
-irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
+# irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
+irma = "A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1"
 
 [programs.localnet]
 irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
@@ -24,10 +25,11 @@ url = "https://api.apr.dev"
 
 [provider]
 cluster = "Devnet"
-wallet = "~/.config/solana/phantom1.json"
+# wallet = "~/.config/solana/phantom1.json"
+wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/read_protocol_state.ts"
+test = "TS_NODE_PROJECT=./tsconfig.test.json NODE_OPTIONS=\"--experimental-specifier-resolution=node --loader ts-node/esm\" yarn mocha tests/read_protocol_state.ts --timeout 1000000"
 
 [test]
 startup_wait = 10000

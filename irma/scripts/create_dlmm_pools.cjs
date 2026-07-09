@@ -57,11 +57,10 @@ async function main() {
 
   const connection = new Connection(rpcUrl, "confirmed");
 
-  // Load payer keypair from phantom1.json
-  const keypairPath = path.join(
-    process.env.HOME || "~",
-    ".config/solana/phantom1.json"
-  );
+  // Load payer keypair
+  const keypairPath =
+    process.env.SOLANA_KEYPAIR_PATH ||
+    path.join(require("os").homedir(), ".config/solana/id.json");
   const keypair = Keypair.fromSecretKey(
     new Uint8Array(JSON.parse(fs.readFileSync(keypairPath, "utf-8")))
   );

@@ -2,14 +2,14 @@ import { AnchorProvider, Program, Wallet } from "@coral-xyz/anchor";
 import pkg from "@coral-xyz/anchor";
 const { BN } = pkg;
 import {
-    Connection,
-    PublicKey,
-    SystemProgram,
-    Keypair,
-    Transaction,
-    sendAndConfirmTransaction,
-    ComputeBudgetProgram,
-    // LAMPORTS_PER_SOL,
+  Connection,
+  PublicKey,
+  SystemProgram,
+  Keypair,
+  Transaction,
+  sendAndConfirmTransaction,
+  ComputeBudgetProgram,
+  // LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import * as fs from "fs";
 import * as path from "path";
@@ -46,15 +46,15 @@ console.log("🆔 Using Program ID from IDL:", PROGRAM_ID.toBase58());
 
 
 async function createDataAccount(
-    program: Program,
-    payer: Keypair,
-    lb_pair: PublicKey
+  program: Program,
+  payer: Keypair,
+  lb_pair: PublicKey
 ) {
   console.log("createDataAccount payer address:", payer.publicKey.toBase58());
 
   // Derive the PDA using your program ID (since you removed owner=dlmm::ID)
   const BIN_ARRAY_BITMAP_SEED = Buffer.from("bitmap");
-  
+
   const [bitmapExtensionPda] = PublicKey.findProgramAddressSync(
     [BIN_ARRAY_BITMAP_SEED, lb_pair.toBuffer()],
     program.programId  // Use your program ID now
@@ -66,9 +66,9 @@ async function createDataAccount(
   let createAccountInstruction = await program.methods
     .initBitmapExtension(lb_pair)
     .accounts({
-        bitmapExtension: bitmapExtensionPda, // Use derived PDA
-        irmaAdmin: payer.publicKey,
-        systemProgram: SystemProgram.programId,
+      bitmapExtension: bitmapExtensionPda, // Use derived PDA
+      irmaAdmin: payer.publicKey,
+      systemProgram: SystemProgram.programId,
     })
     .transaction();
 
@@ -91,7 +91,7 @@ async function createDataAccount(
   ]);
 
   console.log("Data account created with signature:", signature);
-  
+
   // Verify the account was created successfully
   try {
     const accountInfo = await program.provider.connection.getAccountInfo(bitmapExtensionPda);
@@ -112,67 +112,67 @@ async function createDataAccount(
 
 // Get both mint and redemption prices for a given symbol
 async function get_prices(
-    symbol: string,
-    program: Program,
-    statePda: PublicKey,
-    corePda: PublicKey,
-    payer: PublicKey
+  symbol: string,
+  program: Program,
+  statePda: PublicKey,
+  corePda: PublicKey,
+  payer: PublicKey
 ) {
   console.log("\nGet both mint and redemption prices for USDC");
   console.log("======\n");
-    const pricesResult = await program.methods
+  const pricesResult = await program.methods
     .getPrices(symbol)
     .accounts({
-        state: statePda,
-        irmaAdmin: payer,
-        core: corePda,
-        systemProgram: SystemProgram.programId,
+      state: statePda,
+      irmaAdmin: payer,
+      core: corePda,
+      systemProgram: SystemProgram.programId,
     })
     .simulate();
-    
-    // Look for the "Program return" line in the raw logs
-    const returnLine = pricesResult.raw.find((line: string) => 
+
+  // Look for the "Program return" line in the raw logs
+  const returnLine = pricesResult.raw.find((line: string) =>
     line.includes("Program return:"));
-    
-    if (returnLine) {
-        // Extract the base64 data from the return line
-        // Format: "Program return: <PROGRAM_ID> <BASE64_DATA>"
-        const base64Data = returnLine.split(' ').pop();
-        if (base64Data) {
-            // Decode the base64 data
-            const decodedData = Buffer.from(base64Data, 'base64');
-            console.log("📊 Decoded data length:", decodedData.length, "bytes");
-            console.log("📊 Raw bytes:", Array.from(decodedData).map(b => b.toString(16).padStart(2, '0')).join(' '));
-            
-            // Read two f64 values (8 bytes each, little-endian)
-            if (decodedData.length >= 16) {
-            const mintPrice = decodedData.readDoubleLE(0);
-            const redemptionPrice = decodedData.readDoubleLE(8);
-            console.log("📊 Get prices for USDC - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
-            } else {
-            console.log("❌ Insufficient data length. Expected 16 bytes, got", decodedData.length);
-            }
-        }
+
+  if (returnLine) {
+    // Extract the base64 data from the return line
+    // Format: "Program return: <PROGRAM_ID> <BASE64_DATA>"
+    const base64Data = returnLine.split(' ').pop();
+    if (base64Data) {
+      // Decode the base64 data
+      const decodedData = Buffer.from(base64Data, 'base64');
+      console.log("📊 Decoded data length:", decodedData.length, "bytes");
+      console.log("📊 Raw bytes:", Array.from(decodedData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+      // Read two f64 values (8 bytes each, little-endian)
+      if (decodedData.length >= 16) {
+        const mintPrice = decodedData.readDoubleLE(0);
+        const redemptionPrice = decodedData.readDoubleLE(8);
+        console.log("📊 Get prices for USDC - Mint Price:", mintPrice, "Redemption Price:", redemptionPrice);
+      } else {
+        console.log("❌ Insufficient data length. Expected 16 bytes, got", decodedData.length);
+      }
     }
+  }
 }
 
-async function test_swap(symbol: string, amount: number) {
+async function test_swap(symbol: string, amount: number, exactOut: number) {
   console.log("\n🚀 Test Swap Effect on redemption price");
   console.log("==========================================\n");
 
   // Use environment variables from .env file
   const rpcUrl = process.env.ANCHOR_PROVIDER_URL || process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
   const commitment = (process.env.ANCHOR_COMMITMENT || process.env.SOLANA_COMMITMENT || "confirmed") as any;
-  
+
   console.log("🌐 Using RPC URL:", rpcUrl);
   console.log("🔒 Using commitment:", commitment);
 
   // Create connection and provider manually using environment variables
   const connection = new Connection(rpcUrl, commitment);
-  
+
   // Create or load a keypair for testing
   let keypair: Keypair;
-  
+
   // Try to load from environment variable SOLANA_PRIVATE_KEY (base58 encoded)
   if (process.env.SOLANA_PRIVATE_KEY) {
     try {
@@ -184,29 +184,43 @@ async function test_swap(symbol: string, amount: number) {
       keypair = Keypair.generate();
     }
   } else {
-    // Generate a new keypair for testing
-    keypair = Keypair.generate();
-    console.log("🔑 Generated new test keypair");
-    console.log("💡 To use a persistent wallet, set SOLANA_PRIVATE_KEY environment variable");
-    console.log(`   Example: export SOLANA_PRIVATE_KEY='[${Array.from(keypair.secretKey).join(',')}]'`);
+    // Try to load from SOLANA_KEYPAIR_PATH or ~/.config/solana/id.json
+    const os = await import("os");
+    const keypairPath =
+      process.env.SOLANA_KEYPAIR_PATH ||
+      path.join(os.homedir(), ".config/solana/id.json");
+    if (fs.existsSync(keypairPath)) {
+      try {
+        keypair = Keypair.fromSecretKey(
+          new Uint8Array(JSON.parse(fs.readFileSync(keypairPath, "utf-8")))
+        );
+        console.log("🔑 Loaded keypair from local file:", keypairPath);
+      } catch (error) {
+        keypair = Keypair.generate();
+        console.log("❌ Failed to load keypair from local file, generated new test keypair");
+      }
+    } else {
+      keypair = Keypair.generate();
+      console.log("🔑 Generated new test keypair");
+    }
   }
-  
+
   const wallet = new Wallet(keypair);
   const provider = new AnchorProvider(connection, wallet, { commitment });
   const program = new Program(idl, provider);
-  
+
   const payer = provider.wallet.publicKey;
   console.log("👤 Using wallet public key:", payer.toBase58());
-  
+
   // Check current balance
   const balance = await connection.getBalance(payer);
   console.log("💰 Current balance:", balance / 1e9, "SOL");
-  
+
   if (balance < 1e9) { // Less than 1 SOL
     console.log("⚠️ Low balance detected. You need to fund this wallet.");
     console.log(`💸 Run: solana airdrop 2 ${payer.toBase58()} --url devnet`);
     console.log("   Or fund it manually from a faucet or another wallet");
-    
+
     // Don't proceed without funds
     throw new Error("Insufficient funds. Please fund the wallet and try again.");
   }
@@ -216,7 +230,7 @@ async function test_swap(symbol: string, amount: number) {
     [Buffer.from("state_v5")],
     PROGRAM_ID
   );
-  
+
   const [corePda] = PublicKey.findProgramAddressSync(
     [Buffer.from("core_v5")],
     PROGRAM_ID
@@ -228,40 +242,27 @@ async function test_swap(symbol: string, amount: number) {
 
   try {
 
-    // Important note: the order of this list of accounts matters!
-    // See how the sequence numbers are used during the call to swap() below.
-    const configKeys = [
-      // Add some example pair addresses - these should be actual DLMM pair addresses
-      "HfQQYJTJkRw49yNufxnH4dBaDGNG3JWPLHLVhswkdpsP", // Example pair
-      "HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD", // Example pair for devUSDT
-      "5kgnXrzjgLAxcaYJZ4qvHZw4qZqYCoQm2L5pWdAACdZ5",
-      "9vtyTe9WhHSZgcN6dKhkh2cgzY9njyUQn4pNvjkwVzuj",
-      "8h2bwoErUP2KfDc9g2fBoynUGaMoC1Em2cXtXvzhLEW3",
-      "3QghBFXLYT2cJWG2b6HpNwoE2qDyRxvRCsbjaWwZwdH6",
-      "6NnDoJeGdo5vdMwc9eMpJyNSbbz7xMnH8eVqascPCXR1",
-      dlmm.address, // program account for dlmm
-      "2GPfbE3E972LCqiBSsujyUvziAq1z5NvsBTWdVX8VTR9",
-      // "934sw1TSSu5DrBhXDSEygTjhC5mg2MHwVeXB2LoSuHNp", // bitmap extensionset to None
-      "3GbsvBADXgJufc9g5BnWnu1mbeUxPq9SukLeryyfSgir", // token address for devUSDT
-      "GbsgfkY8aUq9c2kBE7aA5GG7HxATqnitdakJJBpp1qaa", // token address for IRMA
-      "Gjbk2AcwthyHgVSVbPb3US3MB5UM5FXE6z3m1WkaHb95", // wallet
-      "ADqpCiuXTnhDsXVaeZMbTpuriotmjGZUh4sptzzzmFmm", // IRMA mint token
-      "J2JAep9untmdaQXXRYB1bxT2eFNWWeR8ApuRdAiY9gni", // devUSDT mint token
-      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", // token program
-      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", // memo program
-      "4KVmauYHQp4kToXuVE7p89q8np3gjKZjULj6JBBDzDXR", // Example position
-      "8dVQmXRwhkexACr6e5BPSxQRtVcfZteRycd5Dc4utDsw", // Example position for devUSDT
-      "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6",
-    ];
+    // 1. Normalize the incoming symbol argument to lower case (e.g., "devUSDT" -> "usdt")
+    const tokenSymbolKey = symbol.toLowerCase().replace("dev", "");
+    const poolCfg = config.pools[tokenSymbolKey];
+    const tokenCfg = config.tokens[tokenSymbolKey];
+    const irmaCfg = config.tokens["irma"];
 
-    // Check if bitmap extension account exists before creating
-    const lbPairKey = new PublicKey("HYeXEBUxLM4aFYSBmHRhMLwMP5wGDXMtEHTtx3VevkTD");
+    if (!poolCfg || !tokenCfg) {
+      throw new Error(`❌ No configuration found for token asset: ${symbol}`);
+    }
+
+    const lbPairAddress = poolCfg.address;
+    const lbPairKey = new PublicKey(lbPairAddress);
+    console.log(`🎯 Targeting real LB Pair: ${lbPairAddress}`);
+
+    // Check if bitmap extension account exists using the correct dynamic LB Pair key
     const BIN_ARRAY_BITMAP_SEED = Buffer.from("bitmap");
     const [bitmapExtensionPda] = PublicKey.findProgramAddressSync(
       [BIN_ARRAY_BITMAP_SEED, lbPairKey.toBuffer()],
       program.programId
     );
-    
+
     try {
       const bitmapAccountInfo = await connection.getAccountInfo(bitmapExtensionPda);
       if (bitmapAccountInfo) {
@@ -271,38 +272,96 @@ async function test_swap(symbol: string, amount: number) {
         await createDataAccount(program, provider.wallet.payer as Keypair, lbPairKey);
       }
     } catch (error) {
-      console.log("❌ Error checking bitmap extension:", error);
-      // Try creating it anyway
+      console.log("🔄 Creating bitmap extension account after error flag check...");
       await createDataAccount(program, provider.wallet.payer as Keypair, lbPairKey);
     }
 
-    // Sale Trade Event
-    console.log("🔄 Calling swap() instruction...");
+    // 2. Fetch the DLMM pool parameters dynamically to build remainingAccounts
+    // 2. Fetch the DLMM pool parameters dynamically to build remainingAccounts using Anchor Program
+    const dlmmProgram = new Program(dlmm, provider);
+    const lbPairState: any = await dlmmProgram.account.lbPair.fetch(lbPairKey);
+    const reserveX = new PublicKey(lbPairState.reserveX);
+    const reserveY = new PublicKey(lbPairState.reserveY);
+    const oracle = new PublicKey(lbPairState.oracle);
+
+    // Derive user associated token accounts
+    const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
+    const userTokenX = getAssociatedTokenAddressSync(
+      new PublicKey(irmaCfg.mint),
+      payer,
+      false,
+      new PublicKey(irmaCfg.program)
+    );
+    const userTokenY = getAssociatedTokenAddressSync(
+      new PublicKey(tokenCfg.mint),
+      payer,
+      false,
+      new PublicKey(tokenCfg.program)
+    );
+
+    // Derive event authority
+    const [eventAuthority] = PublicKey.findProgramAddressSync(
+      [Buffer.from("__event_authority")],
+      DLMM_PROGRAM_ID
+    );
+
+    // Derive bin array PDAs for index -1, 0, 1
+    const deriveBinArrayPda = (lbPair: PublicKey, binArrayIdx: number) => {
+      const binArrayIdxBuffer = Buffer.alloc(8);
+      binArrayIdxBuffer.writeBigInt64LE(BigInt(binArrayIdx));
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bin_array"), lbPair.toBuffer(), binArrayIdxBuffer],
+        DLMM_PROGRAM_ID
+      );
+      return pda;
+    };
+    const binArray0 = deriveBinArrayPda(lbPairKey, 0);
+    const binArray1 = deriveBinArrayPda(lbPairKey, 1);
+    const binArrayM1 = deriveBinArrayPda(lbPairKey, -1);
+
+    const remainingAccounts = [
+      { pubkey: lbPairKey, isSigner: false, isWritable: true },
+      { pubkey: reserveX, isSigner: false, isWritable: true },
+      { pubkey: reserveY, isSigner: false, isWritable: true },
+      { pubkey: userTokenX, isSigner: false, isWritable: true },
+      { pubkey: userTokenY, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(irmaCfg.mint), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(tokenCfg.mint), isSigner: false, isWritable: false },
+      { pubkey: oracle, isSigner: false, isWritable: true },
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: new PublicKey(irmaCfg.program), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(tokenCfg.program), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"), isSigner: false, isWritable: false },
+      { pubkey: eventAuthority, isSigner: false, isWritable: false },
+      { pubkey: DLMM_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: bitmapExtensionPda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: binArray0, isSigner: false, isWritable: true },
+      { pubkey: binArray1, isSigner: false, isWritable: true },
+      { pubkey: binArrayM1, isSigner: false, isWritable: true },
+    ];
+
+    // 3. Fire the execution method targeting cSwap
+    console.log(`🔄 Calling cSwap() instruction with max_in=${amount}, exact_out=${exactOut}...`);
     const tx_sell = await program.methods
-    .swap(symbol, new BN(amount), false) // false = sell
-    .accounts({
+      .cSwap(symbol, new BN(amount), new BN(exactOut), false) // false = sell
+      .accounts({
         state: statePda,
         irmaAdmin: payer,
         core: corePda,
         systemProgram: SystemProgram.programId,
-    })
-    .remainingAccounts(configKeys.map((key, index) => ({
-        pubkey: new PublicKey(key),
-        isSigner: index === 11,
-        // First account (index 0) is the LB pair - needs to be writable for swap
-        // Other accounts can remain read-only
-        isWritable: index < 11,
-    })))
-    .transaction();
+      })
+      .remainingAccounts(remainingAccounts)
+      .transaction();
 
     // Add compute budget instructions to the swap transaction
     tx_sell.instructions.unshift(
       ComputeBudgetProgram.setComputeUnitLimit({
         units: 250_000, // Higher limit for complex swap operations
       }),
-    //   ComputeBudgetProgram.setComputeUnitPrice({
-    //     microLamports: 1000, // Higher priority for time-sensitive swaps
-    //   })
+      //   ComputeBudgetProgram.setComputeUnitPrice({
+      //     microLamports: 1000, // Higher priority for time-sensitive swaps
+      //   })
     );
 
     // Send transaction
@@ -311,23 +370,23 @@ async function test_swap(symbol: string, amount: number) {
 
     // Wait for confirmation with custom timeout
     try {
-        const confirmation = await connection.confirmTransaction(
-            {
-            signature,
-            blockhash: (await connection.getLatestBlockhash()).blockhash,
-            lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
-            },
-            "confirmed"
-        );
-        
-        if (confirmation.value.err) {
-            console.error("❌ Transaction failed:", confirmation.value.err);
-        } else {
-            console.log("✅ Transaction confirmed:", signature);
-        }
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: (await connection.getLatestBlockhash()).blockhash,
+          lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
+        },
+        "confirmed"
+      );
+
+      if (confirmation.value.err) {
+        console.error("❌ Transaction failed:", confirmation.value.err);
+      } else {
+        console.log("✅ Transaction confirmed:", signature);
+      }
     } catch (timeoutError) {
-        console.log("⏰ Transaction timeout, but may still be processing...");
-        console.log("🔍 Check transaction status:", `https://solscan.io/tx/${signature}?cluster=devnet`);
+      console.log("⏰ Transaction timeout, but may still be processing...");
+      console.log("🔍 Check transaction status:", `https://solscan.io/tx/${signature}?cluster=devnet`);
     }
     console.log("✅ SaleTradeEvent transaction results:", tx_sell);
     console.log();
@@ -357,26 +416,27 @@ async function test_swap(symbol: string, amount: number) {
   } catch (error: any) {
     console.error("❌ Error during transaction:");
     console.error(error);
-    
+
     if (error.message.includes("insufficient funds")) {
       console.log("\n💡 Hint: Need more SOL. Try running:");
       console.log(`   solana airdrop 2 ${payer.toBase58()} --url devnet`);
     }
-    
+
     // throw error;
   }
 }
 
 const args = process.argv.slice(2);
-if (args.length > 2 || args.length < 2) {
+if (args.length > 3 || args.length < 2) {
   console.error("❌ Wrong count of arguments. Usage:");
-  console.error("   npx ts-node tests/test_swap.ts <reserve symbol> <amount>");
-  console.error("   <reserve symbol> = devUSDC | devUSDT, <amount> = amount to swap (in smallest unit)");
-  console.error("   Both params are required.");
+  console.error("   npx tsx tests/test_swap_thru_meteora.ts <reserve symbol> <amount> [exact_out]");
+  console.error("   <reserve symbol> = devUSDC | devUSDT, <amount> = max input (in smallest unit)");
+  console.error("   [exact_out] = desired exact output amount (defaults to half of max input)");
   process.exit(1);
 }
 const symbol = args[0];
 const amount = args[1];
+const exactOut = args[2] ? parseInt(args[2]) : Math.floor(Number(amount) / 2);
 
 // Run the function (removed catch so it doesn't display the error twice)
-test_swap(symbol, Number(amount)); // .catch(console.error);
+test_swap(symbol, Number(amount), exactOut);

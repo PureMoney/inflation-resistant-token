@@ -140,3 +140,47 @@ inflation" expectation laid out at the top of this doc — `devUSDT` shows the o
 (`mintPrice = 1.001` vs `redemptionPrice = 1.0`), reflecting a slightly elevated inflation
 input recorded for that reserve at test time; the redemption price is already tracking
 toward it as designed.
+
+## Meteora DLMM Liquidity Integration & Debugging Results
+
+### 1. Code Changes Made During Testing
+
+#### A. Scripts & Seeding (`scripts/`)
+* **`scripts/create_dlmm_pools.cjs`**:
+  * Removed the hardcoded `phantom1.json` keypair path, falling back to loading the Solana CLI default `id.json` or the `SOLANA_KEYPAIR_PATH` environment variable.
+* **`scripts/seed_dlmm_liquidity.cjs`**:
+  * Updated keypair fallback logic to load `id.json` (consistent with pool creation).
+  * Setup Anchor SDK client (`Program`, `AnchorProvider`, `Wallet`) to register positions on-chain.
+  * Added `usdc` to the self-minting set (`CAN_MINT`) to support local token minting.
+  * **Seeding Strategy Fix**: Shifted the single-sided token X (IRMA) deposits to target `activeBin + 1` instead of `activeBin` directly. This satisfies Meteora's spot price strategy constraints for single-sided deposits, preventing "zero liquidity" reports.
+  * **On-Chain Registration**: Derived the DLMM `binArray` PDA and called the newly implemented `setPositionKeys` instruction to store the created positions and bin array public keys into the protocol state (`corePda`).
+
+#### B. Smart Contracts (`programs/irma/src/`)
+* **`programs/irma/src/lib.rs`**:
+  * Updated the Program ID to `A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1` to match the current devnet deployment.
+  * Commented out the assertion `config_keys.len() == 0` during initialization to allow valid configurations.
+  * **`update_reserve_lbpair` Validation Relaxed**: Updated the validation check to permit the reserve stablecoin to be either token X or token Y (`is_token_x || is_token_y`) of the DLMM pair. This fixed the `InvalidLbPairState (6028)` error.
+  * **New Instruction `set_position_keys`**: Added a Maintenance/Admin instruction allowing the off-chain seeding script to persist position and bin array public keys into the Core state.
+* **`programs/irma/tests/meteora_integration.rs`**:
+  * Refactored the mock position builder `create_position` to align with the latest Meteora DLMM struct layout by adding `permissionless_operation_bits` and adjusting `_reserved` buffer size, fixing serialization/deserialization mismatch errors during testing.
+
+#### C. Integration Test Suite (`tests/`)
+* **`tests/test_swap_thru_meteora.ts`**:
+  * **Dynamic Account Mapping**: Completely refactored the remaining accounts array. Instead of static configuration keys, it now uses the Anchor program client to read the active DLMM pool state directly from the network, dynamically extracting the correct `reserveX`, `reserveY`, and `oracle` keys.
+  * **Event & Bin Array PDAs**: Dynamically derived the event authority and adjacent bin array PDAs.
+  * **Permission Adjustments**: Explicitly set `isWritable: true` for the `oracle` and `bitmapExtension` accounts, preventing the `writable privilege escalated` cross-program invocation error.
+  * **CPI Parameter Mapping**: Changed the hardcoded `0` output parameter to a CLI-supplied or 50%-default value `exactOut` parameter, satisfying DLMM's exact-out swap bounds and resolving the `InsufficientOutAmount (6039)` error.
+
+---
+
+### 2. Devnet Verification Results
+We ran the swap tests successfully on the Solana devnet for both stablecoin pools:
+
+* **`devUSDT` Pool Swap**:
+  * **Command**: `npx tsx tests/test_swap_thru_meteora.ts devUSDT 1000000`
+  * **Status**: ✅ **Confirmed on-chain**
+  * **Transaction Hash**: `zTTggN5AzjJjgda2oohwbTqAnHPNWtvTkKUL7tJcf264nmvBTocdBJWLsFkPWMV2kZsWREH3Pz3TjnJhWuRAgkc`
+* **`devUSDC` Pool Swap**:
+  * **Command**: `npx tsx tests/test_swap_thru_meteora.ts devUSDC 1000000`
+  * **Status**: ✅ **Confirmed on-chain**
+  * **Transaction Hash**: `L5kSRV7Qz5wJrY39jVBXbPy73enFiFfpP6Fu67Qf8RQ2HCXGisNm74zpNVDcGotxz5QmCw2v182sbfDNGrNgfnt`

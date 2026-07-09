@@ -28,7 +28,9 @@ use errors::CustomError;
 
 // Declare your program's ID
 // declare_id!("BqTQKeWmJ4btn3teLsvXTk84gpWUu5CMyGCmncptWfda");
-declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
+// declare_id!("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
+declare_id!("A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1");
+
 
 // use anchor_lang::context::Context;
 
@@ -172,7 +174,7 @@ pub mod irma {
     ) -> Result<()> {
         let owner_pk = Pubkey::from_str(&owner).unwrap();
 
-        assert_eq!(config_keys.len() == 0, true);
+        // assert_eq!(config_keys.len() == 0, true);
 
         let config_pks: Vec<Pubkey> = config_keys.iter()
             .map(|key| Pubkey::from_str(key).unwrap())
@@ -186,7 +188,7 @@ pub mod irma {
         msg!("IRMA protocol initialized with owner: {}", owner_pk);
         msg!("Config keys count: {}", config_pks.len());
 
-        assert_eq!(config_pks.len() == 0, true);
+        // assert_eq!(config_pks.len() == 0, true);
 
         let core = Core::create_core(owner_pk, config_pks)?;
         ctx.accounts.core.set_inner(core);
@@ -232,7 +234,9 @@ pub mod irma {
                 &lb_pair_key,
             )?;
             // check that the input LbPair is valid and matches the reserve stablecoin mint
-            if !lb_pair_state.token_y_mint.eq(&stablecoin.mint_address) {
+            let is_token_x = lb_pair_state.token_x_mint.eq(&stablecoin.mint_address);
+            let is_token_y = lb_pair_state.token_y_mint.eq(&stablecoin.mint_address);
+            if !is_token_x && !is_token_y {
                 return Err(error!(CustomError::InvalidLbPairState));
             }
         }
@@ -281,6 +285,30 @@ pub mod irma {
         let stablecoin_mut = &mut reserves.iter_mut().find(|r| r.symbol == symbol)
             .ok_or(error!(CustomError::ReserveNotFound))?;
         stablecoin_mut.pool_id = lb_pair_key.clone();
+        Ok(())
+    }
+
+    pub fn set_position_keys(
+        ctx: Context<Maint>,
+        symbol: String,
+        position_pks: Vec<Pubkey>,
+        bin_array_pks: Vec<Pubkey>,
+    ) -> Result<()> {
+        let reserves = &ctx.accounts.state.reserves;
+        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+        
+        let core = &mut ctx.accounts.core;
+        
+        // Find position for this lb_pair
+        let position = core.position_data.all_positions.iter_mut()
+            .find(|p| p.lb_pair == lb_pair_key)
+            .ok_or(error!(CustomError::PositionNotFound))?;
+            
+        position.position_pks = position_pks;
+        position.bin_array_pks = bin_array_pks;
+        msg!("Set position and bin array keys for symbol: {}", symbol);
         Ok(())
     }
 

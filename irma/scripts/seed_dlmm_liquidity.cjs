@@ -18,7 +18,7 @@
 "use strict";
 
 const DLMM = require("@meteora-ag/dlmm");
-const { StrategyType } = DLMM;
+const { StrategyType, deriveBinArray } = DLMM;
 const {
   Connection,
   Keypair,
@@ -37,16 +37,28 @@ const os = require("os");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "../.env") });
 
+const anchor = require("@coral-xyz/anchor");
+const { Program, AnchorProvider, Wallet } = anchor;
+
 const config = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../devnet-config.json"), "utf-8")
 );
+
+const idl = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "../target/idl/irma.json"), "utf-8")
+);
+const dlmmIdl = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "../idls/dlmm.json"), "utf-8")
+);
+const PROGRAM_ID = new PublicKey(idl.address);
+const dlmm_program_id = new PublicKey(dlmmIdl.address);
 
 // 1 billion IRMA (6 decimals = 1_000_000_000 * 10^6 base units) for the mint position.
 // Must be large enough that no single user swap can exhaust the mint bin.
 const SEED_AMOUNT = new BN("1000000000000000");
 
 // Tokens we hold mint authority for — we can self-mint these
-const CAN_MINT = new Set(["irma", "usdt", "pyusd", "usds", "usdg", "fdusd"]);
+const CAN_MINT = new Set(["irma", "usdc", "usdt", "pyusd", "usds", "usdg", "fdusd"]);
 
 async function ensureFunded(connection, keypair, symbol) {
   const token = config.tokens[symbol];
@@ -86,10 +98,14 @@ async function main() {
 
   const keypairPath =
     process.env.SOLANA_KEYPAIR_PATH ||
-    path.join(os.homedir(), ".config/solana/phantom1.json");
+    path.join(os.homedir(), ".config/solana/id.json");
   const keypair = Keypair.fromSecretKey(
     new Uint8Array(JSON.parse(fs.readFileSync(keypairPath, "utf-8")))
   );
+
+  const wallet = new Wallet(keypair);
+  const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
+  const program = new Program(idl, provider);
 
   console.log("\n💧 Seeding Liquidity into IRMA DLMM Pools");
   console.log("==========================================");
@@ -137,7 +153,8 @@ async function main() {
       const positionKeypair = Keypair.generate();
       console.log(`   Position  : ${positionKeypair.publicKey.toBase58()}`);
 
-      // Step 4 — open a single-bin mint position at the active bin, IRMA (X) only.
+      const targetBinId = activeBin.binId + 1;
+      // Step 4 — open a single-bin mint position at target bin (active + 1), IRMA (X) only.
       // The redemption position (stablecoin/Y, single bin below) is opened by the
       // IRMA on-chain program itself after the first swap — we must not create it.
       const result = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
@@ -146,8 +163,8 @@ async function main() {
         totalXAmount: SEED_AMOUNT,
         totalYAmount: new BN(0),
         strategy: {
-          minBinId: activeBin.binId,
-          maxBinId: activeBin.binId,
+          minBinId: targetBinId,
+          maxBinId: targetBinId,
           strategyType: StrategyType.Spot,
         },
       });
@@ -167,6 +184,39 @@ async function main() {
       }
 
       console.log(`   ✅ Done. Tx: ${sig}`);
+
+      console.log(`   Saving position key on-chain for ${tokenCfg.name}...`);
+      const [statePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("state_v5")],
+        PROGRAM_ID
+      );
+      const [corePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("core_v5")],
+        PROGRAM_ID
+      );
+
+      const binArrayIdx = Math.floor(targetBinId / 70);
+      const binArrayIdxBN = new BN(binArrayIdx);
+      const [binArrayKey] = deriveBinArray(new PublicKey(poolCfg.address), binArrayIdxBN, dlmm_program_id);
+
+      console.log(`   Position Key : ${positionKeypair.publicKey.toBase58()}`);
+      console.log(`   Bin Array key: ${binArrayKey.toBase58()}`);
+
+      const setTx = await program.methods
+        .setPositionKeys(
+          tokenCfg.name,
+          [positionKeypair.publicKey, new PublicKey("11111111111111111111111111111111")],
+          [binArrayKey, new PublicKey("11111111111111111111111111111111")]
+        )
+        .accounts({
+          state: statePda,
+          irmaAdmin: keypair.publicKey,
+          core: corePda,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log(`   ✅ Position registered on-chain. Tx: ${setTx}`);
       seeded.push({ symbol, sig });
 
     } catch (err) {

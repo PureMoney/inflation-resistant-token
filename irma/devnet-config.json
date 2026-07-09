@@ -2,49 +2,49 @@
   "network": "devnet",
   "tokens": {
     "irma": {
-      "mint": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
+      "mint": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
       "name": "IRMA",
       "symbol": "IRMA",
       "decimals": 6,
       "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
     },
     "usdc": {
-      "mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "mint": "8oVXEox3VE1jZacLuDK14uLmLDWr2iA5mgTeTH2yDyXC",
       "name": "devUSDC",
       "symbol": "USDC",
       "decimals": 6,
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "usdt": {
-      "mint": "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW",
+      "mint": "BCbYEGL18teZFZhun1QnPscufuPur35ChVquhCBqFSda",
       "name": "devUSDT",
       "symbol": "USDT",
       "decimals": 6,
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "pyusd": {
-      "mint": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d",
+      "mint": "AYjBQG2gr1GURLLjTeNXbu9VVfB7ngf6cSoxZLrv7xai",
       "name": "devPYUSD",
       "symbol": "PYUSD",
       "decimals": 6,
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "usds": {
-      "mint": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD",
+      "mint": "EE6q1NY6PrubXDT2bS2Lib349RQgsymVrWWN4GEUzZyY",
       "name": "devUSDS",
       "symbol": "USDS",
       "decimals": 6,
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "usdg": {
-      "mint": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx",
+      "mint": "7L2m9ZpLaV37oh3UdqK9oAweoA91BCHH8tXDK92KY8dN",
       "name": "devUSDG",
       "symbol": "USDG",
       "decimals": 6,
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     },
     "fdusd": {
-      "mint": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo",
+      "mint": "PkgBnAQtf8PwJU1rc4jJRgRuw8H7NE7BzFeABqcK7bS",
       "name": "devFDUSD",
       "symbol": "FDUSD",
       "decimals": 6,
@@ -52,38 +52,38 @@
     }
   },
   "program": {
-    "programId": "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
+    "programId": "A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1"
   },
   "pools": {
     "usdc": {
-      "address": "DyweFxgq7VzoViT6EWHw9o1Z9rmwifJ82bpLqh1rF6z3",
-      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+      "address": "9bb1sQXdDAEhU9LsHbMpJ93bS99dN9VFjZyS7SnjNkkv",
+      "tokenX": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
+      "tokenY": "8oVXEox3VE1jZacLuDK14uLmLDWr2iA5mgTeTH2yDyXC"
     },
     "usdt": {
-      "address": "BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1",
-      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW"
+      "address": "4cdxXyauEt9gLP2ETUH3nyEdaQnmEcJHwALsbkd51fgE",
+      "tokenX": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
+      "tokenY": "BCbYEGL18teZFZhun1QnPscufuPur35ChVquhCBqFSda"
     },
     "pyusd": {
-      "address": "82tugvnxW6AwkRm2Ntf4YRK4he1acuyosazR57LWJjU6",
-      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d"
+      "address": "GVEBxH2Lc8GY5xuidYM1Mgpg3Ljr7w9dfNzUfNPSc1nX",
+      "tokenX": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
+      "tokenY": "AYjBQG2gr1GURLLjTeNXbu9VVfB7ngf6cSoxZLrv7xai"
     },
     "usds": {
-      "address": "FQbLMLreVZkokwWubMSSXgjsiGRJjfDHDM7WH3Jg8DYh",
-      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD"
+      "address": "DSEzyHocwKuihuw5jonBpJef7DwEFpqC4f9LXavTKJkQ",
+      "tokenX": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
+      "tokenY": "EE6q1NY6PrubXDT2bS2Lib349RQgsymVrWWN4GEUzZyY"
     },
     "usdg": {
-      "address": "4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ",
-      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx"
+      "address": "6cZHFAu4q6wsgnqHyGEFugQdorFC8PEcuQpaePGVGdDF",
+      "tokenX": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
+      "tokenY": "7L2m9ZpLaV37oh3UdqK9oAweoA91BCHH8tXDK92KY8dN"
     },
     "fdusd": {
-      "address": "hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9",
-      "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo"
+      "address": "CgRzus688rc1ENryYk5beAUUjPCsB15YCx5VHjw1aaf6",
+      "tokenX": "4ZCrbUTw4NNinaSK41wXRgx9SC1cib9oNNABpJ1c3Qz3",
+      "tokenY": "PkgBnAQtf8PwJU1rc4jJRgRuw8H7NE7BzFeABqcK7bS"
     }
   }
 }

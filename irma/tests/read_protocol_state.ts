@@ -102,7 +102,7 @@ async function readProtocolState() {
     try {
       existingCore = await (program.account as any).core.fetch(corePda);
       console.log("ℹ️ Protocol already initialized!");
-      console.log("📊 Existing core:", existingCore);
+      console.log("📊 Existing core:", JSON.stringify(existingCore, null, 2));
       existingState = await (program.account as any).stateMap.fetch(statePda);
       console.log("📊 Existing state:", existingState);
       return { state: existingState, core: existingCore };
