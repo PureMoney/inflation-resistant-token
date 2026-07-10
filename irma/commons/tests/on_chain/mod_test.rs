@@ -213,7 +213,9 @@ pub fn create_mock_lb_pair(
             min_bin_id: 0,
             max_bin_id: 143,
             base_fee_power_factor: 2,
-            _padding: [0; 5],
+            _padding: [0; 3],
+            collect_fee_mode: 0,
+            function_type: 0,
         },
         v_parameters: VariableParameters {
             volatility_accumulator: 0,
@@ -258,8 +260,10 @@ pub fn create_mock_lb_pair(
         creator: Pubkey::default(),
         token_mint_x_program_flag: 0u8, // 0 is NOT token 2022
         token_mint_y_program_flag: 0u8,
-        _reserved: [0u8; 22],
+        _reserved: [0u8; 21],
+        version: 0u8,
     }
+
 }
 
 /// Helper function to create mock bin arrays for testing
