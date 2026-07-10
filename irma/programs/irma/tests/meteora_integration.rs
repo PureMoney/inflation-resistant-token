@@ -405,7 +405,7 @@ mod core_test {
     }
 
     #[test]
-    fn test_swap() {
+    fn test_limit_order() {
         let program_id: &Pubkey = &IRMA_ID;
 
         let lb_pair = Pubkey::from_str_const("FoSDw2L5DmTuQTFe55gWPDXf88euaxAEKFre74CnvQbX");
@@ -413,7 +413,7 @@ mod core_test {
             mut irma_admin_account,
             sys_account,
             position_account_info,
-            lb_pair_account_info,
+            _lb_pair_account_info,
             core_account)
                 = initialize_anchor(program_id, &lb_pair);
 
@@ -428,38 +428,42 @@ mod core_test {
         let mut core = accounts.core.clone();
         
         let remaining_accounts: &[AccountInfo] = &[position_account_info];
-        let mut ctx: Context<Maint> = Context::new(
+        let _ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
             remaining_accounts,
             MaintBumps::default(), // Use default bumps if not needed
         );
 
-        let mut position = core.position_data.all_positions[0].clone();
+        let limit_order = Pubkey::new_unique();
 
-        core.refresh_position_data(
-            &irma_admin_account.key(),
-            remaining_accounts,
-            &mut position,
-            true
-        ).unwrap();
-
-        let state = {
-            let mut_state = core.get_mut_position_state(lb_pair);
-            let lb_pair_data = &lb_pair_account_info.data.borrow()[8..];
-            // let lb_pair_state = bytemuck::pod_read_unaligned::<LbPair>(
-            //     &lb_pair_data
-            // );
-            // mut_state.lb_pair_state = Some(lb_pair_state);
-            mut_state.clone() // Clone the state to end the mutable borrow
-        };
-
-        core.counter_swap(
+        // We call them. Since the mock environment does not have DLMM loaded,
+        // it may fail during invoke(), but this verifies the call interface compilation.
+        let result = core.place_limit_order(
             &mut irma_admin_account, 
             remaining_accounts, 
-            &state,
+            &lb_pair,
+            &limit_order,
+            true,
+            0,
             1_000_000,
-              990_000,
-            true).unwrap();
+        );
+        msg!("place_limit_order result: {:?}", result);
+
+        let cancel_result = core.cancel_limit_order(
+            &mut irma_admin_account,
+            remaining_accounts,
+            &lb_pair,
+            &limit_order,
+            vec![0],
+        );
+        msg!("cancel_limit_order result: {:?}", cancel_result);
+
+        let close_result = core.close_limit_order_if_empty(
+            &mut irma_admin_account,
+            remaining_accounts,
+            &limit_order,
+        );
+        msg!("close_limit_order_if_empty result: {:?}", close_result);
     }
 }

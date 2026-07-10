@@ -413,36 +413,82 @@ pub mod irma {
         Ok(())
     }
 
-    /// Send swap instruction to Meteora DLMM
-    /// (This can be used by us only. In practice, traders will interact directly with Meteora or Jupiter.)
-    pub fn c_swap<'info>(
-        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, 
-        symbol: String, amount: u64, exact_out: u64, swap_for_reserve: bool
+    /// Place a limit order on Meteora DLMM
+    pub fn place_limit_order<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>,
+        symbol: String,
+        limit_order: Pubkey,
+        is_ask_side: bool,
+        bin_id: i32,
+        amount: u64,
     ) -> Result<()> {
-        // Extract references to avoid double mutable borrow
-        let corei = &ctx.accounts.core.clone();
-        let core = &mut ctx.accounts.core;
-        let payer = &mut ctx.accounts.irma_admin; // this is wrong; payer should be the trader
-        let reserves = &mut ctx.accounts.state.reserves;
+        let core = ctx.accounts.core.clone();
+        let payer = &mut ctx.accounts.irma_admin;
+        let reserves = &ctx.accounts.state.reserves;
         let remaining_accounts: &[AccountInfo<'info>] = ctx.remaining_accounts;
 
         let lb_pair_key = reserves.iter().find(|r| r.symbol == symbol)
             .ok_or(error!(CustomError::ReserveNotFound))?
             .pool_id.clone();
 
-        // look for positions matching the symbol
-        let position = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
-            .ok_or(error!(CustomError::PositionNotFound))?;
-
-        corei.counter_swap(
+        core.place_limit_order(
             payer,
             remaining_accounts,
-            position,
+            &lb_pair_key,
+            &limit_order,
+            is_ask_side,
+            bin_id,
             amount,
-            exact_out,
-            swap_for_reserve,
         )?;
-        msg!("swap called for symbol: {}, amount: {}, swap_for_reserve: {}", symbol, amount, swap_for_reserve);
+
+        msg!("limit order placed for symbol: {}, limit_order: {}, is_ask_side: {}, bin_id: {}, amount: {}", symbol, limit_order, is_ask_side, bin_id, amount);
+        Ok(())
+    }
+
+    /// Cancel a limit order on Meteora DLMM
+    pub fn cancel_limit_order<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>,
+        symbol: String,
+        limit_order: Pubkey,
+        bin_ids: Vec<i32>,
+    ) -> Result<()> {
+        let core = ctx.accounts.core.clone();
+        let payer = &mut ctx.accounts.irma_admin;
+        let reserves = &ctx.accounts.state.reserves;
+        let remaining_accounts: &[AccountInfo<'info>] = ctx.remaining_accounts;
+
+        let lb_pair_key = reserves.iter().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+
+        core.cancel_limit_order(
+            payer,
+            remaining_accounts,
+            &lb_pair_key,
+            &limit_order,
+            bin_ids.clone(),
+        )?;
+
+        msg!("limit order canceled for symbol: {}, limit_order: {}, bin_ids: {:?}", symbol, limit_order, bin_ids);
+        Ok(())
+    }
+
+    /// Close an empty limit order on Meteora DLMM
+    pub fn close_limit_order_if_empty<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Maint<'info>>,
+        limit_order: Pubkey,
+    ) -> Result<()> {
+        let core = ctx.accounts.core.clone();
+        let payer = &mut ctx.accounts.irma_admin;
+        let remaining_accounts: &[AccountInfo<'info>] = ctx.remaining_accounts;
+
+        core.close_limit_order_if_empty(
+            payer,
+            remaining_accounts,
+            &limit_order,
+        )?;
+
+        msg!("limit order closed if empty: {}", limit_order);
         Ok(())
     }
 
