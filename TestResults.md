@@ -216,3 +216,22 @@ The instructions were successfully executed and validated on-chain using the fol
 * **Command**: `npx tsx tests/test_limit_order.ts close Sf4TRRtMHQe7BLJz51R2voy4RKSTExAXgdGcDyqTNMW`
 * **Transaction Signature**: `59SvfsknmhnWCCxKqNsmKDfRsqU3g85normcnZARSJDhhfc95AJWaVbmsmrsQ3MePWnFdcbMTVFm9UqCCdnMFA49`
 * **Status**: ✅ **SUCCESS**
+
+---
+
+## Live Swap Test Run Results
+
+The swap effect test command executes both a Mint (SaleTradeEvent) and a Redeem (BuyTradeEvent) against the selected reserve to verify price adjustments.
+
+* **Command**: `npx tsx tests/test_swap.ts devUSDT`
+
+### 1. Sale Trade Event (Mint)
+* **Transaction Signature**: `YrbwMhJKYRDoNWBypZN22U98FWVrmf1qty2fVWjP8UCHWkRAPdjm4XRYGn6SSBEXgD7wef8HA4ELr5r91tUEvm2`
+* **Status**: ✅ **SUCCESS**
+* **Solscan Link**: [YrbwMhJKYRDoNWBypZN22U98FWVrmf1qty2fVWjP8UCHWkRAPdjm4XRYGn6SSBEXgD7wef8HA4ELr5r91tUEvm2](https://solscan.io/tx/YrbwMhJKYRDoNWBypZN22U98FWVrmf1qty2fVWjP8UCHWkRAPdjm4XRYGn6SSBEXgD7wef8HA4ELr5r91tUEvm2?cluster=devnet)
+
+### 2. Buy Trade Event (Redeem)
+* **Transaction Signature**: `34U44vPtxVToS7jwGSDymAAxvBDotxjERh2BMEYnnRf6ySr1uN9bfFUk9nvKTf6VQYqBBeBJpAp3TvMBpjFCcsTr`
+* **Status**: ✅ **SUCCESS**
+* **Solscan Link**: [34U44vPtxVToS7jwGSDymAAxvBDotxjERh2BMEYnnRf6ySr1uN9bfFUk9nvKTf6VQYqBBeBJpAp3TvMBpjFCcsTr](https://solscan.io/tx/34U44vPtxVToS7jwGSDymAAxvBDotxjERh2BMEYnnRf6ySr1uN9bfFUk9nvKTf6VQYqBBeBJpAp3TvMBpjFCcsTr?cluster=devnet)
+
