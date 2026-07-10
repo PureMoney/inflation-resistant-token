@@ -140,3 +140,79 @@ inflation" expectation laid out at the top of this doc — `devUSDT` shows the o
 (`mintPrice = 1.001` vs `redemptionPrice = 1.0`), reflecting a slightly elevated inflation
 input recorded for that reserve at test time; the redemption price is already tracking
 toward it as designed.
+
+
+
+# Meteora DLMM 0.12.0 Limit Order Test Results
+
+This describes the test verification process and results for the native Meteora DLMM 0.12.0 limit order instructions on Solana Devnet.
+
+## How to Test the Whole Limit Order Lifecycle Yourself
+
+To execute the full limit order lifecycle on Devnet, follow these steps:
+
+### Step 1: Synchronize Configuration (Optional)
+If the on-chain reserves state changes or has been reinitialized, pull the latest on-chain pool and token configurations directly using:
+```bash
+node scripts/reconstruct_config.cjs
+```
+
+### Step 2: Place a Limit Order
+Run the following command to place a limit order. This will automatically generate a new Limit Order keypair and save its private key locally (e.g., `limit_order_XXXXXXXX.json`).
+
+* **Syntax**: `npx tsx tests/test_limit_order.ts place <tokenSymbol> <ask|bid> <amount> [binId]`
+* **Example**:
+  ```bash
+  npx tsx tests/test_limit_order.ts place usdt ask 0.1
+  ```
+* **Expected Output**:
+  - Displays generated Limit Order account address.
+  - Saves private key file locally.
+  - Broadcasts transaction and confirms placement.
+
+### Step 3: Cancel the Limit Order
+Cancel the placed limit order (which also claims any filled/unfilled proceeds) using the generated limit order pubkey and the bin ID target.
+
+* **Syntax**: `npx tsx tests/test_limit_order.ts cancel <tokenSymbol> <limitOrderPubkey> <binId1,binId2,...> [limitOrderPrivateKeyJsonPath]`
+* **Example**:
+  ```bash
+  npx tsx tests/test_limit_order.ts cancel usdt Sf4TRRtMHQe7BLJz51R2voy4RKSTExAXgdGcDyqTNMW 11
+  ```
+* **Expected Output**:
+  - Broadcasts transaction.
+  - Confirms cancellation and claims proceeds.
+
+### Step 4: Close the Limit Order Account
+Once the limit order is empty, close the account to recover the allocated SOL rent lamports.
+
+* **Syntax**: `npx tsx tests/test_limit_order.ts close <limitOrderPubkey> [limitOrderPrivateKeyJsonPath]`
+* **Example**:
+  ```bash
+  npx tsx tests/test_limit_order.ts close Sf4TRRtMHQe7BLJz51R2voy4RKSTExAXgdGcDyqTNMW
+  ```
+* **Expected Output**:
+  - Broadcasts transaction.
+  - Confirms account closure and rent recovery to the admin wallet.
+
+---
+
+## Live Devnet Test Run Results
+
+The instructions were successfully executed and validated on-chain using the following runs:
+
+### 1. Place Limit Order
+* **Command**: `npx tsx tests/test_limit_order.ts place usdt ask 0.1`
+* **Target Bin**: `11` (Active bin `1` + offset `10`)
+* **Created Limit Order**: `Sf4TRRtMHQe7BLJz51R2voy4RKSTExAXgdGcDyqTNMW`
+* **Transaction Signature**: `284T5BG76gANihH2FGxSXXSToq4dXqm5mVAZ6ioRkpsHNEeho7VYu7zyHZV4MjpWZ5NVAYqWCFYNL1CWnSbVdHnw`
+* **Status**: ✅ **SUCCESS**
+
+### 2. Cancel Limit Order
+* **Command**: `npx tsx tests/test_limit_order.ts cancel usdt Sf4TRRtMHQe7BLJz51R2voy4RKSTExAXgdGcDyqTNMW 11`
+* **Transaction Signature**: `3WVQe9oPjsZpbsUygHc7sEkiZxEd7f36tGAz62NwWyz5wNjqmvFiaCZoSFWs5TLDWdtSJ8L3xCUSGK4iL7x8jM9F`
+* **Status**: ✅ **SUCCESS**
+
+### 3. Close Limit Order
+* **Command**: `npx tsx tests/test_limit_order.ts close Sf4TRRtMHQe7BLJz51R2voy4RKSTExAXgdGcDyqTNMW`
+* **Transaction Signature**: `59SvfsknmhnWCCxKqNsmKDfRsqU3g85normcnZARSJDhhfc95AJWaVbmsmrsQ3MePWnFdcbMTVFm9UqCCdnMFA49`
+* **Status**: ✅ **SUCCESS**

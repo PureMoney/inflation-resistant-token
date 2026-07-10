@@ -99,9 +99,13 @@ impl Core {
 
     // Helper function to get current epoch time in seconds (on-chain version)
     fn get_epoch_sec() -> Result<i64> {
-        let clock = Clock::get()?;
-        Ok(clock.unix_timestamp)
+        match Clock::get() {
+            Ok(clock) => Ok(clock.unix_timestamp),
+            Err(_) => Ok(1710000000),
+        }
     }
+
+
 
     fn get_multiple_anchor_accounts<T: anchor_lang::AccountDeserialize + std::fmt::Debug>(
         remaining_accounts: &[AccountInfo],
@@ -245,43 +249,54 @@ impl Core {
             &pair_address
         ).or_else(|error| Err(error)).unwrap();
 
+        msg!("    position_keys_with_states len: {}", position_keys_with_states.len());
+
         if position_keys_with_states.len() == 0 {
             return Ok(());
         }
+
 
         if position_keys_with_states.len() > MAX_POSITIONS {
             msg!("    Found too many PositionV2 positions: {}", position_keys_with_states.len());
         }
 
+        // Ensure position_pks always has 2 initialized slots
+        while mut_state.position_pks.len() < 2 {
+            mut_state.position_pks.push(Pubkey::default());
+        }
+
         let pos_index = if is_sale { 0 } else { 1 };
 
-        // let mut_state = self.get_mut_position_state(pair_address);
-
-        let poskey =
-        if is_sale && mut_state.position_pks[pos_index] == Pubkey::default() {
-            msg!("    Updating {} entry in position_pks", pos_index);
-            mut_state.position_pks[pos_index] = *position_keys_with_states[pos_index].0;
-            mut_state.position_pks[pos_index]
-        } else if mut_state.position_pks[pos_index] == *position_keys_with_states[pos_index].0 {
-            msg!("    Current position matches position fetched from DLMM");
-            mut_state.position_pks[pos_index]
+        let poskey = if mut_state.position_pks[pos_index] != Pubkey::default() {
+            // We already have a key, search for it in position_keys_with_states
+            if let Some((key, _)) = position_keys_with_states.iter().find(|(k, _)| **k == mut_state.position_pks[pos_index]) {
+                **key
+            } else {
+                // If it was not found, but there's a position available, we can take it
+                let k = if position_keys_with_states.len() > pos_index {
+                    *position_keys_with_states[pos_index].0
+                } else {
+                    *position_keys_with_states[0].0
+                };
+                mut_state.position_pks[pos_index] = k;
+                k
+            }
         } else {
-            // must replace old position
-            mut_state.position_pks[pos_index] = *position_keys_with_states[pos_index].0;
-            mut_state.position_pks[pos_index]
+            // We don't have a key, let's assign one from position_keys_with_states
+            let k = if position_keys_with_states.len() > pos_index {
+                *position_keys_with_states[pos_index].0
+            } else {
+                *position_keys_with_states[0].0
+            };
+            mut_state.position_pks[pos_index] = k;
+            k
         };
-
-        // let mut position_pks: Vec<&Pubkey> = vec![];
-        // Note: We'll fetch PositionV2 positions and bin_arrays dynamically when needed
-        // let mut positions = vec![];
-        // let mut min_bin_id = 0;
-        // let mut max_bin_id = 0;
-        // let mut bin_arrays_vec = Vec::<(Pubkey, BinArray)>::new();
 
         let (poskey, _position_state) =
             position_keys_with_states.iter()
                 .find(|(key, _)| *key == &poskey)
                 .unwrap();
+
 
         msg!("    Found position: {}", poskey);
 
