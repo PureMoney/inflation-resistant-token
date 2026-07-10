@@ -797,78 +797,54 @@ impl Core {
 
 
 
-    /// Swap tokens on the DLMM.
-    /// We may need this to overcome AMM behavior, in case off-chain swap is too slow.
-    /// If not, according to Taha, we can use withdraw() above instead.
-    /// Using this for counter-swaps.
-    pub fn counter_swap<'a>(
+    /// Place a limit order on the DLMM.
+    pub fn place_limit_order<'a>(
         &self,
         payer: &mut Signer<'a>,
         remaining_accounts: &'a [AccountInfo<'a>],
-        state: &SinglePosition,
-        amount_in: u64,
-        exact_out: u64,
-        swap_for_y: bool
+        lb_pair: &Pubkey,
+        limit_order: &Pubkey,
+        is_ask_side: bool,
+        bin_id: i32,
+        amount: u64,
     ) -> Result<()> {
+        msg!("==> Placing limit order on pair: {}, limit_order: {}", lb_pair, limit_order);
 
-        msg!("==> Swapping on pair: {}", state.lb_pair);
-
-        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, &state.lb_pair)?;
-
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, lb_pair)?;
         let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
-        let lb_pair = state.lb_pair;
-
         let (event_authority, _bump) = derive_event_authority_pda();
 
-        msg!("    event authority: {}", event_authority);
-
-        let bin_arrays_account_meta = get_bin_array_pubkeys_for_swap(
-            lb_pair,
-            &lb_pair_state,
-            None, // Some(bitmap_extension),
-            swap_for_y,
-            3,
-        )?
-        .into_iter()
-        .map(|key| AccountMeta::new(key, false))
-        .collect::<Vec<_>>();
-
-        msg!("    bin arrays account meta: {:?}", bin_arrays_account_meta[0]);
-
-        let (user_token_in, user_token_out) = if swap_for_y {
-            (
-                get_associated_token_address_with_program_id(
-                    &payer.key(),
-                    &lb_pair_state.token_x_mint,
-                    &token_x_program,
-                ),
-                get_associated_token_address_with_program_id(
-                    &payer.key(),
-                    &lb_pair_state.token_y_mint,
-                    &token_y_program,
-                ),
-            )
+        let token_mint = if is_ask_side {
+            lb_pair_state.token_x_mint
         } else {
-            (
-                get_associated_token_address_with_program_id(
-                    &payer.key(),
-                    &lb_pair_state.token_y_mint,
-                    &token_y_program,
-                ),
-                get_associated_token_address_with_program_id(
-                    &payer.key(),
-                    &lb_pair_state.token_x_mint,
-                    &token_x_program,
-                ),
-            )
+            lb_pair_state.token_y_mint
         };
-        msg!("    user token in: {}", user_token_in);
-        msg!("    user token out: {}", user_token_out);
+
+        let token_program = if is_ask_side {
+            token_x_program
+        } else {
+            token_y_program
+        };
+
+        let user_token = get_associated_token_address_with_program_id(
+            &payer.key(),
+            &token_mint,
+            &token_program,
+        );
+
+        let reserve = if is_ask_side {
+            lb_pair_state.reserve_x
+        } else {
+            lb_pair_state.reserve_y
+        };
+
+        // Derive bin array containing target bin_id
+        let bin_array_idx = BinArray::bin_id_to_bin_array_index(bin_id)?;
+        let (bin_array, _bump) = derive_bin_array_pda(*lb_pair, bin_array_idx.into());
+        let bin_arrays_account_meta = vec![AccountMeta::new(bin_array, false)];
 
         let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
         let mut remaining_accounts_vec = vec![];
-
-        msg!("    Preparing Token 2022 related accounts...");
 
         if let Some((slices, transfer_hook_remaining_accounts)) =
             get_potential_token_2022_related_ix_data_and_accounts(
@@ -881,22 +857,115 @@ impl Core {
             remaining_accounts_vec.extend(transfer_hook_remaining_accounts);
         }
 
-        msg!("    transfer hook remaining accounts: {}", remaining_accounts_vec.len());
+        remaining_accounts_vec.extend(bin_arrays_account_meta);
+
+        let main_accounts = dlmm::client::accounts::PlaceLimitOrder {
+            lb_pair: *lb_pair,
+            bin_array_bitmap_extension: None,
+            reserve,
+            token_mint,
+            limit_order: *limit_order,
+            payer: payer.key(),
+            owner: payer.key(),
+            user_token,
+            sender: payer.key(),
+            token_program,
+            system_program: anchor_lang::solana_program::system_program::ID,
+            event_authority,
+            program: DLMM_ID,
+        }
+        .to_account_metas(None);
+
+        let data = dlmm::client::args::PlaceLimitOrder {
+            params: PlaceLimitOrderParams {
+                is_ask_side,
+                padding: [0u8; 16],
+                relative_bin: None,
+                bins: vec![BinLimitOrderAmount {
+                    id: bin_id,
+                    amount,
+                }],
+            },
+            remaining_accounts_info,
+        }
+        .data();
+
+        let accounts = [main_accounts.to_vec(), remaining_accounts_vec].concat();
+
+        let place_ix = Instruction {
+            program_id: DLMM_ID,
+            accounts,
+            data,
+        };
+
+        Core::execute_meteora_instruction(payer, remaining_accounts, vec![place_ix])?;
+
+        Ok(())
+    }
+
+    /// Cancel a limit order on the DLMM, which also claims the proceeds.
+    pub fn cancel_limit_order<'a>(
+        &self,
+        payer: &mut Signer<'a>,
+        remaining_accounts: &'a [AccountInfo<'a>],
+        lb_pair: &Pubkey,
+        limit_order: &Pubkey,
+        bin_ids: Vec<i32>,
+    ) -> Result<()> {
+        msg!("==> Canceling limit order on pair: {}, limit_order: {}", lb_pair, limit_order);
+
+        let lb_pair_state = fetch_lb_pair_state(remaining_accounts, lb_pair)?;
+        let [token_x_program, token_y_program] = lb_pair_state.get_token_programs()?;
+        let (event_authority, _bump) = derive_event_authority_pda();
+
+        let owner_token_x = get_associated_token_address_with_program_id(
+            &payer.key(),
+            &lb_pair_state.token_x_mint,
+            &token_x_program,
+        );
+
+        let owner_token_y = get_associated_token_address_with_program_id(
+            &payer.key(),
+            &lb_pair_state.token_y_mint,
+            &token_y_program,
+        );
+
+        let mut bin_arrays_account_meta = vec![];
+        for bin_id in &bin_ids {
+            let bin_array_idx = BinArray::bin_id_to_bin_array_index(*bin_id)?;
+            let (bin_array, _bump) = derive_bin_array_pda(*lb_pair, bin_array_idx.into());
+            if !bin_arrays_account_meta.iter().any(|meta: &AccountMeta| meta.pubkey == bin_array) {
+                bin_arrays_account_meta.push(AccountMeta::new(bin_array, false));
+            }
+        }
+
+        let mut remaining_accounts_info = RemainingAccountsInfo { slices: vec![] };
+        let mut remaining_accounts_vec = vec![];
+
+        if let Some((slices, transfer_hook_remaining_accounts)) =
+            get_potential_token_2022_related_ix_data_and_accounts(
+                &lb_pair_state,
+                remaining_accounts,
+                ActionType::Liquidity,
+            )?
+        {
+            remaining_accounts_info.slices = slices;
+            remaining_accounts_vec.extend(transfer_hook_remaining_accounts);
+        }
 
         remaining_accounts_vec.extend(bin_arrays_account_meta);
 
-        let main_accounts = dlmm::client::accounts::SwapExactOut2 {
-            lb_pair,
-            bin_array_bitmap_extension: None, // bitmap_extension.lb_pair),
+        let main_accounts = dlmm::client::accounts::CancelLimitOrder {
+            lb_pair: *lb_pair,
+            bin_array_bitmap_extension: None,
             reserve_x: lb_pair_state.reserve_x,
             reserve_y: lb_pair_state.reserve_y,
-            user_token_in,
-            user_token_out,
             token_x_mint: lb_pair_state.token_x_mint,
             token_y_mint: lb_pair_state.token_y_mint,
-            oracle: lb_pair_state.oracle,
-            host_fee_in: None, // Some(host_fee_in), // for swap, host fee accounts are optional
-            user: payer.key(),
+            limit_order: *limit_order,
+            owner_token_x,
+            owner_token_y,
+            owner: payer.key(),
             token_x_program,
             token_y_program,
             memo_program: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
@@ -905,41 +974,54 @@ impl Core {
         }
         .to_account_metas(None);
 
-        // msg!("    main accounts.token_y_mint: {:?}", main_accounts.token_y_mint);
-
-        let data = dlmm::client::args::SwapExactOut2 {
-            max_in_amount: amount_in, // we are willing to pay up to this amount
-            out_amount: exact_out, // min_amount_out: state.get_min_out_amount_with_slippage_rate(amount_in, swap_for_y, &lb_pair_state)?,
+        let data = dlmm::client::args::CancelLimitOrder {
+            bins: bin_ids,
             remaining_accounts_info,
         }
         .data();
 
         let accounts = [main_accounts.to_vec(), remaining_accounts_vec].concat();
 
-        msg!("    total accounts for swap: {}", accounts.len());
-
-        let swap_ix = Instruction {
+        let cancel_ix = Instruction {
             program_id: DLMM_ID,
             accounts,
             data,
         };
 
-        let memo_ix = Instruction {
-            program_id: Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap(),
-            accounts: vec![
-                AccountMeta::new(payer.key(), true),
-            ],
-            data: WORKER_MEMO_STRING.try_to_vec()?,
+        Core::execute_meteora_instruction(payer, remaining_accounts, vec![cancel_ix])?;
+
+        Ok(())
+    }
+
+    /// Close a limit order if it is empty.
+    pub fn close_limit_order_if_empty<'a>(
+        &self,
+        payer: &mut Signer<'a>,
+        remaining_accounts: &'a [AccountInfo<'a>],
+        limit_order: &Pubkey,
+    ) -> Result<()> {
+        msg!("==> Closing empty limit order: {}", limit_order);
+
+        let (event_authority, _bump) = derive_event_authority_pda();
+
+        let main_accounts = dlmm::client::accounts::CloseLimitOrderIfEmpty {
+            limit_order: *limit_order,
+            owner: payer.key(),
+            rent_receiver: payer.key(),
+            event_authority,
+            program: DLMM_ID,
+        }
+        .to_account_metas(None);
+
+        let data = dlmm::client::args::CloseLimitOrderIfEmpty {}.data();
+
+        let close_ix = Instruction {
+            program_id: DLMM_ID,
+            accounts: main_accounts.to_vec(),
+            data,
         };
 
-        // let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-
-        let instructions = [swap_ix, memo_ix];
-
-        msg!("    Executing exact out swap instruction...");
-
-        let result = Core::execute_meteora_instruction(payer, remaining_accounts, instructions.to_vec())?;
-        msg!("Swap amount_in: {}, swap_for_y: {}, result: {:?}", amount_in, swap_for_y, result);
+        Core::execute_meteora_instruction(payer, remaining_accounts, vec![close_ix])?;
 
         Ok(())
     }
