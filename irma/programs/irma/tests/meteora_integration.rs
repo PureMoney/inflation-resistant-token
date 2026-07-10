@@ -143,11 +143,16 @@ mod core_test {
 
         let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
         let all_positions = AllPosition::new(&config).unwrap().all_positions;
-        let all_positions = all_positions.into_iter().map(|pe| pe.lb_pair).collect::<Vec<_>>();
-        let core_state = &mut Core::create_core(
+        let mut core_state_val = Core::create_core(
             *signer_pubkey, // owner
-            all_positions,
+            vec![],
         ).unwrap();
+        core_state_val.config = config.clone();
+        core_state_val.position_data = AllPosition::new(&config).unwrap();
+        let core_state = &mut core_state_val;
+
+
+
         let mut core_data_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of::<Core>());
         core_state.try_serialize(&mut core_data_vec).unwrap();
         let core_data: &'info mut Vec<u8> = Box::leak(Box::new(core_data_vec));
@@ -230,9 +235,20 @@ mod core_test {
             version: 0u8,
         };
         let lb_pair_data_vec = bytemuck::bytes_of(&lb_pair_state).to_vec();
-        let mut lb_pair_data = vec![33, 11, 49, 98, 181, 101, 177, 13]; // discriminator
-        lb_pair_data.extend_from_slice(&lb_pair_data_vec);
-        let lb_pair_data: &'info mut Vec<u8> = Box::leak(Box::new(lb_pair_data));
+        let mut lb_pair_raw = vec![0u8; 8 + lb_pair_data_vec.len() + 16];
+        let lb_pair_start = lb_pair_raw.as_ptr() as usize;
+        let mut lb_pair_shift = 0;
+        while (lb_pair_start + lb_pair_shift) % 16 != 8 {
+            lb_pair_shift += 1;
+        }
+        {
+            let slice = &mut lb_pair_raw[lb_pair_shift..lb_pair_shift + 8 + lb_pair_data_vec.len()];
+            slice[..8].copy_from_slice(&[33, 11, 49, 98, 181, 101, 177, 13]);
+            slice[8..].copy_from_slice(&lb_pair_data_vec);
+        }
+        let lb_pair_leaked = Box::leak(Box::new(lb_pair_raw));
+        let lb_pair_data: &'info mut [u8] = &mut lb_pair_leaked[lb_pair_shift..lb_pair_shift + 8 + lb_pair_data_vec.len()];
+
         let lb_pair_lamports: &mut u64 = Box::leak(Box::new(100000u64));
         let lb_pair_owner: &'info mut Pubkey = Box::leak(Box::new(Pubkey::default()));
         let lb_pair_account_info: AccountInfo<'info> = AccountInfo::new(
@@ -255,19 +271,26 @@ mod core_test {
         // Serialize using bytemuck (for Pod types)
         let position_data_vec = bytemuck::bytes_of(&position).to_vec();
         
-        // Add discriminator (8 bytes) at the beginning if needed for account format
-        let mut full_data = vec![117, 176, 212, 199, 245, 180, 133, 182]; // discriminator
-        full_data.extend_from_slice(&position_data_vec);
-        msg!("    Full PositionV2 account data length: {}", full_data.len());
-        msg!("    Expected PositionV2 account data length: {}", 8 + std::mem::size_of::<PositionV2>());
-        
+        let mut position_raw = vec![0u8; 8 + position_data_vec.len() + 16];
+        let position_start = position_raw.as_ptr() as usize;
+        let mut position_shift = 0;
+        while (position_start + position_shift) % 16 != 8 {
+            position_shift += 1;
+        }
+        {
+            let slice = &mut position_raw[position_shift..position_shift + 8 + position_data_vec.len()];
+            slice[..8].copy_from_slice(&[117, 176, 212, 199, 245, 180, 133, 182]);
+            slice[8..].copy_from_slice(&position_data_vec);
+        }
+        let position_leaked = Box::leak(Box::new(position_raw));
+        let position_data: &'info mut [u8] = &mut position_leaked[position_shift..position_shift + 8 + position_data_vec.len()];
+
         // Use pod_read_unaligned to handle alignment issues in tests
-        if full_data.len() >= 8 + std::mem::size_of::<PositionV2>() {
-            let pos = bytemuck::pod_read_unaligned::<PositionV2>(&full_data[8..8 + std::mem::size_of::<PositionV2>()]);
+        if position_data.len() >= 8 + std::mem::size_of::<PositionV2>() {
+            let pos = bytemuck::pod_read_unaligned::<PositionV2>(&position_data[8..8 + std::mem::size_of::<PositionV2>()]);
             msg!("    PositionV2 account owner: {:?}", pos.owner.to_string());
         }
         
-        let position_data: &'info mut Vec<u8> = Box::leak(Box::new(full_data));
         let position_key: &'info mut Pubkey = Box::leak(Box::new(Pubkey::new_unique()));
         let position_account_info: AccountInfo<'info> = AccountInfo::new(
             position_key,
@@ -277,6 +300,7 @@ mod core_test {
             position_data,
             owner,
             false,
+
             0,
         );
 
@@ -373,7 +397,11 @@ mod core_test {
         // Clone core before creating the mutable context
         let mut core = accounts.core.clone();
         
-        let remaining_accounts: &[AccountInfo] = &[position_account_info];
+        let remaining_accounts: &[AccountInfo] = &[
+            position_account_info.clone(),
+            lb_pair_account_info.clone(),
+        ];
+
         let mut ctx: Context<Maint> = Context::new(
             program_id,
             &mut accounts,
