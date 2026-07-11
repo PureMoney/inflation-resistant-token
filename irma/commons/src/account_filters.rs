@@ -96,22 +96,22 @@ pub fn get_matching_positions<'a>(
             msg!("Account {} is a Position account", account.key);
             let data_slice = &account.data.borrow()[8..];
             let position = unsafe {
-                let ptr_val = data_slice.as_ptr() as usize;
-                let align_req = std::mem::align_of::<PositionV2>();
-                if ptr_val % align_req == 0 {
+                // Ensure alignment and create reference
+                if data_slice.as_ptr() as usize % std::mem::align_of::<PositionV2>() == 0 {
                     Some(&*(data_slice.as_ptr() as *const PositionV2))
                 } else {
-                    msg!("Alignment check failed: ptr = {}, align_req = {}, ptr % align_req = {}", ptr_val, align_req, ptr_val % align_req);
+                    // If not properly aligned, we can't safely create a reference
+                    msg!("-");
                     None
                 }
             };
             let position = match position {
                 Some(pos) => pos,
                 None => {
+                    msg!("-");
                     continue;
                 }
             };
-
             if position.owner == *wallet && position.lb_pair == *pair {
                 // The position_matches_wallet_and_pair already validated the data,
                 // so we can safely read it here

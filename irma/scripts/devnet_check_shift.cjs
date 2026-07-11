@@ -38,7 +38,7 @@ require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../devnet-config.json"), "utf-8"));
 const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/irma.json"), "utf-8"));
 
-const REAL_PROGRAM_ID = new PublicKey("A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1");
+const REAL_PROGRAM_ID = new PublicKey("E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs");
 const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
 const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
