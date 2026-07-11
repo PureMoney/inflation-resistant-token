@@ -11,7 +11,6 @@ const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/irma.
 const dlmmIdl = JSON.parse(fs.readFileSync(path.join(__dirname, "../idls/dlmm.json"), "utf-8"));
 
 const PROGRAM_ID = new PublicKey(idl.address);
-const DLMM_PROGRAM_ID = new PublicKey(dlmmIdl.address);
 
 // State PDA
 const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("state_v5")], PROGRAM_ID);
