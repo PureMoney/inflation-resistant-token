@@ -6,9 +6,7 @@ import {
     PublicKey,
     SystemProgram,
     Keypair,
-    Transaction,
     ComputeBudgetProgram,
-    sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
 import * as fs from "fs";
@@ -128,7 +126,7 @@ async function main() {
         const lbPairKey = new PublicKey(poolConfig.address);
         console.log(`\n🔍 Fetching LbPair state for ${symbol.toUpperCase()} pool: ${lbPairKey.toBase58()}`);
 
-        const lbPairData = await dlmmProgram.account.lbPair.fetch(lbPairKey);
+        const lbPairData = await (dlmmProgram.account as any).lbPair.fetch(lbPairKey);
         const tokenXMint = new PublicKey(poolConfig.tokenX);
         const tokenYMint = new PublicKey(poolConfig.tokenY);
         const activeBinId = lbPairData.activeId;
@@ -262,7 +260,7 @@ async function main() {
         const lbPairKey = new PublicKey(poolConfig.address);
         console.log(`\n🔍 Fetching LbPair state for ${symbol.toUpperCase()} pool: ${lbPairKey.toBase58()}`);
 
-        const lbPairData = await dlmmProgram.account.lbPair.fetch(lbPairKey);
+        const lbPairData = await (dlmmProgram.account as any).lbPair.fetch(lbPairKey);
         const tokenXMint = new PublicKey(poolConfig.tokenX);
         const tokenYMint = new PublicKey(poolConfig.tokenY);
 

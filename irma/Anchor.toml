@@ -10,23 +10,14 @@ skip-lint = false
 [build]
 rustflags = ["--cfg", "getrandom_custom"]
 
-# [programs.devnet]
-# irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
-
-# [programs.localnet]
-# irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
-
-# [programs.mainnet]
-# irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
-
 [programs.devnet]
-irma = "A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1"
+irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
 
 [programs.localnet]
-irma = "A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1"
+irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
 
 [programs.mainnet]
-irma = "A7K5E3qPN1GUSQXUtvbruMwmBsGgcXuH7Gvn1ZUQsqf1"
+irma = "E15v5VirGqdbH4fYhxxxZHNiLAP3t3y1SPonhrQxoTcs"
 
 [registry]
 url = "https://api.apr.dev"
