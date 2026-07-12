@@ -1,7 +1,7 @@
 # Inflation-Resistant Medium of Account (IRMA)
 Updated: 03/24/2026
 
-This is a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant stablecoin using DEX (Meteora) and switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
+This is a set of Solana contracts started in solang (now continuing in Rust for easy integration with Anchor) that implement an inflation-resistant flatcoin using DEX (Meteora) and switching over to Rust to make it easy to integrate with Solana. This is now patent pending.
 
 IRMA Token: irmaN9bozBo9nnTqu1RBuoK7imbvBiFJTtdm6c7tC9f
 

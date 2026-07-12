@@ -1,7 +1,7 @@
-# Copilot Instructions for the Inflation-Resistant Stablecoin Project
+# Copilot Instructions for the Inflation-Resistant Flatcoin Project
 
 ## Overview
-This project implements an inflation-resistant stablecoin using the Solana blockchain. It leverages the Anchor framework for program development and integrates with Meteora DLMM for market operations. The project is organized into multiple components, with a focus on modularity and scalability.
+This project implements an inflation-resistant flatcoin using the Solana blockchain. It leverages the Anchor framework for program development and integrates with Meteora DLMM for market operations. The project is organized into multiple components, with a focus on modularity and scalability.
 
 ### Key Components
 - **`programs/irma/src/lib.rs`**: The main entry point for the IRMA program. Contains program instructions such as `initialize`, `add_reserve`, `remove_reserve`, and `crank`.
@@ -51,8 +51,8 @@ This will deploy the program to a local Solana cluster and execute the tests.
 
 ## Examples
 
-### Adding a Stablecoin Reserve
-The `add_reserve` function in `lib.rs` is used to add a new stablecoin to the reserves:
+### Adding a Flatcoin Reserve
+The `add_reserve` function in `lib.rs` is used to add a new flatcoin to the reserves:
 ```rust
 pub fn add_reserve(ctx: Context<Maint>, symbol: String, mint_address: Pubkey, decimals: u8) -> Result<()> {
     msg!("Add stablecoin entry, size of StateMap: {}", size_of::<StateMap>());

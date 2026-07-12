@@ -1,6 +1,6 @@
-# IRMA: Inflation-Resistant Stablecoin on Solana
+# IRMA: Inflation-Resistant Flatcoin on Solana
 
-An innovative stablecoin protocol built on Solana that maintains value during inflationary periods through automated liquidity management and dynamic pricing.
+An innovative flatcoin protocol built on Solana that maintains value during inflationary periods through automated liquidity management and dynamic pricing.
 
 ## Quick Links
 
@@ -11,7 +11,7 @@ An innovative stablecoin protocol built on Solana that maintains value during in
 
 ## Overview
 
-IRMA is a Solana-based stablecoin that uses:
+IRMA is a Solana-based flatcoin that uses:
 - **Time-based inflation adjustment** to maintain purchasing power
 - **Dynamic redemption pricing** based on protocol reserves
 - **On-chain governance** through protocol PDAs
@@ -101,7 +101,7 @@ Redemption price automatically updates based on:
 $$\text{redemption\_price} = \frac{\text{backing\_reserves}}{\text{irma\_in\_circulation}}$$
 
 - Never falls below 1.0 USD
-- Increases as stablecoins are minted/swapped
+- Increases as flatcoins are minted/swapped
 - Ensures protocol solvency
 
 ### 3. DLMM Whirlpool Integration
@@ -289,7 +289,7 @@ multiplier = (1.05) ^ (1 / 31,557,600) ≈ 1.0000000015789
 redemption_price = backing_reserves_usd / irma_in_circulation
 ```
 
-This is calculated dynamically from the StateMap in pricing.rs and increases as users mint/swap stablecoins for IRMA.
+This is calculated dynamically from the StateMap in pricing.rs and increases as users mint/swap flatcoins for IRMA.
 
 ---
 

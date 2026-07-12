@@ -112,9 +112,9 @@ Edit `wrangler.jsonc` if needed:
 - `name`: Worker name (default: "irma-client"). Change this to the *exact* name of the cloudflare worker being used with your account. If you have not created a separate cloudflare worker, one will be created automatically with your account when this program is deployed. The URL will also change accordingly.
 
 Edit `src/worker.js` constants:
-- `POOL_ADDRESS`: This is the pool address of the Meteora DLMM Pool, which offers trading functionality for both IRMA and the reserve stablecoin being offered. The current setup is for devnet, and for `devUSDC` as the reserve stablecoin.
-- `RESERVE_MINT_STR`: Mint address of the reserve stablecoin.
-- `RESERVE_SYMBOL`: Symbol of the reserve stablecoin.
+- `POOL_ADDRESS`: This is the pool address of the Meteora DLMM Pool, which offers trading functionality for both IRMA and the reserve flatcoin being offered. The current setup is for devnet, and for `devUSDC` as the reserve flatcoin.
+- `RESERVE_MINT_STR`: Mint address of the reserve flatcoin.
+- `RESERVE_SYMBOL`: Symbol of the reserve flatcoin.
 
 Note that `MEMO_PROGRAM_ID` remains the same on both devnet and mainnet-beta for Solana and does not need to be changed.
 
@@ -246,7 +246,7 @@ The worker runs automatically once per day at **6:00 AM UTC** via Cloudflare's s
 3. Updates the IRMA program's mint price on-chain via the `set_mint_price` instruction
 4. Logs the update for monitoring
 
-This ensures the IRMA stablecoin's mint price automatically tracks real-world inflation data.
+This ensures the IRMA flatcoin's mint price automatically tracks real-world inflation data.
 
 ### Manual Endpoints API
 

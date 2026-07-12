@@ -3,7 +3,7 @@ Arbitrageurs are going to try to earn income from the inflation-resistant scheme
 the Redemption_Price[X]. 
 
 ## Third party arbitrage program
-Assuming that the objective of the arbitrageur is to accumulate IRMA and not any other stablecoin token, a third-party arbitrage program can proceed as follows:
+Assuming that the objective of the arbitrageur is to accumulate IRMA and not any other flatcoin token, a third-party arbitrage program can proceed as follows:
 
 1. Prior to onset of inflation, an arbitrageur buys a million IRMA with a million USDT.
 
@@ -32,12 +32,12 @@ supply of backing tokens. The IRMA arbitrage or sell program will put sell order
 increasing price points should also increase. Retail buyers (small quantities) of IRMA can buy near the redemption price, but if demand grows beyond what the sell program can handle, it is always possible for 
 all sell program quantities along the whole range of prices to be sold, causing the market price to shoot all the way up to the issuance price.
 
-All stablecoin tokens accumulated by the arbitrage program can be added to the backing. This is the purpose of the arbitrage program, to add to the backing stablecoin tokens that would have been collected by
+All flatcoin tokens accumulated by the arbitrage program can be added to the backing. This is the purpose of the arbitrage program, to add to the backing flatcoin tokens that would have been collected by
 a third party arbitrageur.
 
 ## What would happen if we just allow third-party arbitrageurs to take advantage of the spread?
 It may turn out that third-party arbitrageurs cannot really harm IRMA. However much IRMA the arbitrageurs hold, it would be limited. The moment an arbitrage program has to buy IRMA at the issuance price,
-more stablecoin tokens get added to the IRMA backing. Unwanted, inflating stablecoin tokens should eventually find their way to the IRMA backing reserve. 
+more flatcoin tokens get added to the IRMA backing. Unwanted, inflating flatcoin tokens should eventually find their way to the IRMA backing reserve. 
 
 The worst effect of third-party arbitrage would be
 the slowing down of the increase in redemption price, which may not be too bad because buyers of IRMA, who expect higher and higher USD inflation, won't mind that the current

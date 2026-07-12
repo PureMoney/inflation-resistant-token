@@ -177,4 +177,4 @@ When adding new on-chain tests:
 
 ## License
 
-These tests are part of the Inflation-Resistant Stablecoin project and follow the same license terms.
+These tests are part of the Inflation-Resistant Flatcoin project and follow the same license terms.

@@ -5,3 +5,11 @@ target
 node_modules
 test-ledger
 .yarn
+docs/
+claude-context.md
+CLAUDE.md
+AGENTS.md
+.wrangler/
+IRMA-Delivery-Report.md
+Reference-docs/
+irma/keypairs/
