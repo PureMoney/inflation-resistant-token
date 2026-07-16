@@ -87,7 +87,7 @@ Market_Price[USDC] = market price of USDC with respect to USD
 
 Market_Price[PYUSD] = market price of PYUSD with respect to USD.
 
-Subsequently, once every day, the issuance prices are updated as follows:
+Subsequently, once every day, the issuance prices are updated as follows (ensure USD_Inflation is expressed as a per-day rate in these formulas):
 
 Issuance_Price[USDT] = Issuance_Price[USDT] * (1.0 + (USD_Inflation / Market_Price[USDT]))
 
