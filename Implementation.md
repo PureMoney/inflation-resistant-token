@@ -5,7 +5,7 @@ Implementation Details (Evolving Doc)
 If or when the U.S. dollar inflates, stablecoins backed by the U.S. dollar would also inflate.
 
 ## How this innovation solves the problem:
-There have been several inflation-resistant coins (flatcoins) proposed. The IRMA method simply increases the issuance price commensurate with current inflation, without increasing the redemption price immediately. The increased issuance price then also starts to increase the reserve-backing faster than IRMA in circulation. If the redemption price is set to the total amount of stablecoins collected as backing divided by the total amount of stablecoins in circulation, then redemption price can increase without the possibility of a "bank" run.
+There have been several inflation-resistant coins (flatcoins) proposed. The IRMA method simply increases the issuance price commensurate with current inflation, without increasing the redemption price immediately. The increased issuance price then also starts to increase the reserve-backing faster than IRMA in circulation. If the redemption price is set to the total amount of stablecoins collected as backing divided by the total amount of IRMA in circulation, then redemption price can increase without the possibility of a "bank" run.
 
 ## How is this solution different from and better than anything that exists in its field:
 Like the current most popular stablecoins, IRMA is still backed by another stablecoin which, in turn, is backed by fiat. As such, the flatcoin IRMA helps the U.S. dollar (USD) keep its value by absorbing excess USD in circulation. In other words, IRMA has a positive influence on the U.S. dollar. It is also guaranteed not to be subject to runs.
