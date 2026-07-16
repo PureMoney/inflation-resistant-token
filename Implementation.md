@@ -32,7 +32,7 @@ IRMA is a Type 1 stablecoin that is inflation resistant. Type 1 stablecoins are 
 
 ## Implementation Components
 Component 1:
-Stablecoin issuance price depends on inflation of the backing. Raise the price to be equal to 1 USD plus inflation. For example, if inflation is 13 percent, raise the price of 1 stablecoin to 1.13 USD. (In practice, the price is raised to 1.11 in this example because USD inflation below 2% is ignored.)
+IRMA issuance price depends on inflation of the backing. Raise the price to be equal to 1 USD plus inflation. For example, if inflation is 13 percent, raise the price of 1 IRMA to 1.13 USD. (In practice, the price is raised to 1.11 in this example because USD inflation below 2% is ignored.)
 
 Component 2:
 All USD stablecoins collected during issuance of IRMA should go into the backing. This means that, as long as there is inflation, the stablecoin backing will increase faster than IRMA in circulation.
