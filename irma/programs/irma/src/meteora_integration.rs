@@ -7,7 +7,6 @@ use commons::{
 use commons::{
     fetch_lb_pair_state, get_bytemuck_account,
     conversions::fetch_positions,
-    get_bytemuck_account_ref,
     get_matching_positions,
     derive_event_authority_pda,
     derive_position_pda,
@@ -53,8 +52,6 @@ const MINTING_THRESHOLD: u64 = 1_000_000; // 1 million units for minting positio
 const MINTING_TARGET: u64 = MINTING_THRESHOLD + 100_000;
 const REDEMPTION_THRESHOLD: u64 = 100_000;
 const REDEMPTION_TARGET: u64 = REDEMPTION_THRESHOLD + 10_000;
-
-const WORKER_MEMO_STRING: &str = "IRMA_WORKER_SWAP";
 
 impl<T> AccountData<T> {
     pub fn into_inner(self) -> T {
