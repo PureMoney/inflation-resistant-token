@@ -10,7 +10,8 @@ import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import DLMM from "@meteora-ag/dlmm";
 import { Logger, logSwapEvent, updateActiveBins } from "./d1_logs.js";
-import { CustomWallet, getPrices, getCurrentPriceBins, cSwap, buildRemainingAccounts } from "./dlmm.js";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { CustomWallet, getPrices, buildRemainingAccounts, placeLimitOrder, cancelLimitOrder, closeLimitOrderIfEmpty } from "./dlmm.js";
 import irma from "../../target/idl/irma.json";
 
 
@@ -51,58 +52,6 @@ export async function setupSolanaConnection(env) {
   return { connection, adminKeypair, wallet, provider, program, statePda, corePda };
 }
 
-
-/// Function to perform the counter-swap on the DLMM pool
-async function dlmmCounterSwap(connection, dlmmPool, logger, poolKey, adminKeypair, bigNumAmount, swapForY, reserveSymbol) {
-      logger.log("DEBUG: Fetching bin arrays...");
-      const binArrays = await dlmmPool.getBinArrayForSwap(swapForY);
-
-      logger.log("DEBUG: Getting swap quote...");
-      const reserveSwapAmount = bigNumAmount.abs().mul(new BN(95)).div(new BN(100));
-      logger.log(`💰 User delta: ${bigNumAmount.toString()}, Counter-swap ${reserveSymbol} amount: ${reserveSwapAmount.toString()}`);
-      await logger.flush();
-
-      const swapQuote = await dlmmPool.swapQuote(
-        reserveSwapAmount,
-        swapForY,
-        new BN(1500),
-        binArrays
-      );
-
-      const irmaOutputAmount = swapQuote.minOutAmount;
-      logger.log(`💰 Expected IRMA output: ${irmaOutputAmount.toString()}`);
-
-      logger.log("DEBUG: Creating swap transaction...");
-      await logger.flush();
-
-      const swapTx = await dlmmPool.swap({
-        inToken: dlmmPool.tokenY.publicKey,
-        outToken: dlmmPool.tokenX.publicKey,
-        inAmount: reserveSwapAmount,
-        binArraysPubkey: swapQuote.binArraysPubkey,
-        lbPair: poolKey,
-        user: adminKeypair.publicKey,
-        minOutAmount: irmaOutputAmount,
-      });
-
-      if (swapTx.add) {
-          swapTx.add(new TransactionInstruction({
-              keys: [],
-              programId: MEMO_PROGRAM_ID,
-              data: Buffer.from(WORKER_MEMO_STRING, "utf-8"),
-          }));
-      }
-
-      logger.log("DEBUG: Sending transaction...");
-      swapTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      swapTx.feePayer = adminKeypair.publicKey;
-      swapTx.sign(adminKeypair);
-      const swapSig = await connection.sendRawTransaction(swapTx.serialize(), { skipPreflight: false });
-      logger.log(`✅ Counter-swap sent: ${swapSig}`);
-      await logger.flush();
-
-      return swapSig;
-}
 
 /// Main function to process a rebalance based on a swap event
 export async function processRebalance(tx, env, ctx) {
@@ -273,65 +222,182 @@ export async function processRebalance(tx, env, ctx) {
     // check that it does, and do the counter-swap against that bin.
     // If neither bin has both tokens, this means there has been no recent swap: do nothing.
     
-    const { mPositionBinData, rPositionBinData } = 
-            await getCurrentPriceBins(dlmmPool, adminKeypair, logger, mintBinId, redemptionBinId);
+    // --- 1. Fetch active limit orders for this user/pool ---
+    logger.log("🔍 Fetching active limit orders from DLMM pool...");
+    const activeLimitOrders = await dlmmPool.getLimitOrderByUserAndLbPair(adminKeypair.publicKey);
+    logger.log(`Found ${activeLimitOrders.length} active limit orders.`);
 
-    if (!mPositionBinData || !rPositionBinData) {
-      logger.log(`⚠️ Could not find position data for active bins. Skipping rebalance.`);
-      return;
+    // --- 2. Check if we need to cancel/claim existing limit orders ---
+    for (const lo of activeLimitOrders) {
+      const data = lo.limitOrderData;
+      const binId = data.limitOrderBinData[0]?.binId;
+      const isAskSide = data.limitOrderBinData[0]?.isAskSide;
+
+      if (binId === undefined) {
+        logger.log(`⚠️ Limit order ${lo.publicKey.toBase58()} has no bin data. Skipping.`);
+        continue;
+      }
+
+      const targetBinId = isAskSide ? mintBinId : redemptionBinId;
+      const totalFilledAmountX = new BN(data.totalFilledAmountX);
+      const totalFilledAmountY = new BN(data.totalFilledAmountY);
+      const totalSwappedAmountX = new BN(data.totalSwappedAmountX);
+      const totalSwappedAmountY = new BN(data.totalSwappedAmountY);
+      const isFilled = totalFilledAmountX.gt(new BN(0)) || totalFilledAmountY.gt(new BN(0)) ||
+                       totalSwappedAmountX.gt(new BN(0)) || totalSwappedAmountY.gt(new BN(0));
+
+      const isOutdatedBin = binId !== targetBinId;
+
+      if (isFilled || isOutdatedBin) {
+        logger.log(`🧹 Canceling/claiming limit order ${lo.publicKey.toBase58()} (binId=${binId}, target=${targetBinId}, isAskSide=${isAskSide}, isFilled=${isFilled}, isOutdatedBin=${isOutdatedBin})...`);
+        try {
+          const cancelSig = await cancelLimitOrder(
+            connection,
+            program,
+            logger,
+            statePda,
+            corePda,
+            adminKeypair,
+            RESERVE_SYMBOL,
+            lo.publicKey,
+            [binId],
+            dlmmPool,
+            env
+          );
+          logger.log(`✅ Cancel transaction: ${cancelSig}`);
+
+          logger.log(`👉 Closing empty limit order account ${lo.publicKey.toBase58()}...`);
+          const closeSig = await closeLimitOrderIfEmpty(
+            connection,
+            program,
+            logger,
+            statePda,
+            corePda,
+            adminKeypair,
+            lo.publicKey,
+            dlmmPool,
+            env
+          );
+          logger.log(`✅ Close transaction: ${closeSig}`);
+        } catch (err) {
+          logger.error(`❌ Failed to cancel/close limit order ${lo.publicKey.toBase58()}: ${err.message}`);
+        }
+      } else {
+        logger.log(`ℹ️ Limit order ${lo.publicKey.toBase58()} is up-to-date and unfilled at binId=${binId}.`);
+      }
     }
 
-    const mbinId = mPositionBinData.binId;
-    const mpositionXAmount = new BN(mPositionBinData.positionXAmount);
-    const mpositionYAmount = new BN(mPositionBinData.positionYAmount);
-    const rbinId = rPositionBinData.binId;
-    const rpositionXAmount = new BN(rPositionBinData.positionXAmount);
-    const rpositionYAmount = new BN(rPositionBinData.positionYAmount);
-    console.log(`Mint bin ID from position data: ${mbinId}, Redemption bin ID from position data: ${rbinId}`);
-    
-    if (mpositionXAmount.gt(new BN(0)) && mpositionYAmount.gt(new BN(0))) {
-      logger.log(`✅ Mint bin ${mbinId} has both tokens. Candidate for counter-swap.`);
-      // Counter-swap: Swap Y (IRMA) for X (devUSDT) to remove IRMA from mint bin
-      // swap_for_y = false means we're swapping Y->X (IRMA -> devUSDT)
+    // --- 3. Refresh active limit orders after cancellations ---
+    const remainingLimitOrders = await dlmmPool.getLimitOrderByUserAndLbPair(adminKeypair.publicKey);
+    const hasActiveAsk = remainingLimitOrders.some(lo => lo.limitOrderData.limitOrderBinData[0]?.isAskSide && lo.limitOrderData.limitOrderBinData[0]?.binId === mintBinId);
+    const hasActiveBid = remainingLimitOrders.some(lo => !lo.limitOrderData.limitOrderBinData[0]?.isAskSide && lo.limitOrderData.limitOrderBinData[0]?.binId === redemptionBinId);
+
+    // --- 4. Place new limit orders if missing ---
+    if (!hasActiveAsk) {
+      logger.log(`➕ No active Ask limit order at mintBinId=${mintBinId}. Placing new Ask limit order...`);
+      const adminIrmaAta = getAssociatedTokenAddressSync(
+        new PublicKey(env.IRMA_MINT_STR),
+        adminKeypair.publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
+      );
       
-      const PRICE_PRECISION = 1e9;
-      const mintPriceScaled = Math.floor(mintPrice * PRICE_PRECISION);
-      
-      // SwapExactOut parameters for Y->X:
-      // - max_in_amount: max IRMA (Y) we're willing to pay = mpositionYAmount * 1.1 (with slippage)
-      // - out_amount: exact devUSDT (X) we want to receive = mpositionYAmount / mintPrice * 0.9985 (conservative)
-      // mintPrice is in devUSDT/IRMA, so IRMA/mintPrice = devUSDT
-      const maxIrmaIn = mpositionYAmount.mul(new BN(Math.floor(1.1 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
-      const exactDevUsdtOut = mpositionYAmount.mul(new BN(PRICE_PRECISION)).div(new BN(mintPriceScaled))
-        .mul(new BN(Math.floor(0.9985 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
-      
-      logger.log(`💱 Mint bin counter-swap: maxIrmaIn=${maxIrmaIn.toString()}, exactDevUsdtOut=${exactDevUsdtOut.toString()}, mintPrice=${mintPrice}`);
-      await cSwap(
-        connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxIrmaIn, exactDevUsdtOut, true, dlmmPool, env);
+      let irmaAmount = new BN("1000000000000000"); // Default target 1 billion IRMA
+      try {
+        const balanceRes = await connection.getTokenAccountBalance(adminIrmaAta);
+        const irmaBalance = new BN(balanceRes.value.amount);
+        logger.log(`IRMA wallet balance: ${irmaBalance.toString()} base units.`);
+        if (irmaBalance.lt(irmaAmount)) {
+          irmaAmount = irmaBalance;
+        }
+      } catch (balErr) {
+        logger.warn(`Could not fetch IRMA balance, defaulting to target amount: ${balErr.message}`);
+      }
+
+      if (irmaAmount.gt(new BN(0))) {
+        const askKeypair = Keypair.generate();
+        logger.log(`Placing Ask limit order of ${irmaAmount.toString()} IRMA with limit_order pubkey=${askKeypair.publicKey.toBase58()} at binId=${mintBinId}...`);
+        try {
+          const sig = await placeLimitOrder(
+            connection,
+            program,
+            logger,
+            statePda,
+            corePda,
+            adminKeypair,
+            RESERVE_SYMBOL,
+            askKeypair,
+            true, // isAskSide
+            mintBinId,
+            irmaAmount,
+            dlmmPool,
+            env
+          );
+          logger.log(`✅ Ask limit order placed successfully. Sig: ${sig}`);
+        } catch (placeErr) {
+          logger.error(`❌ Failed to place Ask limit order: ${placeErr.message}`);
+        }
+      } else {
+        logger.warn("⚠️ IRMA balance is 0. Cannot place Ask limit order.");
+      }
+    } else {
+      logger.log(`ℹ️ Ask limit order already exists at mintBinId=${mintBinId}.`);
     }
 
-    if (rpositionXAmount.gt(new BN(0)) && rpositionYAmount.gt(new BN(0))) {
-      logger.log(`✅ Redemption bin ${rbinId} has both tokens. Candidate for counter-swap.`);
-      // Counter-swap: Swap X (IRMA) for Y (devUSDT) to remove devUSDT from mint bin
-      // swap_for_y = true means we're swapping X->Y (IRMA -> devUSDT)
-      
-      const PRICE_PRECISION = 1e9;
-      const redemptionPriceScaled = Math.floor(redemptionPrice * PRICE_PRECISION);
-      
-      // SwapExactOut parameters for X->Y:
-      // - max_in_amount: max IRMA (X) we're willing to pay = rpositionXAmount * 1.1 (with slippage)
-      // - out_amount: exact devUSDT (Y) we want to receive = rpositionXAmount / redemptionPrice * 0.9985 (conservative)
-      // redemptionPrice is in devUSDT/IRMA, so devUSDT/redemptionPrice = IRMA
-      const maxDevUsdtIn = rpositionXAmount.mul(new BN(Math.floor(1.1 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
-      const exactIrmaOut = rpositionXAmount.mul(new BN(PRICE_PRECISION)).div(new BN(redemptionPriceScaled))
-        .mul(new BN(Math.floor(0.9985 * PRICE_PRECISION))).div(new BN(PRICE_PRECISION));
-      
-      logger.log(`💱 Redemption bin counter-swap: maxDevUsdtIn=${maxDevUsdtIn.toString()}, exactIrmaOut=${exactIrmaOut.toString()}, redemptionPrice=${redemptionPrice}`);
-      await cSwap(connection, program, logger, statePda, corePda, adminKeypair, RESERVE_SYMBOL, maxDevUsdtIn, exactIrmaOut, false, dlmmPool, env);
+    if (!hasActiveBid) {
+      logger.log(`➕ No active Bid limit order at redemptionBinId=${redemptionBinId}. Placing new Bid limit order...`);
+      const adminReserveAta = getAssociatedTokenAddressSync(
+        new PublicKey(RESERVE_MINT_STR),
+        adminKeypair.publicKey,
+        false,
+        TOKEN_PROGRAM_ID
+      );
+
+      let reserveAmount = new BN("100000000000"); // Default target 100k stablecoin
+      try {
+        const balanceRes = await connection.getTokenAccountBalance(adminReserveAta);
+        const reserveBalance = new BN(balanceRes.value.amount);
+        logger.log(`Reserve wallet balance: ${reserveBalance.toString()} base units.`);
+        if (reserveBalance.lt(reserveAmount)) {
+          reserveAmount = reserveBalance;
+        }
+      } catch (balErr) {
+        logger.warn(`Could not fetch Reserve balance, defaulting to target amount: ${balErr.message}`);
+      }
+
+      if (reserveAmount.gt(new BN(0))) {
+        const bidKeypair = Keypair.generate();
+        logger.log(`Placing Bid limit order of ${reserveAmount.toString()} reserve with limit_order pubkey=${bidKeypair.publicKey.toBase58()} at binId=${redemptionBinId}...`);
+        try {
+          const sig = await placeLimitOrder(
+            connection,
+            program,
+            logger,
+            statePda,
+            corePda,
+            adminKeypair,
+            RESERVE_SYMBOL,
+            bidKeypair,
+            false, // isAskSide = false (Bid)
+            redemptionBinId,
+            reserveAmount,
+            dlmmPool,
+            env
+          );
+          logger.log(`✅ Bid limit order placed successfully. Sig: ${sig}`);
+        } catch (placeErr) {
+          logger.error(`❌ Failed to place Bid limit order: ${placeErr.message}`);
+        }
+      } else {
+        logger.warn("⚠️ Reserve balance is 0. Cannot place Bid limit order.");
+      }
+    } else {
+      logger.log(`ℹ️ Bid limit order already exists at redemptionBinId=${redemptionBinId}.`);
     }
+
     await logger.flush();
 
-    // Update stored active bins n DB (don't await - fire and forget)
+    // Update stored active bins in DB (don't await - fire and forget)
     await updateActiveBins(env.DB, {
       mintBinId,
       redemptionBinId,

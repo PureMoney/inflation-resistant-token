@@ -54,10 +54,10 @@ async function fetch_truflation_rate(env) {
       throw new Error(`Invalid response from proxy: ${JSON.stringify(data)}`);
     }
 
-    const inflation_rate = 2.1; // data.data.inflationRate;
+    const inflation_rate = data.data.inflationRate;
     console.log(`📈 Truflation US Inflation Index: ${inflation_rate}%`);
     console.log(`📅 Data timestamp: ${new Date(data.data.timestamp).toISOString()}`);
-    
+
     return inflation_rate;
   } catch (error) {
     console.error("❌ Failed to fetch Truflation data:", error.message);
@@ -74,9 +74,13 @@ function calculate_mint_price(inflation_rate, quote_token_price_usd, target_infl
 
   if (inflation_rate > target_inflation_rate) {
     // Inflation above target: adjust mint price upward
-    let inflation_adjustment = (inflation_rate - target_inflation_rate) / 100.0;
-    mint_price = (1.00 + inflation_adjustment) / quote_token_price_usd;
-    console.log(`📊 Inflation ${inflation_rate}% > ${target_inflation_rate}%: adjustment = ${inflation_adjustment}`);
+    // inflation rate is an annual rate measured as a percentage of price level increase in one year
+    // however, what is required is the price level increase over a shorter period (daily), so we divide by 365.25.
+    // The input is a percentage number, so we divide annual inflation rate by 36525.0 to get the absolute daily inflation adjustment.
+    let daily_inflation_adjustment = (inflation_rate - target_inflation_rate) / 36525.0;
+
+    mint_price = (1.00 + daily_inflation_adjustment) / quote_token_price_usd;
+    console.log(`📊 Inflation ${inflation_rate}% > ${target_inflation_rate}%: adjustment = ${daily_inflation_adjustment}`);
   } else {
     // Below target: no adjustment
     mint_price = 1.00 / quote_token_price_usd;

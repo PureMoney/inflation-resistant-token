@@ -356,19 +356,132 @@ export async function getPrices(program, statePda, corePda, adminPublicKey, quot
 }
 
 /**
- * Execute counter swap in the on-chain program.
- * Pool accounts (positions, bin arrays, vaults, oracle) are fetched live from
- * the DLMM pool rather than hardcoded — see buildRemainingAccounts().
+ * Derive the bin array PDA for a given bin ID.
  */
-export async function cSwap(
-  connection, program, logger, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, callerGetsQuoteToken, dlmmPool, env) {
+export function deriveBinArrayPda(lbPairPubkey, binId) {
+  const binArrayIndex = Math.floor(binId / 70);
+  const binArrayIndexBuffer = Buffer.alloc(8);
+  binArrayIndexBuffer.writeBigInt64LE(BigInt(binArrayIndex), 0);
+  
+  const [pubkey] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("bin_array"),
+      lbPairPubkey.toBuffer(),
+      binArrayIndexBuffer
+    ],
+    DLMM_PROGRAM_ID
+  );
+  return pubkey;
+}
 
+/**
+ * Place a limit order.
+ */
+export async function placeLimitOrder(
+  connection,
+  program,
+  logger,
+  statePda,
+  corePda,
+  adminKeyPair,
+  symbol,
+  limitOrderKeypair,
+  isAskSide,
+  binId,
+  amount,
+  dlmmPool,
+  env
+) {
+  const binArrayPda = deriveBinArrayPda(dlmmPool.pubkey, binId);
   const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env);
 
+  if (!remainingAccounts.some(acc => acc.pubkey.equals(limitOrderKeypair.publicKey))) {
+    remainingAccounts.push({ pubkey: limitOrderKeypair.publicKey, isSigner: true, isWritable: true });
+  }
+  if (!remainingAccounts.some(acc => acc.pubkey.equals(binArrayPda))) {
+    remainingAccounts.push({ pubkey: binArrayPda, isSigner: false, isWritable: true });
+  }
+
   try {
-    console.log(`Simulating cSwap with quoteToken=${quoteToken}, amount=${amount}, exact_out=${exact_out}, getQuoteToken=${callerGetsQuoteToken}...`);
+    console.log(`Simulating placeLimitOrder for symbol=${symbol}, binId=${binId}, amount=${amount}, isAskSide=${isAskSide}...`);
     const simulation = await program.methods
-      .cSwap(quoteToken, amount, exact_out, callerGetsQuoteToken)
+      .placeLimitOrder(symbol, limitOrderKeypair.publicKey, isAskSide, binId, new BN(amount))
+      .accounts({
+        state: statePda,
+        irmaAdmin: adminKeyPair.publicKey,
+        core: corePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(remainingAccounts)
+      .signers([limitOrderKeypair])
+      .simulate();
+
+    if (simulation.err) {
+      console.error("placeLimitOrder simulation returned error:", JSON.stringify(simulation.err, null, 2));
+      console.error("Simulation logs:", simulation.logs);
+      return null;
+    }
+    console.log("placeLimitOrder simulation successful");
+
+    const tx = await program.methods
+      .placeLimitOrder(symbol, limitOrderKeypair.publicKey, isAskSide, binId, new BN(amount))
+      .accounts({
+        state: statePda,
+        irmaAdmin: adminKeyPair.publicKey,
+        core: corePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(remainingAccounts)
+      .transaction();
+
+    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    tx.feePayer = adminKeyPair.publicKey;
+    tx.partialSign(adminKeyPair, limitOrderKeypair);
+
+    logger.log("DEBUG: Sending placeLimitOrder transaction...");
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    logger.log(`✅ Limit order placed: ${sig}`);
+    await logger.flush();
+    return sig;
+  } catch (err) {
+    console.error("Failed to place limit order:", err);
+    throw err;
+  }
+}
+
+/**
+ * Cancel/claim a limit order.
+ */
+export async function cancelLimitOrder(
+  connection,
+  program,
+  logger,
+  statePda,
+  corePda,
+  adminKeyPair,
+  symbol,
+  limitOrderPubkey,
+  binIds,
+  dlmmPool,
+  env
+) {
+  const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env);
+
+  if (!remainingAccounts.some(acc => acc.pubkey.equals(limitOrderPubkey))) {
+    remainingAccounts.push({ pubkey: limitOrderPubkey, isSigner: false, isWritable: true });
+  }
+
+  for (const binId of binIds) {
+    const binArrayPda = deriveBinArrayPda(dlmmPool.pubkey, binId);
+    if (!remainingAccounts.some(acc => acc.pubkey.equals(binArrayPda))) {
+      remainingAccounts.push({ pubkey: binArrayPda, isSigner: false, isWritable: true });
+    }
+  }
+
+  try {
+    console.log(`Simulating cancelLimitOrder for symbol=${symbol}, limitOrder=${limitOrderPubkey.toBase58()}...`);
+    const simulation = await program.methods
+      .cancelLimitOrder(symbol, limitOrderPubkey, binIds)
       .accounts({
         state: statePda,
         irmaAdmin: adminKeyPair.publicKey,
@@ -379,13 +492,14 @@ export async function cSwap(
       .simulate();
 
     if (simulation.err) {
-      console.error("Simulation returned error:", JSON.stringify(simulation.err, null, 2));
+      console.error("cancelLimitOrder simulation returned error:", JSON.stringify(simulation.err, null, 2));
       console.error("Simulation logs:", simulation.logs);
       return null;
     }
-    console.log("Counter swap simulation successful:", simulation);
-    const swapTx = await program.methods
-      .cSwap(quoteToken, amount, exact_out, callerGetsQuoteToken)
+    console.log("cancelLimitOrder simulation successful");
+
+    const tx = await program.methods
+      .cancelLimitOrder(symbol, limitOrderPubkey, binIds)
       .accounts({
         state: statePda,
         irmaAdmin: adminKeyPair.publicKey,
@@ -395,112 +509,85 @@ export async function cSwap(
       .remainingAccounts(remainingAccounts)
       .transaction();
 
-    logger.log("DEBUG: Sending cSwap transaction...");
-    swapTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    swapTx.feePayer = adminKeyPair.publicKey;
-    swapTx.sign(adminKeyPair);
-    const swapSig = await connection.sendRawTransaction(swapTx.serialize(), { skipPreflight: false });
-    logger.log(`✅ Counter-swap sent: ${swapSig}`);
-    await logger.flush();
-    
-    return swapSig;
+    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    tx.feePayer = adminKeyPair.publicKey;
+    tx.sign(adminKeyPair);
 
+    logger.log("DEBUG: Sending cancelLimitOrder transaction...");
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    logger.log(`✅ Limit order canceled/claimed: ${sig}`);
+    await logger.flush();
+    return sig;
   } catch (err) {
-    // Extract all possible error information
-    console.error("=== cSwap Full Error Details ===");
-    console.error("Error type:", typeof err);
-    console.error("Error constructor:", err.constructor.name);
-    console.error("Error toString:", err.toString());
-    
-    // Log all enumerable properties
-    console.error("Enumerable properties:", Object.keys(err));
-    
-    // Log all properties including non-enumerable
-    console.error("All properties:", Object.getOwnPropertyNames(err));
-    
-    // Serialize with all properties
-    console.error("Full error object:", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
-    
-    // Check for specific Anchor/Solana error properties
-    if (err.error) {
-      console.error("err.error:", err.error);
-    }
-    if (err.code) {
-      console.error("err.code:", err.code);
-    }
-    if (err.logs) {
-      console.error("Transaction logs:");
-      err.logs.forEach((log, idx) => console.error(`  [${idx}] ${log}`));
-    }
-    if (err.errorLogs) {
-      console.error("Error logs:", err.errorLogs);
-    }
-    if (err.simulationResponse) {
-      console.error("Simulation response:", JSON.stringify(err.simulationResponse, null, 2));
-    }
-    
-    // Try to access the inner cause
-    if (err.cause) {
-      console.error("Error cause:", err.cause);
-    }
-    
-    // Stack trace
-    if (err.stack) {
-      console.error("Stack trace:", err.stack);
-    }
-    return null;
+    console.error("Failed to cancel limit order:", err);
+    throw err;
   }
 }
 
-/** Get current active position bins
- * for this user and liquidity pool
+/**
+ * Close an empty limit order.
  */
-export async function getCurrentPriceBins(dlmmPool, adminKeypair, logger, mintBinId, redemptionBinId) {
-    // --- GET EXISTING POSITIONS ---
-    const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey);
-    logger.log(`📍 Found ${userPositions.length} position(s)`);
+export async function closeLimitOrderIfEmpty(
+  connection,
+  program,
+  logger,
+  statePda,
+  corePda,
+  adminKeyPair,
+  limitOrderPubkey,
+  dlmmPool,
+  env
+) {
+  const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env);
 
-    if (userPositions.length === 0) {
-        logger.log(`⚠️ No positions found for user ${adminKeypair.publicKey.toBase58()}`);
-        await logger.flush();
-        return {};
-    }
-    else if (userPositions.length === 1 || 
-      (userPositions.length === 2 && userPositions[0].publicKey === userPositions[1].publicKey)) {
-        const pos = userPositions[0];
-        logger.log(`ℹ️ Single position found, mint and redeem bins in same position, mint_bin_id = ${mintBinId}, redemption_bin_id = ${redemptionBinId}`);
+  if (!remainingAccounts.some(acc => acc.pubkey.equals(limitOrderPubkey))) {
+    remainingAccounts.push({ pubkey: limitOrderPubkey, isSigner: false, isWritable: true });
+  }
 
-        const mPositionBinData = pos.positionData.positionBinData.find(b => b.binId === mintBinId);
-        const rPositionBinData = pos.positionData.positionBinData.find(b => b.binId === redemptionBinId);
-        await logger.flush();
-        return {
-            mPositionBinData,
-            rPositionBinData
-        };
-    }
-    else if (userPositions.length === 2) {
-        const pos1 = userPositions[0];
-        const pos2 = userPositions[1];
+  try {
+    console.log(`Simulating closeLimitOrderIfEmpty for limitOrder=${limitOrderPubkey.toBase58()}...`);
+    const simulation = await program.methods
+      .closeLimitOrderIfEmpty(limitOrderPubkey)
+      .accounts({
+        state: statePda,
+        irmaAdmin: adminKeyPair.publicKey,
+        core: corePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(remainingAccounts)
+      .simulate();
 
-        let mPositionBinData = null;
-        let rPositionBinData = null;
-        if (pos1.positionData.lowerBinId > pos2.positionData.lowerBinId) {
-            mPositionBinData = pos1.positionData.positionBinData.find(b => b.binId === mintBinId);
-            rPositionBinData = pos2.positionData.positionBinData.find(b => b.binId === redemptionBinId);
-        } else {
-            mPositionBinData = pos2.positionData.positionBinData.find(b => b.binId === mintBinId);
-            rPositionBinData = pos1.positionData.positionBinData.find(b => b.binId === redemptionBinId);
-        }
-        logger.log(`ℹ️ Two positions found, mint_bin_id = ${mintBinId}, redemption_bin_id = ${redemptionBinId}`);
-        await logger.flush();
-        return {
-            mPositionBinData,
-            rPositionBinData
-        };
+    if (simulation.err) {
+      console.error("closeLimitOrderIfEmpty simulation returned error:", JSON.stringify(simulation.err, null, 2));
+      console.error("Simulation logs:", simulation.logs);
+      return null;
     }
-    else {
-        logger.log(`⚠️ More than 2 positions found, remove extra positions to avoid issues`);
-        await logger.flush();
-        return {};
-    }
+    console.log("closeLimitOrderIfEmpty simulation successful");
+
+    const tx = await program.methods
+      .closeLimitOrderIfEmpty(limitOrderPubkey)
+      .accounts({
+        state: statePda,
+        irmaAdmin: adminKeyPair.publicKey,
+        core: corePda,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(remainingAccounts)
+      .transaction();
+
+    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    tx.feePayer = adminKeyPair.publicKey;
+    tx.sign(adminKeyPair);
+
+    logger.log("DEBUG: Sending closeLimitOrderIfEmpty transaction...");
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    logger.log(`✅ Limit order closed: ${sig}`);
+    await logger.flush();
+    return sig;
+  } catch (err) {
+    console.error("Failed to close limit order:", err);
+    throw err;
+  }
 }
+
+
