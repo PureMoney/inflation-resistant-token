@@ -22,7 +22,10 @@ const LP_ACTIONS: HarnessAction[] = [
 
 const SWAP_ONLY_ACTIONS: HarnessAction[] = ["swap", "fillLimitOrder"];
 
-export const PERSONA_ACTIONS: Record<PersonaKind, ReadonlySet<HarnessAction>> = {
+export const PERSONA_ACTIONS: Record<
+  PersonaKind,
+  ReadonlySet<HarnessAction>
+> = {
   lp: new Set(LP_ACTIONS),
   "swap-only": new Set(SWAP_ONLY_ACTIONS),
 };
@@ -43,7 +46,10 @@ export function personaCan(kind: PersonaKind, action: HarnessAction): boolean {
   return PERSONA_ACTIONS[kind].has(action);
 }
 
-export function assertPersonaCan(kind: PersonaKind, action: HarnessAction): void {
+export function assertPersonaCan(
+  kind: PersonaKind,
+  action: HarnessAction
+): void {
   if (!personaCan(kind, action)) {
     throw new Error(`Persona ${kind} cannot perform ${action}`);
   }
@@ -52,7 +58,8 @@ export function assertPersonaCan(kind: PersonaKind, action: HarnessAction): void
 export function isPositionAccountRole(role: string): boolean {
   const normalized = role.replace(/[^a-zA-Z]/g, "").toLowerCase();
   return POSITION_ACCOUNT_ROLES.some(
-    (name) => name.toLowerCase() === normalized || normalized.includes("position")
+    (name) =>
+      name.toLowerCase() === normalized || normalized.includes("position")
   );
 }
 
@@ -88,7 +95,10 @@ export function assertNoUserPositionAccounts(
     if (account.kind !== "resolved") {
       continue;
     }
-    if (isPositionAccountRole(account.role) && account.pubkey === userPublicKey) {
+    if (
+      isPositionAccountRole(account.role) &&
+      account.pubkey === userPublicKey
+    ) {
       throw new Error(
         `User ${userPublicKey} must not own position account role ${account.role}`
       );
@@ -96,7 +106,10 @@ export function assertNoUserPositionAccounts(
   }
 }
 
-export function dualPersonas(lp: ResolvedWallet, swapOnly: ResolvedWallet): {
+export function dualPersonas(
+  lp: ResolvedWallet,
+  swapOnly: ResolvedWallet
+): {
   lp: Persona;
   swapOnly: Persona;
 } {
