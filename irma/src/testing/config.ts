@@ -11,8 +11,7 @@ import type {
 export const DEFAULT_DISABLED_PAIR_KEYS = ["usdc"] as const;
 
 export const DEFAULT_DISABLED_PAIR_REASON: Record<string, string> = {
-  usdc:
-    "Inherited bad reserve (InvalidLbPairState / stale mint registration). Skip until fixed.",
+  usdc: "Inherited bad reserve (InvalidLbPairState / stale mint registration). Skip until fixed.",
 };
 
 export function findDevnetConfigPath(startDir = process.cwd()): string {
@@ -162,7 +161,9 @@ export function requireEnabledPair(
     throw new Error(`Pool ${key} has no matching tokens.${key} entry`);
   }
   if (!isPairEnabled(key, pool)) {
-    throw new Error(`Pair ${key} is disabled: ${pairDisabledReason(key, pool)}`);
+    throw new Error(
+      `Pair ${key} is disabled: ${pairDisabledReason(key, pool)}`
+    );
   }
   return { key, token, pool };
 }

@@ -59,7 +59,9 @@ export function resolveWallet(
     case "keypairFile":
       return readKeypairPublicKey(source.path, source.type);
     default:
-      throw new Error(`Unsupported wallet source: ${(source as WalletSource).type}`);
+      throw new Error(
+        `Unsupported wallet source: ${(source as WalletSource).type}`
+      );
   }
 }
 
@@ -107,11 +109,15 @@ function walkForSecretArrays(value: unknown, label: string): void {
     ) {
       throw new Error(`${label} looks like a raw secret-key array`);
     }
-    value.forEach((entry, index) => walkForSecretArrays(entry, `${label}[${index}]`));
+    value.forEach((entry, index) =>
+      walkForSecretArrays(entry, `${label}[${index}]`)
+    );
     return;
   }
   if (value && typeof value === "object") {
-    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, nested] of Object.entries(
+      value as Record<string, unknown>
+    )) {
       if (SECRET_KEYS.includes(key)) {
         throw new Error(`${label} embeds secret field ${key}`);
       }

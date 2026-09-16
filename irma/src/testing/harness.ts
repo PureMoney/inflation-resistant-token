@@ -10,7 +10,11 @@ import {
   refuseLiveExecution,
 } from "./limit-order";
 import { dualPersonas } from "./personas";
-import type { DualPersonaScenario, LimitOrderPlan, LimitOrderSide } from "./types";
+import type {
+  DualPersonaScenario,
+  LimitOrderPlan,
+  LimitOrderSide,
+} from "./types";
 import { LIVE_EXECUTION_PREREQUISITES } from "./types";
 import {
   assertNoEmbeddedSecrets,
@@ -63,7 +67,10 @@ export function createBSeriesHarness(options: HarnessOptions): BSeriesHarness {
     amount: 0.1,
   };
 
-  function planPair(pair: string, planOptions: PairPlanOptions = {}): LimitOrderPlan {
+  function planPair(
+    pair: string,
+    planOptions: PairPlanOptions = {}
+  ): LimitOrderPlan {
     requireEnabledPair(config, pair);
     return planLimitOrderLifecycle(config, {
       pair,

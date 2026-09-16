@@ -114,14 +114,19 @@ const CANCEL_ACCOUNT_ROLES = [
 ] as const;
 
 function ownerKey(owner: ResolvedWallet | string): string {
-  return typeof owner === "string" ? requirePublicKey(owner).toBase58() : owner.publicKey;
+  return typeof owner === "string"
+    ? requirePublicKey(owner).toBase58()
+    : owner.publicKey;
 }
 
 function defaultBinTarget(side: LimitOrderSide): BinTarget {
   return { kind: "relativeToActive", offset: side === "ask" ? 10 : -10 };
 }
 
-function resolveBinId(bin: BinTarget, activeBinId?: number): number | undefined {
+function resolveBinId(
+  bin: BinTarget,
+  activeBinId?: number
+): number | undefined {
   if (bin.kind === "absolute") {
     if (!Number.isInteger(bin.binId)) {
       throw new Error(`binId must be an integer, got ${bin.binId}`);
@@ -238,7 +243,12 @@ export function planPlaceLimitOrder(
     );
   } else {
     remaining.push(
-      deferredAccount("binArray", "binId relative to lbPair.activeId", false, true)
+      deferredAccount(
+        "binArray",
+        "binId relative to lbPair.activeId",
+        false,
+        true
+      )
     );
   }
 
@@ -327,7 +337,11 @@ export function planCancelLimitOrder(
       ? binIds.map((binId, index) =>
           resolvedAccount(
             `binArray[${index}]`,
-            deriveBinArrayPda(pair.pool.address, binId, dlmmProgramId).toBase58(),
+            deriveBinArrayPda(
+              pair.pool.address,
+              binId,
+              dlmmProgramId
+            ).toBase58(),
             false,
             true
           )
@@ -353,7 +367,11 @@ export function planCancelLimitOrder(
       "Cancel also claims filled/unfilled proceeds (tests/test_limit_order.ts).",
     ],
   };
-  assertAccountRoles(remaining.slice(0, CANCEL_ACCOUNT_ROLES.length), CANCEL_ACCOUNT_ROLES, "cancel");
+  assertAccountRoles(
+    remaining.slice(0, CANCEL_ACCOUNT_ROLES.length),
+    CANCEL_ACCOUNT_ROLES,
+    "cancel"
+  );
   assertSwapOnlyNeverOpensPositions(input.actor, step);
   assertNoEmbeddedSecrets(step, "cancel step");
   return step;
@@ -365,9 +383,7 @@ export function planCloseLimitOrder(
 ): PlannedStep {
   assertPersonaCan(input.actor, "closeLimitOrder");
   const owner = requirePublicKey(input.owner).toBase58();
-  const pair = input.pair
-    ? requireEnabledPair(config, input.pair)
-    : undefined;
+  const pair = input.pair ? requireEnabledPair(config, input.pair) : undefined;
   const limitOrder = requirePublicKey(input.limitOrder).toBase58();
   const dlmmProgramId = loadDlmmProgramId();
 

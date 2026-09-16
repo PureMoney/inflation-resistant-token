@@ -11,7 +11,9 @@ import {
 } from "./config";
 import type { DevnetConfig } from "./types";
 
-function fixtureConfig(overrides?: Partial<DevnetConfig["pools"]["usdc"]>): DevnetConfig {
+function fixtureConfig(
+  overrides?: Partial<DevnetConfig["pools"]["usdc"]>
+): DevnetConfig {
   const config = loadDevnetConfig(findDevnetConfigPath());
   if (overrides) {
     config.pools.usdc = { ...config.pools.usdc, ...overrides };
@@ -33,7 +35,13 @@ describe("B1/B2 config loader", () => {
     const enabled = listEnabledPairs(config).map((pair) => pair.key);
     const disabled = listDisabledPairs(config);
     expect(enabled).to.not.include("usdc");
-    expect(enabled).to.include.members(["usdt", "pyusd", "usds", "usdg", "fdusd"]);
+    expect(enabled).to.include.members([
+      "usdt",
+      "pyusd",
+      "usds",
+      "usdg",
+      "fdusd",
+    ]);
     expect(disabled.map((pair) => pair.key)).to.include("usdc");
     expect(disabled[0].reason).to.match(/bad reserve/i);
   });

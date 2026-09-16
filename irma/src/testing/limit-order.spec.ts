@@ -48,7 +48,11 @@ describe("limit-order planning and dual-persona harness", () => {
     expect(place.irmaInstruction).to.equal("placeLimitOrder");
     expect(place.opensPositionAccount).to.equal(false);
     expect(place.args.binId).to.equal(10);
-    expect(place.accounts.some((account) => account.role === "reserve" && account.kind === "deferred")).to.equal(true);
+    expect(
+      place.accounts.some(
+        (account) => account.role === "reserve" && account.kind === "deferred"
+      )
+    ).to.equal(true);
 
     const fill = planFillLimitOrder(config, {
       pair: "usdt",
@@ -110,7 +114,10 @@ describe("limit-order planning and dual-persona harness", () => {
     expect(harness.enabledPairs.map((pair) => pair.key)).to.not.include("usdc");
     expect(harness.disabledPairs.map((pair) => pair.key)).to.include("usdc");
 
-    const scenario = harness.planDualPersonaScenario({ amount: 0.25, activeBinId: 0 });
+    const scenario = harness.planDualPersonaScenario({
+      amount: 0.25,
+      activeBinId: 0,
+    });
     expect(scenario.mode).to.equal("dry-run");
     expect(scenario.dependsOnPullRequest).to.equal(147);
     expect(scenario.plans.map((plan) => plan.pairKey)).to.not.include("usdc");
@@ -131,7 +138,9 @@ describe("limit-order planning and dual-persona harness", () => {
     }
 
     expect(JSON.stringify(scenario)).to.not.include("secretKey");
-    expect(() => harness.executeLive(scenario.plans[0])).to.throw(/Live scenario execution is disabled/);
+    expect(() => harness.executeLive(scenario.plans[0])).to.throw(
+      /Live scenario execution is disabled/
+    );
     expect(() => refuseLiveExecution("place")).to.throw(/PR #147/);
   });
 });
