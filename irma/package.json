@@ -4,7 +4,9 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
-    "test": "ts-mocha --timeout 20000 --reporter spec --require ts-node/register tests/**/*.ts"
+    "test": "ts-mocha --timeout 20000 --reporter spec --require ts-node/register tests/**/*.ts",
+    "test:harness": "ts-mocha -p tsconfig.harness.json --timeout 10000 --reporter spec --require ts-node/register src/testing/**/*.spec.ts",
+    "typecheck:harness": "tsc -p tsconfig.harness.json --noEmit"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",
