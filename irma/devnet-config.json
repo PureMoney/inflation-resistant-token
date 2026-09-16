@@ -58,32 +58,39 @@
     "usdc": {
       "address": "DyweFxgq7VzoViT6EWHw9o1Z9rmwifJ82bpLqh1rF6z3",
       "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+      "tokenY": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "enabled": false,
+      "disabledReason": "Inherited bad reserve (InvalidLbPairState / stale mint registration). Skip until fixed."
     },
     "usdt": {
       "address": "BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1",
       "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW"
+      "tokenY": "4YKp5kpZCL7NLsrwu5vieTg2zhwdP5WZr8aLPdFTgawW",
+      "enabled": true
     },
     "pyusd": {
       "address": "82tugvnxW6AwkRm2Ntf4YRK4he1acuyosazR57LWJjU6",
       "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d"
+      "tokenY": "6o3jQd8APphmBdRS8umCaMnivZxV9HbdymBVmrwMAT6d",
+      "enabled": true
     },
     "usds": {
       "address": "FQbLMLreVZkokwWubMSSXgjsiGRJjfDHDM7WH3Jg8DYh",
       "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD"
+      "tokenY": "CHD776oFbAhqDQ2iMwiZdScka5dy5FdLkouttsvFmoJD",
+      "enabled": true
     },
     "usdg": {
       "address": "4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ",
       "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx"
+      "tokenY": "9oqY7wkh19PrJ7fCtthKqRqa41A4uXHv67Pc3WBZaGSx",
+      "enabled": true
     },
     "fdusd": {
       "address": "hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9",
       "tokenX": "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY",
-      "tokenY": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo"
+      "tokenY": "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo",
+      "enabled": true
     }
   }
 }
