@@ -19,7 +19,7 @@ mod tests {
     use irma::IRMA_ID;
     use irma::pricing::MAX_BACKING_COUNT;
     use irma::pricing::{init_pricing, set_mint_price, mint_irma, redeem_irma, list_reserves};
-    use irma::{Init, Maint, InitBumps, MaintBumps};
+    use irma::{Init, Maint, InitBumps, MaintBumps, Core};
     // use irma::State;
 
 
@@ -29,7 +29,7 @@ mod tests {
         let program_id: &Pubkey = &IRMA_ID;
         msg!("Starting crank test...");
 
-        fn prep_accounts<'info>(owner: &'info Pubkey, state_account: Pubkey) -> (AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>) {
+        fn prep_accounts<'info>(owner: &'info Pubkey, state_account: Pubkey) -> (AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>, AccountInfo<'info>) {
             // Create a buffer for StateMap and wrap it in AccountInfo
             let lamports: &mut u64 = Box::leak(Box::new(100000u64));
             let mut state: StateMap = allocate_state();
@@ -52,6 +52,34 @@ mod tests {
                 false,
                 0,
             );
+            
+            // Create a buffer for Core and wrap it in AccountInfo
+            let lamportsc: &mut u64 = Box::leak(Box::new(1000000u64));
+            let mut vec = Vec::new();
+            vec.push(Pubkey::new_unique());
+            let mut core_state = Core::create_core(*owner, vec![]).unwrap();
+            core_state.config = vec.into_iter().map(|pk| irma::pair_config::PairConfig {
+                pair_address: pk.to_string(),
+                x_amount: 0,
+                y_amount: 0,
+                mode: irma::MarketMakingMode::ModeBoth,
+            }).collect();
+
+            let mut core_data_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of::<Core>());
+            core_state.try_serialize(&mut core_data_vec).unwrap();
+            let core_data: &'info mut Vec<u8> = Box::leak(Box::new(core_data_vec));
+            let core_key: &'info mut Pubkey = Box::leak(Box::new(Pubkey::new_unique()));
+            let core_account_info: AccountInfo<'info> = AccountInfo::new(
+                core_key,
+                false, // is_signer
+                true,  // is_writable
+                lamportsc,
+                core_data,
+                owner,
+                false,
+                0,
+            );
+
             // msg!("StateMap account created: {:?}", state_account_info.key);
             // msg!("StateMap owner: {:?}", owner);
             // Use a mock Signer for testing purposes
@@ -83,7 +111,7 @@ mod tests {
                 true,
                 0,
             );
-            (state_account_info, signer_account_info, sys_account_info)
+            (state_account_info, signer_account_info, sys_account_info, core_account_info)
         }
 
         fn allocate_state() -> StateMap {
@@ -93,17 +121,18 @@ mod tests {
         }
         msg!("Starting crank test...");
         let state_account: Pubkey = Pubkey::find_program_address(&[b"state".as_ref()], program_id).0;
-        let (state_account_info, irma_admin_account_info, sys_account_info) 
+        let (state_account_info, irma_admin_account_info, sys_account_info, core_account_info) 
                  = prep_accounts(program_id, state_account);
         // Bind to variables to extend their lifetime
         let state_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(state_account_info));
         let irma_admin_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(irma_admin_account_info));
         let sys_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(sys_account_info));
+        let core_account_static: &'info AccountInfo<'info> = Box::leak(Box::new(core_account_info));
         let mut accounts = Init {
             state: Account::try_from(state_account_static).unwrap(),
             irma_admin: Signer::try_from(irma_admin_account_static).unwrap(),
             system_program: Program::try_from(sys_account_static).unwrap(),
-            core: Account::try_from(state_account_static).unwrap(), // Placeholder
+            core: Account::try_from(core_account_static).unwrap(),
         };
         let mut accounts_static: &mut Init = Box::leak(Box::new(accounts));
         let ctx: Context<Init> = Context::new(
@@ -112,8 +141,9 @@ mod tests {
             &[],
             InitBumps::default(), // Use default bumps if not needed
         );
+        let irma_admin_key = irma_admin_account_static.key().to_string();
         let crank_result: std::result::Result<(), Error> = money::initialize(ctx,
-            "OwnerPubkeyString".to_string(),
+            irma_admin_key,
             vec![]
         );
         assert!(crank_result.is_ok());

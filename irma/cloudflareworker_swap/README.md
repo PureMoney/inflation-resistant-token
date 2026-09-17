@@ -220,9 +220,10 @@ The mint price adjusts based on inflation above the 2% target:
 
 ```javascript
 if (inflationRate > 2.0) {
-  mintPrice = (1.00 + (inflationRate - 2.0) / 100.0) / quoteTokenPriceUSD;
+  const daily_price_incrment = (inflationRate - 2.000000) / 36525.0;
+  mintPrice = (1.000000 + daily_price_increment) / quoteTokenPriceUSD;
 } else {
-  mintPrice = 1.00 / quoteTokenPriceUSD;
+  mintPrice = 1.000000 / quoteTokenPriceUSD;
 }
 ```
 

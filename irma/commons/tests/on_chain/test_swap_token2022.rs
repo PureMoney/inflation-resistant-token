@@ -276,7 +276,9 @@ fn create_mock_lb_pair_token2022(
             min_bin_id: 0,
             max_bin_id: 143,
             base_fee_power_factor: 2,
-            _padding: [0; 5],
+            _padding: [0; 3],
+            collect_fee_mode: 0,
+            function_type: 0,
         },
         v_parameters: VariableParameters {
             volatility_accumulator: 0,
@@ -321,7 +323,8 @@ fn create_mock_lb_pair_token2022(
         creator: Pubkey::default(),
         token_mint_x_program_flag: 0u8,
         token_mint_y_program_flag: 0u8,
-        _reserved: [0u8; 22],
+        _reserved: [0u8; 21],
+        version: 0u8,
     };
 
     lb_pair
@@ -348,13 +351,9 @@ fn create_mock_bin_arrays_token2022(lb_pair_key: Pubkey) -> HashMap<Pubkey, BinA
             bins[i] = Bin {
                 amount_x: 2000000000, // Higher amounts to account for potential fees
                 amount_y: 2000000000000,
-                amount_x_in: 2100000000, // Simulate some transfer fee impact
-                amount_y_in: 2100000000000,
-                price: (1000000 + (index * 100000) + (i as i64 * 1000)) as u128,
+                price: 0,
                 liquidity_supply: 2000000000,
-                reward_per_token_stored: [0; 2],
-                fee_amount_x_per_token_stored: 0,
-                fee_amount_y_per_token_stored: 0,
+                ..Bin::default()
             };
         }
         
@@ -362,7 +361,7 @@ fn create_mock_bin_arrays_token2022(lb_pair_key: Pubkey) -> HashMap<Pubkey, BinA
             index,
             version: 0,
             lb_pair: lb_pair_key,
-            _padding: [0; 7],
+            _padding_1: [0; 7],
             bins,
         };
         
