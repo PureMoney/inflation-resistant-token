@@ -170,8 +170,8 @@ impl SinglePosition {
         let raw: PositionRaw = self.get_positions_total(acct_infos)?;
 
         let (token_x, token_y) = Self::get_token_mints(acct_infos, &self.lb_pair)?;
-        let decimals_x = get_decimals(token_x, &position_data.tokens);
-        let decimals_y = get_decimals(token_y, &position_data.tokens);
+        let decimals_x = get_decimals(token_x, &position_data.tokens, acct_infos)?;
+        let decimals_y = get_decimals(token_y, &position_data.tokens, acct_infos)?;
 
         let amount_x_ui = raw.amount_x / 10u64.pow(decimals_x as u32);
         let amount_y_ui = raw.amount_y / 10u64.pow(decimals_y as u32);
@@ -496,9 +496,22 @@ impl SinglePosition {
     }
 }
 
-pub fn get_decimals(token_mint_pk: Pubkey, all_tokens: &[TokenEntry]) -> u8 {
-    let token = all_tokens.iter()
-        .find(|entry| entry.pubkey == token_mint_pk)
-        .unwrap();
-    return token.mint_with_program.mint_info.decimals;
+/// Decimals for a mint: from Core's token registry, or else read directly from the mint
+/// account if it was passed in the instruction's remaining accounts. Returns an error
+/// instead of panicking when neither source has it.
+pub fn get_decimals(
+    token_mint_pk: Pubkey,
+    all_tokens: &[TokenEntry],
+    acct_infos: &[AccountInfo],
+) -> Result<u8> {
+    if let Some(token) = all_tokens.iter().find(|entry| entry.pubkey == token_mint_pk) {
+        return Ok(token.mint_with_program.mint_info.decimals);
+    }
+    let mint_account = acct_infos.iter()
+        .find(|acc| acc.key == &token_mint_pk)
+        .ok_or(error!(CustomError::TokenDecimalsNotFound))?;
+    let data = mint_account.try_borrow_data()?;
+    let mint = Mint::try_deserialize(&mut &data[..])
+        .map_err(|_| error!(CustomError::TokenDecimalsNotFound))?;
+    Ok(mint.decimals)
 }

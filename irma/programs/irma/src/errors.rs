@@ -122,4 +122,6 @@ pub enum CustomError {
     BinOutOfRange,
     #[msg("Math overflow occurred.")]
     MathOverflow,
+    #[msg("Token mint decimals not found in registry or remaining accounts.")]
+    TokenDecimalsNotFound,
 }
