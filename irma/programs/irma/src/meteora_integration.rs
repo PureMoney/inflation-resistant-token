@@ -350,24 +350,25 @@ impl Core {
 
         msg!("==> Mints count: {}", accounts.len());
 
-        let mut tokens = Vec::<TokenEntry>::new();
-
-        for ((_key, program_id), account) in token_mints_with_program.iter().zip(accounts) {
-            if let (pubkey, Some(mint)) = account {
-                let mint_info = MintInfo::from(&mint);
-                let mint_with_program = MintWithProgramId {
-                    mint_info,
-                    program_id: *program_id,
-                };
+        // Merge into the existing registry instead of replacing it: a call that does not
+        // pass some mint accounts must not erase the entries it could not read.
+        // Look each mint up by key (the HashMap has no defined iteration order).
+        let state = &mut self.position_data;
+        for (key, program_id) in token_mints_with_program.iter() {
+            if let Some(Some(mint)) = accounts.get(key) {
                 let token_entry = TokenEntry {
-                    pubkey,
-                    mint_with_program,
+                    pubkey: *key,
+                    mint_with_program: MintWithProgramId {
+                        mint_info: MintInfo::from(mint),
+                        program_id: *program_id,
+                    },
                 };
-                tokens.push(token_entry);
+                match state.tokens.iter_mut().find(|t| t.pubkey == *key) {
+                    Some(existing) => *existing = token_entry,
+                    None => state.tokens.push(token_entry),
+                }
             }
         }
-        let state = &mut self.position_data;
-        state.tokens = tokens;
 
         Ok(())
     }
@@ -1224,8 +1225,8 @@ impl Core {
         );
 
         let tokens = self.get_all_tokens();
-        let decimals_x = get_decimals(lb_pair_state.token_x_mint, &tokens);
-        let decimals_y = get_decimals(lb_pair_state.token_y_mint, &tokens);
+        let decimals_x = get_decimals(lb_pair_state.token_x_mint, &tokens, remaining_accounts_in)?;
+        let decimals_y = get_decimals(lb_pair_state.token_y_mint, &tokens, remaining_accounts_in)?;
 
         // Now convert UI amount to internal amount
         let internal_amount = if amount_x > 0 {
@@ -1855,8 +1856,8 @@ impl Core {
         for position in all_positions.iter() {
             let lb_pair_state = fetch_lb_pair_state(context.remaining_accounts, &position.lb_pair)?;
             // Get decimals from token info
-            let x_decimals = get_decimals(lb_pair_state.token_x_mint, &tokens);
-            let y_decimals = get_decimals(lb_pair_state.token_y_mint, &tokens);
+            let x_decimals = get_decimals(lb_pair_state.token_x_mint, &tokens, context.remaining_accounts)?;
+            let y_decimals = get_decimals(lb_pair_state.token_y_mint, &tokens, context.remaining_accounts)?;
             
             // Now call get_positions_total which also fetches the data from DLMM
             let position_raw = position.get_positions_total(context.remaining_accounts)?;
