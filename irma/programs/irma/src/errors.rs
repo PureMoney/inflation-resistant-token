@@ -124,4 +124,6 @@ pub enum CustomError {
     MathOverflow,
     #[msg("Token mint decimals not found in registry or remaining accounts.")]
     TokenDecimalsNotFound,
+    #[msg("Signer is not the IRMA admin (core.owner).")]
+    UnauthorizedAdmin,
 }
