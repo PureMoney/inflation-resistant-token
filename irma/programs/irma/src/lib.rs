@@ -111,6 +111,8 @@ pub struct Init<'info> {
 pub struct Maint<'info> {
     #[account(mut, seeds=[b"state_v5".as_ref()], bump)]
     pub state: Account<'info, StateMap>,
+    // Only the owner recorded in Core at initialization may call Maint instructions.
+    #[account(constraint = irma_admin.key() == core.owner @ CustomError::UnauthorizedAdmin)]
     pub irma_admin: Signer<'info>,
     #[account(mut, seeds=[b"core_v5".as_ref()], bump)]
     pub core: Account<'info, Core>,
