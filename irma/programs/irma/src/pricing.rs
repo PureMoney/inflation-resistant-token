@@ -187,6 +187,16 @@ pub fn get_reserve_info(ctx: Context<Maint>, quote_token: &str) -> Result<Stable
     Ok(stablecoin.clone())
 }
 
+/// Backing reserves per IRMA in circulation, keeping the fractional part.
+/// Both counters are whole tokens, so integer division would floor any ratio in [1, 2) to 1.
+/// Returns 0.0 when circulation is zero, matching the old `checked_div(..).unwrap_or(0)`.
+fn reserve_ratio(reserves: u128, circulation: u128) -> f64 {
+    if circulation == 0 {
+        return 0.0;
+    }
+    reserves as f64 / circulation as f64
+}
+
 /// Get the current redemption price for a given quote token.
 /// Redemption price = total backing reserves / total IRMA in circulation
 pub fn get_redemption_price(reserves: &Vec<StableState>, quote_token: &str) -> Result<f64> {
@@ -200,7 +210,7 @@ pub fn get_redemption_price(reserves: &Vec<StableState>, quote_token: &str) -> R
     }
 
     let ten_pow_decimals =  10.0_f64.powi(IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32);
-    let redemption_price = (backing_reserves.checked_div(irma_in_circulation).unwrap_or(0) as f64) * ten_pow_decimals;
+    let redemption_price = reserve_ratio(backing_reserves, irma_in_circulation) * ten_pow_decimals;
     Ok(redemption_price)
 }
 
@@ -433,7 +443,7 @@ impl StateMap {
             let ten_pow_decimals =  10.0_f64.powi(
                 IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
             );
-            let redemption_price = ((reserve.checked_div(ro_circulation).unwrap_or(0) as f64)
+            let redemption_price = (reserve_ratio(reserve, ro_circulation)
                  * ten_pow_decimals) as f64;
             let subject_adjustment: u64 = (irma_amount as f64 * redemption_price).ceil() as u64; // irma_amount is in whole numbers, so we can use it directly
 
@@ -471,7 +481,7 @@ impl StateMap {
                 let ten_pow_decimals = 10.0_f64.powi(
                     IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
                 );
-                let redemption_price = (backing_reserves.checked_div(circulation).unwrap_or(0) as f64)
+                let redemption_price = reserve_ratio(backing_reserves, circulation)
                      * (ten_pow_decimals as f64);
                 let mint_price = reserve.mint_price;
                 if mint_price == 0.0 || reserve.backing_decimals == 0 || reserve.active == false {
@@ -515,7 +525,7 @@ impl StateMap {
         let ten_pow_decimals =  10.0_f64.powi(
             IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
         );
-        let redemption_price = ((reserve.checked_div(ro_circulation).unwrap_or(0) as f64)
+        let redemption_price = (reserve_ratio(reserve, ro_circulation)
              * ten_pow_decimals) as f64;
         let subject_adjustment: u64 = (irma_amount as f64 * redemption_price).ceil() as u64; // irma_amount is in whole numbers, so we can use it directly
 
@@ -571,7 +581,7 @@ impl StateMap {
         let ten_pow_decimals =  10.0_f64.powi(
             IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
         );
-        let other_red_price: f64 = ((other_reserve.checked_div(other_circulation).unwrap_or(0) as f64) 
+        let other_red_price: f64 = (reserve_ratio(other_reserve, other_circulation) 
             * ten_pow_decimals) as f64;
 
         let price: f64 = stablecoin.mint_price;
@@ -631,3 +641,15 @@ impl StateMap {
     }
 }
 
+#[cfg(test)]
+mod pricing_tests {
+    use super::*;
+
+    #[test]
+    fn reserve_ratio_keeps_fraction() {
+        // B5 devUSDT end state: 9177 / 7994 used to floor to 1
+        assert!((reserve_ratio(9177, 7994) - 1.14798).abs() < 1e-5);
+        assert_eq!(reserve_ratio(245, 245), 1.0);
+        assert_eq!(reserve_ratio(100, 0), 0.0);
+    }
+}
