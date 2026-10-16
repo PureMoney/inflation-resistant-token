@@ -589,10 +589,13 @@ impl StateMap {
         let ro_circulation: u128 = stablecoin.irma_in_circulation;
 
         let other_price_diff: f64 = other_price - other_red_price as f64;
+        // Keep the fraction, as other_price_diff does: an integer quotient floors any ratio in [1, 2)
+        // to 1 and makes the first branch below win every time. ro_circulation >= irma_amount > 0
+        // (checked in redeem_irma); a target circulation of zero after redemption reads as ratio 0.
         let post_price_diff: f64 = price
-            - ((reserve as i128 - (irma_amount as f64 / price) as i128) / ro_circulation as i128) as f64;
-        let post_other_price_diff: f64 = other_price 
-            - (other_reserve as i128 / (other_circulation as i128 - irma_amount as i128)) as f64;
+            - ((reserve as f64 - irma_amount as f64 / price) / ro_circulation as f64) * ten_pow_decimals;
+        let post_other_price_diff: f64 = other_price
+            - reserve_ratio(other_reserve, other_circulation.saturating_sub(irma_amount as u128)) * ten_pow_decimals;
 
         if other_price_diff < post_other_price_diff {
             // msg!("--> Other price diff is less than or equal to post other price diff, adjusting second circulation only.");
@@ -630,11 +633,11 @@ impl StateMap {
             mut_reserve.irma_in_circulation = mut_reserve.irma_in_circulation
                 .checked_sub(adjustment_amount.ceil() as u128)
                 .ok_or(CustomError::InsufficientCirculation)?;
+            // The other reserve took ceil(adjustment); the quote reserve takes the rest of irma_amount.
             let mut_reserve = self.get_mut_stablecoin(quote_token).unwrap();
-            mut_reserve.irma_in_circulation = ro_circulation.checked_sub(
-                irma_amount.checked_add((adjustment_amount.ceil() as u128).try_into()
-                .unwrap_or(0)).unwrap_or(0).into()
-            ).ok_or(CustomError::InsufficientCirculation)?;
+            mut_reserve.irma_in_circulation = ro_circulation
+                .checked_sub((irma_amount as u128).saturating_sub(adjustment_amount.ceil() as u128))
+                .ok_or(CustomError::InsufficientCirculation)?;
         }
 
         return Ok(());
@@ -651,5 +654,45 @@ mod pricing_tests {
         assert!((reserve_ratio(9177, 7994) - 1.14798).abs() < 1e-5);
         assert_eq!(reserve_ratio(245, 245), 1.0);
         assert_eq!(reserve_ratio(100, 0), 0.0);
+    }
+
+    fn reserve(symbol: &str, backing: u128, circulation: u128, mint_price: f64) -> StableState {
+        let mut s = StableState::new(symbol, Pubkey::new_unique(), 6).unwrap();
+        s.backing_reserves = backing;
+        s.irma_in_circulation = circulation;
+        s.mint_price = mint_price;
+        s
+    }
+
+    #[test]
+    fn distribute_splits_redemption_with_largest_spread_reserve() {
+        // USDT 100/50 = 2.000 (mint 3), PYUSD 100/48 = 2.083 (mint 5): PYUSD has the largest spread.
+        let mut state = StateMap::new();
+        state.add_reserve(reserve("PYUSD", 100, 48, 5.0));
+        state.add_reserve(reserve("USDT", 100, 50, 3.0));
+
+        state.distribute("USDT", 10).unwrap();
+
+        let usdt = state.get_stablecoin("USDT").unwrap();
+        let pyusd = state.get_stablecoin("PYUSD").unwrap();
+        assert_eq!(usdt.backing_reserves, 80); // 10 IRMA × 2.000 paid out
+        assert_eq!(pyusd.irma_in_circulation, 43); // ceil(adjustment) = 5 taken from PYUSD
+        assert_eq!(usdt.irma_in_circulation, 45); // the other 5 taken from USDT
+        assert_eq!((50 - 45) + (48 - 43), 10); // circulation removed == IRMA redeemed
+        assert!(reserve_ratio(80, 45) < 2.0); // redeemed reserve's price falls
+        assert!(reserve_ratio(100, 43) > reserve_ratio(100, 48)); // target's price rises
+    }
+
+    #[test]
+    fn distribute_redeeming_target_circulation_does_not_panic() {
+        // PYUSD (target, largest spread) holds exactly the redeemed amount: post-redemption circulation is 0.
+        let mut state = StateMap::new();
+        state.add_reserve(reserve("PYUSD", 10, 10, 5.0));
+        state.add_reserve(reserve("USDT", 100, 50, 3.0));
+
+        state.distribute("USDT", 10).unwrap();
+
+        assert_eq!(state.get_stablecoin("USDT").unwrap().irma_in_circulation, 40);
+        assert_eq!(state.get_stablecoin("PYUSD").unwrap().irma_in_circulation, 10);
     }
 }
