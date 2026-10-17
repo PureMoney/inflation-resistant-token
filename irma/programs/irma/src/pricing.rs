@@ -189,10 +189,10 @@ pub fn get_reserve_info(ctx: Context<Maint>, quote_token: &str) -> Result<Stable
 
 /// Backing reserves per IRMA in circulation, keeping the fractional part.
 /// Both counters are whole tokens, so integer division would floor any ratio in [1, 2) to 1.
-/// Returns 0.0 when circulation is zero, matching the old `checked_div(..).unwrap_or(0)`.
+/// Returns 1.0 when circulation is zero, matching get_redemption_price().
 fn reserve_ratio(reserves: u128, circulation: u128) -> f64 {
-    if circulation == 0 {
-        return 0.0;
+    if circulation == 0u128 {
+        return 1.0;
     }
     reserves as f64 / circulation as f64
 }
@@ -591,7 +591,7 @@ impl StateMap {
         let other_price_diff: f64 = other_price - other_red_price as f64;
         // Keep the fraction, as other_price_diff does: an integer quotient floors any ratio in [1, 2)
         // to 1 and makes the first branch below win every time. ro_circulation >= irma_amount > 0
-        // (checked in redeem_irma); a target circulation of zero after redemption reads as ratio 0.
+        // (checked in redeem_irma); a target circulation of zero after redemption reads as ratio 1.
         let post_price_diff: f64 = price
             - ((reserve as f64 - irma_amount as f64 / price) / ro_circulation as f64) * ten_pow_decimals;
         let post_other_price_diff: f64 = other_price
@@ -653,7 +653,7 @@ mod pricing_tests {
         // B5 devUSDT end state: 9177 / 7994 used to floor to 1
         assert!((reserve_ratio(9177, 7994) - 1.14798).abs() < 1e-5);
         assert_eq!(reserve_ratio(245, 245), 1.0);
-        assert_eq!(reserve_ratio(100, 0), 0.0);
+        assert_eq!(reserve_ratio(100, 0), 1.0);
     }
 
     fn reserve(symbol: &str, backing: u128, circulation: u128, mint_price: f64) -> StableState {
@@ -692,7 +692,9 @@ mod pricing_tests {
 
         state.distribute("USDT", 10).unwrap();
 
-        assert_eq!(state.get_stablecoin("USDT").unwrap().irma_in_circulation, 40);
-        assert_eq!(state.get_stablecoin("PYUSD").unwrap().irma_in_circulation, 10);
+        // Zero circulation reads as ratio 1.0, so PYUSD's post spread (4) is no worse than now (4):
+        // split, ceil(5.79) = 6 from PYUSD and the other 4 from USDT.
+        assert_eq!(state.get_stablecoin("USDT").unwrap().irma_in_circulation, 46);
+        assert_eq!(state.get_stablecoin("PYUSD").unwrap().irma_in_circulation, 4);
     }
 }
