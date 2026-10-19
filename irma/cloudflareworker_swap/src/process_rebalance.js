@@ -384,7 +384,7 @@ export async function processRebalance(tx, env, ctx) {
  * TODO: this should be in dlmm.js
  */
 export async function check_shift_price_range_worker(env, logger) {
-  logger.log("🚀 Worker version: Test integration with Meteora DLMM");
+  logger.log("🚀 Worker version: Test integration with Meteora DLMM Version 0.1.2");
   
   try {
     const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);

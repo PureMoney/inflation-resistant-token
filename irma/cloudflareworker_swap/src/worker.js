@@ -54,7 +54,7 @@ async function fetch_truflation_rate(env) {
       throw new Error(`Invalid response from proxy: ${JSON.stringify(data)}`);
     }
 
-    const inflation_rate = 2.1; // data.data.inflationRate;
+    const inflation_rate = data.data.inflationRate;
     console.log(`📈 Truflation US Inflation Index: ${inflation_rate}%`);
     console.log(`📅 Data timestamp: ${new Date(data.data.timestamp).toISOString()}`);
     
@@ -69,17 +69,17 @@ async function fetch_truflation_rate(env) {
  * Calculate IRMA mint price based on Truflation inflation rate
  * Formula: if inflation > target, adjust upward; otherwise use 1.0
  */
-function calculate_mint_price(inflation_rate, quote_token_price_usd, target_inflation_rate) {
+function calculate_mint_price(inflation_rate, quote_token_price_usd, target_inflation_rate, current_mint_price) {
   let mint_price;
 
   if (inflation_rate > target_inflation_rate) {
-    // Inflation above target: adjust mint price upward
-    let inflation_adjustment = (inflation_rate - target_inflation_rate) / 100.0;
-    mint_price = (1.00 + inflation_adjustment) / quote_token_price_usd;
+    // Inflation above target: adjust mint price upward for a single day
+    let inflation_adjustment = (inflation_rate - target_inflation_rate) / 36525.0;
+    mint_price = current_mint_price * (1.00 + inflation_adjustment) / quote_token_price_usd;
     console.log(`📊 Inflation ${inflation_rate}% > ${target_inflation_rate}%: adjustment = ${inflation_adjustment}`);
   } else {
     // Below target: no adjustment
-    mint_price = 1.00 / quote_token_price_usd;
+    mint_price = current_mint_price / quote_token_price_usd;
     console.log(`📊 Inflation ${inflation_rate}% <= ${target_inflation_rate}%: no adjustment`);
   }
   
@@ -152,8 +152,13 @@ async function update_mint_price_from_truflation(env) {
     // 3. Get quote token price using Pyth oracle
     const quote_token_price_usd = await get_quote_token_price_usd(connection, env.POOL_ADDRESS, env.RESERVE_SYMBOL);
 
+    // 3a. fetch the current mint price from on-chain state
+    const current_mint_price = await program.account.state.fetch(statePda).then(state => state.mintPrice);
+    console.log(`ℹ️ Current mint price for ${env.RESERVE_SYMBOL}: ${current_mint_price}`);
+
     // 4. Calculate new mint price
-    const new_mint_price = calculate_mint_price(inflation_rate, quote_token_price_usd, get_target_inflation_rate(env));
+    const new_mint_price = calculate_mint_price(
+      inflation_rate, quote_token_price_usd, get_target_inflation_rate(env), current_mint_price);
 
     // 5. Convert to format expected by on-chain program
     const price_as_number = new_mint_price;
