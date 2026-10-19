@@ -7,7 +7,6 @@ use commons::{
 use commons::{
     fetch_lb_pair_state, get_bytemuck_account,
     conversions::fetch_positions,
-    get_bytemuck_account_ref,
     get_matching_positions,
     derive_event_authority_pda,
     derive_position_pda,
