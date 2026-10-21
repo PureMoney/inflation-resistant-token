@@ -9,6 +9,7 @@ import {
   check_shift_price_range_worker, 
   WORKER_MEMO_STRING 
 } from "./process_rebalance.js";
+import { getPrices } from "./dlmm.js";
 // Pool/token configuration comes from Worker environment variables — see config.js for the full list.
 
 /**
@@ -153,7 +154,8 @@ async function update_mint_price_from_truflation(env) {
     const quote_token_price_usd = await get_quote_token_price_usd(connection, env.POOL_ADDRESS, env.RESERVE_SYMBOL);
 
     // 3a. fetch the current mint price from on-chain state
-    const current_mint_price = await program.account.state.fetch(statePda).then(state => state.mintPrice);
+    const { mintPrice: current_mint_price } = await getPrices(
+      program, statePda, corePda, adminKeypair.publicKey, env.RESERVE_SYMBOL);
     console.log(`ℹ️ Current mint price for ${env.RESERVE_SYMBOL}: ${current_mint_price}`);
 
     // 4. Calculate new mint price
