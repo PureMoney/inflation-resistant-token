@@ -551,8 +551,14 @@ pub mod irma {
         }
         
         // check whether out of price range - handle each shift separately to avoid borrowing conflicts
-        let needs_mint_shift = mint_price_bin_id != core_mut_position.max_bin_id;
-        let needs_redeem_shift = redemption_price_bin_id != core_mut_position.min_bin_id;
+        // DLMM places one-sided IRMA only above the active bin and one-sided stablecoin only at or
+        // below it; anything else adds nothing after the old position was already withdrawn.
+        // A side whose target is not placeable stays where it is until trading moves.
+        let active_id = lb_pair_state.active_id;
+        let needs_mint_shift = mint_price_bin_id != core_mut_position.max_bin_id
+            && mint_price_bin_id > active_id;
+        let needs_redeem_shift = redemption_price_bin_id != core_mut_position.min_bin_id
+            && redemption_price_bin_id <= active_id;
 
         // out of all SinglePositions in core, we pass a particular one, core_position
         {
