@@ -307,110 +307,24 @@ pub mod irma {
     // To avoid confusion, I have renamed the 'trader' field in Common to 'irma_admin' and replaced
     // all instances of 'Common' with "Maint".
 
-    /// Let pricing know about a sale trade event
-    /// Note that IRMA is what we are selling (minting).
-    /// bought_amount is the amount of bought_token we received from the sale.
+    /// Let pricing know about a sale trade event (IRMA sold, stablecoin received).
+    /// `bought_amount` is ignored: the amount is measured from Core's own position (see
+    /// Core::sync_protocol_fills), so fills by other LPs in the pool are never booked.
+    /// Remaining accounts: the pool, Core's positions and their bin arrays.
     pub fn sale_trade_event<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, bought_token: String, bought_amount: u64
     ) -> Result<()> {
-        // Extract references to avoid double mutable borrow
-        let reserves = &ctx.accounts.state.reserves;
-        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == bought_token)
-            .ok_or(Error::from(CustomError::ReserveNotFound))?
-            .pool_id.clone();
-        
-        // Get the core reference and work with it consistently
-        let core = &mut ctx.accounts.core;
-        
-        // Find positions for this lb_pair and clone them to avoid borrowing conflicts
-        let mut filtered_positions: Vec<SinglePosition> = core.position_data.all_positions
-            .iter()
-            .filter(|p| p.lb_pair == lb_pair_key)
-            .cloned()
-            .collect();
-    
-        // if there are zero positions, warn and return
-        if filtered_positions.is_empty() {
-            msg!("Warning: No SinglePositions found for lb_pair: {}", lb_pair_key);
-            msg!("Please call update_reserve_lbpair to link the reserve to its LbPair.");
-            return Ok(());
-        }
-        if filtered_positions.len() > 1 {
-            msg!("Warning: Found {} SinglePositions for lb_pair: {}, keeping only the non-empty one", 
-                 filtered_positions.len(), lb_pair_key);
-            // Keep only non-empty position
-            filtered_positions.retain(|p| !p.position_pks.is_empty());
-            // note: the following can remove SinglePositions from other LbPairs
-            core.position_data.all_positions.retain(
-                |p: &SinglePosition| !p.position_pks.is_empty()
-            );
-        }
-        msg!("   position_pks.len(): {}", core.position_data.all_positions[0].position_pks.len());
-        
-        let state = &mut ctx.accounts.state;
-
-        core.refresh_position_data_with_accounts(state, &mut filtered_positions, bought_token, bought_amount, true)?;
-        
-        // Update the positions back in core
-        if !filtered_positions.is_empty() {
-            msg!("   filtered_positions[0].position_pks.len(): {}", filtered_positions[0].position_pks.len());
-            if let Some(existing_pos) = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key) {
-                *existing_pos = filtered_positions[0].clone();
-            }
-        }
-        
-        Ok(())
+        let _ = bought_amount;
+        sync_trade_fills(ctx, &bought_token)
     }
 
-    /// Let pricing know about a buy-back trade event
-    /// Note that IRMA is what we are buying back (burning) and we just sold the backing token.
+    /// Let pricing know about a buy-back trade event (IRMA bought back, stablecoin paid).
+    /// `irma_amount` is ignored for the same reason as in sale_trade_event.
     pub fn buy_trade_event<'info>(
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, sold_token: String, irma_amount: u64
     ) -> Result<()> {
-        let reserves = &ctx.accounts.state.reserves;
-        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == sold_token)
-            .ok_or(Error::from(CustomError::ReserveNotFound))?
-            .pool_id.clone();
-        
-        // Get the core reference and work with it consistently
-        let core = &mut ctx.accounts.core;
-        
-        // Find positions for this lb_pair and clone them to avoid borrowing conflicts
-        let mut filtered_positions: Vec<SinglePosition> = core.position_data.all_positions
-            .iter()
-            .filter(|p| p.lb_pair == lb_pair_key)
-            .cloned()
-            .collect();
-
-        // if there are zero positions, warn and return
-        if filtered_positions.is_empty() {
-            msg!("Warning: No SinglePositions found for lb_pair: {}", lb_pair_key);
-            msg!("Please call update_reserve_lbpair to link the reserve to its LbPair.");
-            return Ok(());
-        }
-        if filtered_positions.len() > 1 {
-            msg!("Warning: Found {} SinglePositions for lb_pair: {}, keeping only the non-empty one", 
-                 filtered_positions.len(), lb_pair_key);
-            // Keep only non-empty position
-            filtered_positions.retain(|p| !p.position_pks.is_empty());
-            // note: the following can remove SinglePositions from other LbPairs
-            core.position_data.all_positions.retain(
-                |p: &SinglePosition| !p.position_pks.is_empty()
-            );
-        }
-        
-        let state = &mut ctx.accounts.state;
-
-        core.refresh_position_data_with_accounts(state, &mut filtered_positions, sold_token, irma_amount, false)?;
-        
-        // Update the positions back in core
-        if !filtered_positions.is_empty() {
-            if let Some(existing_pos) = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key) {
-                *existing_pos = filtered_positions[0].clone();
-            }
-        }
-        
-        Ok(())
+        let _ = irma_amount;
+        sync_trade_fills(ctx, &sold_token)
     }
 
     /// Send swap instruction to Meteora DLMM
@@ -419,16 +333,21 @@ pub mod irma {
         ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, 
         symbol: String, amount: u64, exact_out: u64, swap_for_reserve: bool
     ) -> Result<()> {
+        let remaining_accounts: &[AccountInfo<'info>] = ctx.remaining_accounts;
+        let lb_pair_key = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
+            .ok_or(error!(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+
+        // Book trades that filled Core before this swap, and re-read Core's totals after it,
+        // so this program's own swap is never booked as a trade.
+        let synced = ctx.accounts.core.sync_protocol_fills(
+            &mut ctx.accounts.state, remaining_accounts, lb_pair_key, &symbol)?;
+        require!(synced, CustomError::MissingRequiredAccount);
+
         // Extract references to avoid double mutable borrow
         let corei = &ctx.accounts.core.clone();
         let core = &mut ctx.accounts.core;
         let payer = &mut ctx.accounts.irma_admin; // this is wrong; payer should be the trader
-        let reserves = &mut ctx.accounts.state.reserves;
-        let remaining_accounts: &[AccountInfo<'info>] = ctx.remaining_accounts;
-
-        let lb_pair_key = reserves.iter().find(|r| r.symbol == symbol)
-            .ok_or(error!(CustomError::ReserveNotFound))?
-            .pool_id.clone();
 
         // look for positions matching the symbol
         let position = core.position_data.all_positions.iter_mut().find(|p| p.lb_pair == lb_pair_key)
@@ -442,6 +361,7 @@ pub mod irma {
             exact_out,
             swap_for_reserve,
         )?;
+        core.store_fill_snapshot(remaining_accounts, lb_pair_key)?;
         msg!("swap called for symbol: {}, amount: {}, swap_for_reserve: {}", symbol, amount, swap_for_reserve);
         Ok(())
     }
@@ -451,14 +371,20 @@ pub mod irma {
     pub fn check_shift_price_ranges<'a>(
         ctx: Context<'_, '_, 'a, 'a, Maint<'a>>, reserve_token: String
     ) -> Result<()> {
+        let remaining_accounts: &[AccountInfo] = &ctx.remaining_accounts;
+        let lb_pair_key = ctx.accounts.state.reserves.iter().find(|stablecoin| stablecoin.symbol == reserve_token)
+            .ok_or(Error::from(CustomError::ReserveNotFound))?
+            .pool_id.clone();
+
+        // Book the protocol's own fills before any liquidity moves: a shift withdraws the
+        // position, and a fill not booked by then could no longer be measured.
+        let synced = ctx.accounts.core.sync_protocol_fills(
+            &mut ctx.accounts.state, remaining_accounts, lb_pair_key, &reserve_token)?;
+        require!(synced, CustomError::MissingRequiredAccount);
+
         // Process this position - borrow everything we need in one go
         let payer = &mut ctx.accounts.irma_admin; // this should be the-fed
         let reserves = &mut ctx.accounts.state.reserves;
-        let remaining_accounts: &[AccountInfo] = &ctx.remaining_accounts;
-
-        let lb_pair_key = reserves.iter().find(|stablecoin| stablecoin.symbol == reserve_token)
-            .ok_or(Error::from(CustomError::ReserveNotFound))?
-            .pool_id.clone();
 
         // can clone only before changes - not good
         let core = &ctx.accounts.core.clone();
@@ -553,6 +479,7 @@ pub mod irma {
         // check whether out of price range - handle each shift separately to avoid borrowing conflicts
         let needs_mint_shift = mint_price_bin_id != core_mut_position.max_bin_id;
         let needs_redeem_shift = redemption_price_bin_id != core_mut_position.min_bin_id;
+        let mut liquidity_moved = needs_mint_shift || needs_redeem_shift;
 
         // out of all SinglePositions in core, we pass a particular one, core_position
         {
@@ -581,6 +508,13 @@ pub mod irma {
                 core.replenish_redeeming_position(
                     payer, remaining_accounts, core_mut_position, delta_y.try_into().unwrap())?;
             }
+            liquidity_moved |= delta_x > 0 || delta_y > 0;
+        }
+
+        // The shifts and replenishes above changed Core's totals without any trade:
+        // take the new totals as the fill snapshot.
+        if liquidity_moved {
+            core_mut.store_fill_snapshot(remaining_accounts, lb_pair_key)?;
         }
 
         msg!("check_shift_price_ranges called");
@@ -649,4 +583,17 @@ pub mod irma {
         // This forces TokenEntry to be included in IDL as a return type
         Err(error!(CustomError::InvalidAmount))
     }
+}
+
+/// Book the protocol's own fills on a reserve's pool (used by the two trade-event instructions).
+/// Nothing is withdrawn here, so an incomplete read only postpones booking to the next sync.
+fn sync_trade_fills<'info>(ctx: Context<'_, '_, 'info, 'info, Maint<'info>>, symbol: &str) -> Result<()> {
+    let lb_pair = ctx.accounts.state.reserves.iter().find(|r| r.symbol == symbol)
+        .ok_or(error!(CustomError::ReserveNotFound))?
+        .pool_id;
+    let accounts = ctx.accounts;
+    if !accounts.core.sync_protocol_fills(&mut accounts.state, ctx.remaining_accounts, lb_pair, symbol)? {
+        msg!("Pass Core's positions and bin arrays to book fills for {}", symbol);
+    }
+    Ok(())
 }

@@ -129,51 +129,6 @@ export async function processRebalance(tx, env, ctx) {
     success: false,
   };
 
-  async function notifyIRMAofTradeEvent(connection, program, statePda, corePda, adminKeypair, poolKey, amountAtomic) {
-    logger.log(`📝 Building {${swapEventData.eventType}TradeEvent} transaction...`);
-    const tradeTxPromise = 
-      swapEventData.eventType === 'MINT' ?
-        program.methods
-          .saleTradeEvent(RESERVE_SYMBOL, amountAtomic)
-          .accounts({
-            state: statePda,
-            irmaAdmin: adminKeypair.publicKey,
-            core: corePda,
-            systemProgram: SystemProgram.programId,
-          })
-          .remainingAccounts([
-            { pubkey: poolKey, isSigner: false, isWritable: false }
-          ])
-          .transaction()
-        :
-        program.methods
-          .buyTradeEvent(RESERVE_SYMBOL, amountAtomic)
-          .accounts({
-            state: statePda,
-            irmaAdmin: adminKeypair.publicKey,
-            core: corePda,
-            systemProgram: SystemProgram.programId,
-          })
-          .remainingAccounts([
-            { pubkey: poolKey, isSigner: false, isWritable: false }
-          ])
-          .transaction();
-
-    const tradeTxInstruction = await tradeTxPromise;
-    logger.log(`📝 Sending {${swapEventData.eventType}TradeEvent} transaction...`);
-    tradeTxInstruction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    tradeTxInstruction.feePayer = adminKeypair.publicKey;
-    tradeTxInstruction.sign(adminKeypair);
-    
-    const signature = await connection.sendRawTransaction(tradeTxInstruction.serialize(), { 
-      skipPreflight: false,
-      maxRetries: 0 // Don't wait for confirmation
-    });
-    logger.log(`✅ {${swapEventData.eventType}TradeEvent} transaction sent: ${signature}`);
-    await logger.flush();
-    return signature;
-  }
-
   try {
     // --- DELTA CALC ---
     const preBalanceEntry = tx.meta.preTokenBalances.find(b => b.mint === RESERVE_MINT_STR && b.owner === POOL_ADDRESS);
@@ -194,8 +149,9 @@ export async function processRebalance(tx, env, ctx) {
     // --- SETUP ---
     const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
 
+    // The pool delta covers every LP's fills, so it is only logged; the program books the
+    // protocol's own share from Core's position in check_shift_price_ranges (called below).
     const atomicValueString = Math.floor(Math.abs(delta) * (10 ** decimals)).toString();
-    const amountAtomic = new BN(atomicValueString);
     swapEventData.amountAtomic = atomicValueString;
 
     swapEventData.txSignature = tx.transaction.signatures[0];
@@ -262,11 +218,6 @@ export async function processRebalance(tx, env, ctx) {
     
     logger.log(`🚨 TRIGGER: ${delta > 0 ? "MINT" : "REDEMPTION"} Detected. Delta: ${delta}`);
 
-    // all swapEventData necessary fields should be populated at this point, 
-    // so we can log the event even if any of the subsequent steps fail
-    let signature = await notifyIRMAofTradeEvent(
-                    connection, program, statePda, corePda, adminKeypair, poolKey, amountAtomic);
-    swapEventData.tradeEventSignature = signature;
 
     // TODO: get current price bins and determine which one is active
     // the one that is active must have both quote and IRMA tokens in it
@@ -410,7 +361,7 @@ export async function check_shift_price_range_worker(env, logger) {
 
     // Add compute budget instructions to increase CU limit
     const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({
-        units: 1_000_000, // Request 1M compute units (5x the default)
+        units: 1_400_000, // per-transaction maximum; the shift path also books fills now
     });
     
     const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({

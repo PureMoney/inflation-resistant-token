@@ -1,5 +1,5 @@
 import { StrategyType } from "@meteora-ag/dlmm";
-import { Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_CLOCK_PUBKEY } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
@@ -364,6 +364,8 @@ export async function cSwap(
   connection, program, logger, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, callerGetsQuoteToken, dlmmPool, env) {
 
   const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env);
+  // c_swap reads Core's position before and after the swap to keep its own swap out of the books
+  const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
 
   try {
     console.log(`Simulating cSwap with quoteToken=${quoteToken}, amount=${amount}, exact_out=${exact_out}, getQuoteToken=${callerGetsQuoteToken}...`);
@@ -376,6 +378,7 @@ export async function cSwap(
         systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(remainingAccounts)
+      .preInstructions([computeLimitIx])
       .simulate();
 
     if (simulation.err) {
@@ -393,6 +396,7 @@ export async function cSwap(
         systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(remainingAccounts)
+      .preInstructions([computeLimitIx])
       .transaction();
 
     logger.log("DEBUG: Sending cSwap transaction...");
