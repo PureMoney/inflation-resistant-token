@@ -184,6 +184,7 @@ impl SinglePosition {
     /// bins' reserves, i.e. what withdrawing everything would return, fees excluded.
     /// Kept lean (no fees, no PDA derivation, no logging) because it runs on every rebalance;
     /// get_positions_total costs ~0.5M CU. Only DLMM-owned accounts of the right type are read.
+    /// A tracked position that was closed (passed, but empty) holds nothing.
     /// Returns None if a tracked position, or a bin array holding one of its shares, is not in
     /// the accounts.
     pub fn get_position_amounts(&self, acct_infos: &[AccountInfo]) -> Result<Option<(u64, u64)>> {
@@ -205,6 +206,10 @@ impl SinglePosition {
 
         let (mut amount_x, mut amount_y) = (0u64, 0u64);
         for key in keys {
+            // closed: holds nothing; check_shift_price_ranges forgets the key and recreates it
+            if acct_infos.iter().any(|acc| *acc.key == key && acc.data_is_empty()) {
+                continue;
+            }
             let position = match acct_infos.iter()
                 .find(|acc| *acc.key == key && dlmm_account(acc, PositionV2::DISCRIMINATOR))
                 .and_then(|acc| get_bytemuck_account_ref::<PositionV2>(acc)) {

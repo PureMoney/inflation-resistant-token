@@ -278,6 +278,8 @@ impl Core {
 
     /// Re-read Core's position totals for a pair and store them as the fill snapshot,
     /// after this program itself added or removed liquidity (shift, replenish, counter-swap).
+    /// If they cannot be read, the snapshot is cleared so the next sync takes a new baseline,
+    /// rather than comparing against totals from before the liquidity moved.
     pub fn store_fill_snapshot<'a>(
         &mut self,
         acct_infos: &'a [AccountInfo<'a>],
@@ -286,8 +288,8 @@ impl Core {
         let (amount_x, amount_y) = match self.get_position_state(lb_pair).get_position_amounts(acct_infos)? {
             Some(amounts) => amounts,
             None => {
-                msg!("Fill snapshot not stored for {}: Core's positions or bin arrays not passed", lb_pair);
-                return Ok(());
+                msg!("Fill snapshot cleared for {}: Core's positions or bin arrays not passed", lb_pair);
+                (0, 0)
             }
         };
         let pair_address = lb_pair.to_string();
@@ -2105,12 +2107,31 @@ mod fill_tests {
     }
 
     #[test]
+    fn closed_position_resets_snapshot_instead_of_blocking() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        // the tracked position was closed: its key now holds an empty system account
+        let closed = account(p.position, Box::leak(Vec::new().into_boxed_slice()), anchor_lang::system_program::ID);
+        let accounts: &'static [AccountInfo<'static>] = Box::leak(vec![p.accounts[0].clone(), p.accounts[1].clone(), closed].into_boxed_slice());
+        assert!(p.core.sync_protocol_fills(&mut p.state, accounts, p.lb_pair, "USDT").unwrap());
+        assert_eq!(p.books(), (1_000, 1_000));
+        assert_eq!(p.snapshot(), (0, 0));
+    }
+
+    #[test]
     fn program_liquidity_change_is_not_a_trade() {
         let mut p = pool(0, 1_000);
         p.sync();
         // a shift withdraws the ceiling and redeposits elsewhere; store_fill_snapshot re-reads
         p.swap_in_bin(2, -100 * UNIT as i64, 0);
         p.core.store_fill_snapshot(p.accounts, p.lb_pair).unwrap();
+        assert!(p.sync());
+        assert_eq!(p.books(), (1_000, 1_000));
+        // if the totals cannot be read after liquidity moved, the snapshot is cleared and the
+        // next sync takes a new baseline instead of booking the move as a trade
+        p.core.store_fill_snapshot(&p.accounts[..2], p.lb_pair).unwrap();
+        assert_eq!(p.snapshot(), (0, 0));
+        p.swap_in_bin(2, -100 * UNIT as i64, 100 * UNIT as i64);
         assert!(p.sync());
         assert_eq!(p.books(), (1_000, 1_000));
     }

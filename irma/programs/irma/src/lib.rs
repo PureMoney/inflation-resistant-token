@@ -405,6 +405,15 @@ pub mod irma {
             }
         }
 
+        // A tracked position closed outside this program was read as empty by the sync above.
+        // Forget its key so the shift or replenish below creates it again (initialize_position
+        // skips a key Core still tracks, and would leave nothing to deposit into).
+        for key in core_mut_position.position_pks.iter_mut() {
+            if remaining_accounts.iter().any(|acc| acc.key == key && acc.data_is_empty()) {
+                *key = Pubkey::default();
+            }
+        }
+
         // following code is supposed to be in meteora_integration.rs
         // moved here to avoid stack memory allocation issues
 

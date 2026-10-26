@@ -163,6 +163,8 @@ const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
  *
  * Accounts included:
  *  - DLMM LbPair (pool)
+ *  - The positions Core tracks for the pool, even if closed (the program reads a closed
+ *    one as empty, but stops on one that is left out)
  *  - All admin positions in the pool (fetched on-chain)
  *  - Bin arrays covering both swap directions (fetched on-chain)
  *  - IRMA and reserve mints
@@ -173,16 +175,20 @@ const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
  *  - Admin wallet (signer)
  *  - Event authority PDA, program IDs, sysvars
  */
-export async function buildRemainingAccounts(dlmmPool, adminKeypair, env) {
+export async function buildRemainingAccounts(dlmmPool, adminKeypair, env, program, corePda) {
   const irmaMint    = new PublicKey(env.IRMA_MINT_STR);
   const reserveMint = new PublicKey(env.RESERVE_MINT_STR);
 
-  // Fetch live positions and bin arrays concurrently
-  const [{ userPositions }, binArraysX2Y, binArraysY2X] = await Promise.all([
+  // Fetch live positions, bin arrays and Core's tracked positions concurrently
+  const [{ userPositions }, binArraysX2Y, binArraysY2X, core] = await Promise.all([
     dlmmPool.getPositionsByUserAndLbPair(adminKeypair.publicKey),
     dlmmPool.getBinArrayForSwap(false),
     dlmmPool.getBinArrayForSwap(true),
+    program.account.core.fetch(corePda),
   ]);
+  const trackedPositions = (core.positionData.allPositions
+    .find(p => p.lbPair.equals(dlmmPool.pubkey))?.positionPks ?? [])
+    .filter(k => !k.equals(PublicKey.default));
 
   const binArrayKeySet = new Set([
     ...binArraysX2Y.map(b => b.publicKey.toBase58()),
@@ -252,6 +258,7 @@ export async function buildRemainingAccounts(dlmmPool, adminKeypair, env) {
 
   const entries = [
     { pubkey: dlmmPool.pubkey,            isSigner: false, isWritable: true  },
+    ...trackedPositions.map(pubkey => ({ pubkey, isSigner: false, isWritable: true })),
     ...derivedMetas,
     ...userPositions.map(p => ({ pubkey: p.publicKey,      isSigner: false, isWritable: true  })),
     ...[...binArrayKeySet].map(k => ({ pubkey: new PublicKey(k), isSigner: false, isWritable: true })),
@@ -363,7 +370,7 @@ export async function getPrices(program, statePda, corePda, adminPublicKey, quot
 export async function cSwap(
   connection, program, logger, statePda, corePda, adminKeyPair, quoteToken, amount, exact_out, callerGetsQuoteToken, dlmmPool, env) {
 
-  const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env);
+  const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeyPair, env, program, corePda);
   // c_swap reads Core's position before and after the swap to keep its own swap out of the books
   const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
 

@@ -150,7 +150,7 @@ export async function processRebalance(tx, env, ctx) {
     const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
 
     // The pool delta covers every LP's fills, so it is only logged; the program books the
-    // protocol's own share from Core's position in check_shift_price_ranges (called below).
+    // protocol's own share from Core's position (fill sync below).
     const atomicValueString = Math.floor(Math.abs(delta) * (10 ** decimals)).toString();
     swapEventData.amountAtomic = atomicValueString;
 
@@ -169,6 +169,29 @@ export async function processRebalance(tx, env, ctx) {
       throw dlmmError;
     }
     finally {
+      await logger.flush();
+    }
+
+    // --- BOOK THE PROTOCOL'S FILLS ---
+    // In a transaction of their own, so a failing counter-swap or shift (which rolls back its
+    // own sync) does not hold the books back. A failure here is logged only:
+    // check_shift_price_ranges syncs again before moving liquidity.
+    try {
+      const syncTx = await program.methods
+        .saleTradeEvent(RESERVE_SYMBOL, new BN(0)) // the amount is ignored; the program measures Core's fills
+        .accounts({
+          state: statePda,
+          irmaAdmin: adminKeypair.publicKey,
+          core: corePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(await buildRemainingAccounts(dlmmPool, adminKeypair, env, program, corePda))
+        .rpc({ commitment: "confirmed" });
+      swapEventData.tradeEventSignature = syncTx;
+      logger.log(`✅ Fill sync confirmed: ${syncTx}`);
+    } catch (syncError) {
+      logger.error(`❌ Fill sync failed: ${syncError.message}`);
+    } finally {
       await logger.flush();
     }
 
@@ -344,7 +367,7 @@ export async function check_shift_price_range_worker(env, logger) {
 
     // Load the pool and derive all required accounts live from chain state
     const dlmmPool = await DLMM.create(connection, new PublicKey(env.POOL_ADDRESS));
-    const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeypair, env);
+    const remainingAccounts = await buildRemainingAccounts(dlmmPool, adminKeypair, env, program, corePda);
 
     // Call check_shift_price_ranges transaction
     logger.log("🔄 Calling check_shift_price_ranges() transaction...");
