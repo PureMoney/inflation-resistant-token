@@ -177,7 +177,7 @@ export async function processRebalance(tx, env, ctx) {
     // own sync) does not hold the books back. A failure here is logged only:
     // check_shift_price_ranges syncs again before moving liquidity.
     try {
-      const syncTx = await program.methods
+      const syncIx = await program.methods
         .saleTradeEvent(RESERVE_SYMBOL, new BN(0)) // the amount is ignored; the program measures Core's fills
         .accounts({
           state: statePda,
@@ -186,9 +186,12 @@ export async function processRebalance(tx, env, ctx) {
           systemProgram: SystemProgram.programId,
         })
         .remainingAccounts(await buildRemainingAccounts(dlmmPool, adminKeypair, env, program, corePda))
-        .rpc({ commitment: "confirmed" });
+        .transaction();
+      // Not confirmed here: confirmation never completes inside the worker and would use up the
+      // waitUntil budget before the rebalance runs.
+      const syncTx = await connection.sendTransaction(syncIx, [adminKeypair]);
       swapEventData.tradeEventSignature = syncTx;
-      logger.log(`✅ Fill sync confirmed: ${syncTx}`);
+      logger.log(`✅ Fill sync sent: ${syncTx}`);
     } catch (syncError) {
       logger.error(`❌ Fill sync failed: ${syncError.message}`);
     } finally {
