@@ -46,7 +46,7 @@ ENABLE_TEST_SCAFFOLDING = "false"
 [env.usdc]
 name = "irma-client-usdc"
 [env.usdc.triggers]
-crons = ["0 6 * * *"]
+crons = ["0 23 * * *"]
 [env.usdc.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "DyweFxgq7VzoViT6EWHw9o1Z9rmwifJ82bpLqh1rF6z3"
@@ -59,7 +59,7 @@ ENABLE_TEST_SCAFFOLDING = "false"
 [env.usdt]
 name = "irma-client-usdt"
 [env.usdt.triggers]
-crons = ["0 6 * * *"]
+crons = ["1 23 * * *"]
 [env.usdt.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "BCvW192j75p5ocrEddvDXPJBtt19xVaedzUR3tXHUBK1"
@@ -72,7 +72,7 @@ ENABLE_TEST_SCAFFOLDING = "false"
 [env.pyusd]
 name = "irma-client-pyusd"
 [env.pyusd.triggers]
-crons = ["0 6 * * *"]
+crons = ["2 23 * * *"]
 [env.pyusd.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "82tugvnxW6AwkRm2Ntf4YRK4he1acuyosazR57LWJjU6"
@@ -85,7 +85,7 @@ ENABLE_TEST_SCAFFOLDING = "false"
 [env.usds]
 name = "irma-client-usds"
 [env.usds.triggers]
-crons = ["0 6 * * *"]
+crons = ["3 23 * * *"]
 [env.usds.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "FQbLMLreVZkokwWubMSSXgjsiGRJjfDHDM7WH3Jg8DYh"
@@ -98,7 +98,7 @@ ENABLE_TEST_SCAFFOLDING = "false"
 [env.usdg]
 name = "irma-client-usdg"
 [env.usdg.triggers]
-crons = ["0 6 * * *"]
+crons = ["4 23 * * *"]
 [env.usdg.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "4f3VoNFFvhKHdQmtDzQVB6jXVcRFz5FFR4gPQDuYoxMZ"
@@ -111,7 +111,7 @@ ENABLE_TEST_SCAFFOLDING = "false"
 [env.fdusd]
 name = "irma-client-fdusd"
 [env.fdusd.triggers]
-crons = ["0 6 * * *"]
+crons = ["5 23 * * *"]
 [env.fdusd.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9"
