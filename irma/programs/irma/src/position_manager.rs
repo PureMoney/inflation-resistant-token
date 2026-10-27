@@ -16,8 +16,9 @@ use crate::bin_array_manager::BinArrayManager;
 use crate::errors::CustomError;
 
 use commons::dlmm::accounts::*;
-use commons::dlmm::types::Bin;
+use commons::dlmm::types::{Bin, Rounding};
 use commons::bin::*;
+use commons::bin_array::BinArrayExtension;
 use commons::position::*;
 use commons::ONE;
 use commons::conversions::*;
@@ -177,6 +178,64 @@ impl SinglePosition {
         let amount_y_ui = raw.amount_y / 10u64.pow(decimals_y as u32);
 
         Ok((amount_x_ui, amount_y_ui))
+    }
+
+    /// Core's token amounts in this pair (x, y): its positions' liquidity shares applied to the
+    /// bins' reserves, i.e. what withdrawing everything would return, fees excluded.
+    /// Kept lean (no fees, no PDA derivation, no logging) because it runs on every rebalance;
+    /// get_positions_total costs ~0.5M CU. Only DLMM-owned accounts of the right type are read.
+    /// A tracked position that was closed (passed, but empty) holds nothing.
+    /// Returns None if a tracked position, or a bin array holding one of its shares, is not in
+    /// the accounts.
+    pub fn get_position_amounts(&self, acct_infos: &[AccountInfo]) -> Result<Option<(u64, u64)>> {
+        let dlmm_account = |acc: &AccountInfo, discriminator: &[u8]| {
+            *acc.owner == commons::dlmm::ID && acc.data.borrow().get(..8) == Some(discriminator)
+        };
+        let bin_arrays: Vec<&BinArray> = acct_infos.iter()
+            .filter(|acc| dlmm_account(acc, BinArray::DISCRIMINATOR))
+            .filter_map(|acc| get_bytemuck_account_ref::<BinArray>(acc))
+            .filter(|array| array.lb_pair == self.lb_pair)
+            .collect();
+
+        let mut keys: Vec<Pubkey> = self.position_pks.iter()
+            .filter(|key| **key != Pubkey::default())
+            .cloned()
+            .collect();
+        keys.sort();
+        keys.dedup(); // Core lists the same position as both mint and redeem position
+
+        let (mut amount_x, mut amount_y) = (0u64, 0u64);
+        for key in keys {
+            // closed: holds nothing; check_shift_price_ranges forgets the key and recreates it
+            if acct_infos.iter().any(|acc| *acc.key == key && acc.data_is_empty()) {
+                continue;
+            }
+            let position = match acct_infos.iter()
+                .find(|acc| *acc.key == key && dlmm_account(acc, PositionV2::DISCRIMINATOR))
+                .and_then(|acc| get_bytemuck_account_ref::<PositionV2>(acc)) {
+                Some(position) => position,
+                None => return Ok(None),
+            };
+            for (i, share) in position.liquidity_shares.iter().enumerate() {
+                if *share == 0 {
+                    continue;
+                }
+                let bin_id = position.lower_bin_id + i as i32;
+                let index = BinArray::bin_id_to_bin_array_index(bin_id)? as i64;
+                let bin = match bin_arrays.iter().find(|array| array.index == index) {
+                    Some(array) => array.get_bin(bin_id)?,
+                    None => return Ok(None),
+                };
+                if bin.liquidity_supply == 0 {
+                    continue;
+                }
+                let x: u64 = safe_mul_div_cast(*share, bin.amount_x.into(), bin.liquidity_supply, Rounding::Down)?;
+                let y: u64 = safe_mul_div_cast(*share, bin.amount_y.into(), bin.liquidity_supply, Rounding::Down)?;
+                amount_x = amount_x.checked_add(x).ok_or(error!(CustomError::MathOverflow))?;
+                amount_y = amount_y.checked_add(y).ok_or(error!(CustomError::MathOverflow))?;
+            }
+        }
+        Ok(Some((amount_x, amount_y)))
     }
 
     /// Calculate total position amounts and fees across all positions

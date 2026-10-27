@@ -64,6 +64,58 @@ impl<T> AccountData<T> {
     }
 }
 
+/// What a change in Core's position totals (x = IRMA, y = stablecoin) means.
+#[derive(Debug, PartialEq)]
+pub enum Fill {
+    None,
+    Sale(u64),  // protocol sold IRMA; stablecoin received, in stablecoin atomic units
+    Buy(u64),   // protocol bought IRMA back; IRMA received, in IRMA atomic units
+    Other,      // not a trade: liquidity added or removed outside this program, or dust
+}
+
+/// A trade against Core's liquidity always moves the two totals in opposite directions.
+pub fn classify_fill(prev: (u64, u64), now: (u64, u64)) -> Fill {
+    let ((px, py), (nx, ny)) = (prev, now);
+    if now == prev {
+        Fill::None
+    } else if nx < px && ny > py {
+        Fill::Sale(ny - py)
+    } else if nx > px && ny < py {
+        Fill::Buy(nx - px)
+    } else {
+        Fill::Other
+    }
+}
+
+/// Record a fill in pricing.rs. On a pricing error the reserves are restored and the error
+/// is logged, so bookkeeping can never block a rebalance (before, the same amount sent by the
+/// worker failed in its own trade-event transaction and was lost the same way).
+fn book_fill(state: &mut Account<StateMap>, symbol: &str, amount: u64, is_sale: bool) {
+    let backup = state.reserves.clone();
+    let result = if is_sale {
+        pricing::mint_irma(state, symbol, amount)
+    } else {
+        // redeem_irma takes at most MAX_REDEEM_AMOUNT whole IRMA per call
+        let chunk = pricing::MAX_REDEEM_AMOUNT as u64 * 10u64.pow(pricing::IRMA.backing_decimals as u32);
+        let mut left = amount;
+        let mut result = Ok(());
+        while left > 0 && result.is_ok() {
+            let part = left.min(chunk);
+            result = pricing::redeem_irma(state, symbol, part);
+            left -= part;
+        }
+        result
+    };
+    let kind = if is_sale { "sale" } else { "buy-back" };
+    match result {
+        Ok(()) => msg!("Booked {} for {}: {}", kind, symbol, amount),
+        Err(e) => {
+            state.reserves = backup;
+            msg!("Could not book {} for {} ({}): {}", kind, symbol, amount, e);
+        }
+    }
+}
+
 // Meteora Core (taken from Meteora DLMM SDK and adapted for IRMA)
 // Removed all RPC stuff because this is going to run on-chain.
 #[account]
@@ -180,35 +232,72 @@ impl Core {
     }
 
 
-    /// This no longer refreshes DLMM tracking data.
-    /// It just updates the mint price and redemption price in pricing.rs
-    pub fn refresh_position_data_with_accounts<'a>(
-        &self, // must be immutable
+    /// Book the protocol's own fills on one pair into pricing.rs.
+    /// Core's position totals only change when a trade fills Core's own liquidity (other LPs
+    /// in the pool hold their own shares), so the change since the snapshot kept in the
+    /// pair's config entry is exactly what the protocol sold or bought back. Moves the snapshot.
+    /// Returns false when the totals could not be read completely (positions or bin arrays
+    /// missing from the accounts) and the snapshot is live; nothing is booked in that case.
+    pub fn sync_protocol_fills<'a>(
+        &mut self,
         state: &mut Account<StateMap>,
-        pools: &Vec<SinglePosition>, // SinglePosition pertains to pool (LBPair)
-        token: String, // symbol of the stablecoin
-        amount: u64,
-        is_sale: bool
-    ) -> Result<()> {
-        // Call pricing functions directly on the state first
-        if is_sale {
-            pricing::mint_irma(state, &token, amount)?;
+        acct_infos: &'a [AccountInfo<'a>],
+        lb_pair: Pubkey,
+        symbol: &str,
+    ) -> Result<bool> {
+        let amounts = self.get_position_state(lb_pair).get_position_amounts(acct_infos)?;
+        let pair_address = lb_pair.to_string();
+        let config = self.config.iter_mut()
+            .find(|c| c.pair_address == pair_address)
+            .ok_or(error!(CustomError::InvalidLbPairState))?;
+        let prev = (config.x_amount, config.y_amount);
+        let now = match amounts {
+            Some(now) => now,
+            None => {
+                msg!("Fill sync skipped for {}: Core's positions or bin arrays not passed", symbol);
+                return Ok(prev == (0, 0));
+            }
+        };
+        if prev == (0, 0) {
+            // first sync for this pair: take the current totals as the baseline
+            msg!("Fill snapshot initialized for {}: x {} y {}", symbol, now.0, now.1);
         } else {
-            pricing::redeem_irma(state, &token, amount)?;
+            match classify_fill(prev, now) {
+                Fill::None => {}
+                Fill::Sale(amount) => book_fill(state, symbol, amount, true),
+                Fill::Buy(amount) => book_fill(state, symbol, amount, false),
+                Fill::Other => msg!(
+                    "Non-trade change in {} position: x {} -> {}, y {} -> {}; snapshot reset",
+                    symbol, prev.0, now.0, prev.1, now.1),
+            }
         }
+        config.x_amount = now.0;
+        config.y_amount = now.1;
+        Ok(true)
+    }
 
-        let pair = &pools[0];
-        msg!("==> position_pks.len(): {} for pair {}", pair.position_pks.len(), pair.lb_pair);
-
-        // NO refresh_position_data() because this is done already in check_shift_price_ranges()
-        // let lb_pair_state = fetch_lb_pair_state(
-        //     remaining_accounts, &pair.lb_pair
-        // )?; // .ok_or(error!(CustomError::MissingLbPairState))?;
-        // let owner = &lb_pair_state.creator;
-
-        // // Call the core pair refresh logic without needing a full context
-        // self.refresh_position_data(owner, remaining_accounts, pair, is_sale)?;
-        
+    /// Re-read Core's position totals for a pair and store them as the fill snapshot,
+    /// after this program itself added or removed liquidity (shift, replenish, counter-swap).
+    /// If they cannot be read, the snapshot is cleared so the next sync takes a new baseline,
+    /// rather than comparing against totals from before the liquidity moved.
+    pub fn store_fill_snapshot<'a>(
+        &mut self,
+        acct_infos: &'a [AccountInfo<'a>],
+        lb_pair: Pubkey,
+    ) -> Result<()> {
+        let (amount_x, amount_y) = match self.get_position_state(lb_pair).get_position_amounts(acct_infos)? {
+            Some(amounts) => amounts,
+            None => {
+                msg!("Fill snapshot cleared for {}: Core's positions or bin arrays not passed", lb_pair);
+                (0, 0)
+            }
+        };
+        let pair_address = lb_pair.to_string();
+        let config = self.config.iter_mut()
+            .find(|c| c.pair_address == pair_address)
+            .ok_or(error!(CustomError::InvalidLbPairState))?;
+        config.x_amount = amount_x;
+        config.y_amount = amount_y;
         Ok(())
     }
     
@@ -1788,5 +1877,262 @@ impl Core {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fill_tests {
+    use super::*;
+    use crate::pricing::StableState;
+    use crate::MarketMakingMode;
+    use commons::derive_bin_array_pda;
+
+    const UNIT: u64 = 1_000_000; // 6 decimals for IRMA and the stablecoin
+
+    // get_bytemuck_account_ref needs the struct after the 8-byte discriminator to be aligned;
+    // u128 is 16-byte aligned on the host (8 on-chain), so back the data with u128s.
+    fn pod_data<T: bytemuck::Pod + anchor_lang::Discriminator>(value: &T) -> &'static mut [u8] {
+        let len = 8 + std::mem::size_of::<T>();
+        let buf: &'static mut [u128] = Box::leak(vec![0u128; len / 16 + 2].into_boxed_slice());
+        let data = &mut bytemuck::cast_slice_mut::<u128, u8>(buf)[8..8 + len];
+        data[..8].copy_from_slice(T::DISCRIMINATOR);
+        data[8..].copy_from_slice(bytemuck::bytes_of(value));
+        data
+    }
+
+    fn account(key: Pubkey, data: &'static mut [u8], owner: Pubkey) -> AccountInfo<'static> {
+        AccountInfo::new(
+            Box::leak(Box::new(key)), false, true, Box::leak(Box::new(0u64)),
+            data, Box::leak(Box::new(owner)), false, 0,
+        )
+    }
+
+    struct Pool {
+        lb_pair: Pubkey,
+        position: Pubkey,
+        accounts: &'static [AccountInfo<'static>], // [lb pair, bin array, position]
+        core: Core,
+        state: Account<'static, StateMap>,
+    }
+
+    /// One pool: Core's position covers bins 0..69 with the floor (stablecoin) at bin 0 and the
+    /// ceiling (IRMA) at bin 2. `lp_share_bin2` is the share of bin 2 held by another LP.
+    fn pool(lp_share_bin2: u128, circulation: u128) -> Pool {
+        let lb_pair = Pubkey::new_unique();
+        let position = Pubkey::new_unique();
+        let bin_array_key = derive_bin_array_pda(lb_pair, 0).0;
+
+        let mut pair: LbPair = bytemuck::Zeroable::zeroed();
+        pair.bin_step = 5;
+        pair.active_id = 1;
+
+        let mut bins: BinArray = bytemuck::Zeroable::zeroed();
+        bins.lb_pair = lb_pair;
+        bins.bins[0].amount_y = 110_000 * UNIT;
+        bins.bins[0].liquidity_supply = 1_000;
+        bins.bins[2].amount_x = 1_100_000 * UNIT;
+        bins.bins[2].liquidity_supply = 1_000 + lp_share_bin2;
+
+        let mut pos: PositionV2 = bytemuck::Zeroable::zeroed();
+        pos.lb_pair = lb_pair;
+        pos.lower_bin_id = 0;
+        pos.upper_bin_id = 69;
+        pos.liquidity_shares[0] = 1_000;
+        pos.liquidity_shares[2] = 1_000;
+
+        let accounts: &'static [AccountInfo<'static>] = Box::leak(vec![
+            account(lb_pair, pod_data(&pair), DLMM_ID),
+            account(bin_array_key, pod_data(&bins), DLMM_ID),
+            account(position, pod_data(&pos), DLMM_ID),
+        ].into_boxed_slice());
+
+        let mut single = SinglePosition::default();
+        single.lb_pair = lb_pair;
+        single.position_pks = vec![position, position]; // Core lists the one position twice
+        single.bin_array_pks = vec![bin_array_key, bin_array_key];
+        let core = Core {
+            owner: Pubkey::new_unique(),
+            config: vec![PairConfig {
+                pair_address: lb_pair.to_string(), x_amount: 0, y_amount: 0, mode: MarketMakingMode::ModeBoth,
+            }],
+            position_data: AllPosition { all_positions: vec![single], tokens: vec![] },
+        };
+
+        let mut reserve = StableState::new("USDT", Pubkey::new_unique(), 6).unwrap();
+        reserve.mint_price = 1.001;
+        reserve.backing_reserves = circulation;
+        reserve.irma_in_circulation = circulation;
+        reserve.pool_id = lb_pair;
+        let map = StateMap { reserves: vec![reserve], bump: 0, padding: [0; 7] };
+        let mut data = Vec::new();
+        map.try_serialize(&mut data).unwrap();
+        let info: &'static AccountInfo<'static> = Box::leak(Box::new(account(
+            Pubkey::new_unique(), Box::leak(data.into_boxed_slice()), crate::ID)));
+        let state = Account::<StateMap>::try_from(info).unwrap();
+
+        Pool { lb_pair, position, accounts, core, state }
+    }
+
+    impl Pool {
+        /// Apply a swap to a bin: `dx`/`dy` are the changes in the bin's token amounts.
+        fn swap_in_bin(&self, bin: usize, dx: i64, dy: i64) {
+            let mut data = self.accounts[1].data.borrow_mut();
+            let size = std::mem::size_of::<BinArray>();
+            let bins: &mut BinArray = bytemuck::from_bytes_mut(&mut data[8..8 + size]);
+            bins.bins[bin].amount_x = (bins.bins[bin].amount_x as i64 + dx) as u64;
+            bins.bins[bin].amount_y = (bins.bins[bin].amount_y as i64 + dy) as u64;
+        }
+        fn sync(&mut self) -> bool {
+            self.core.sync_protocol_fills(&mut self.state, self.accounts, self.lb_pair, "USDT").unwrap()
+        }
+        fn books(&self) -> (u128, u128) {
+            (self.state.reserves[0].backing_reserves, self.state.reserves[0].irma_in_circulation)
+        }
+        fn snapshot(&self) -> (u64, u64) {
+            (self.core.config[0].x_amount, self.core.config[0].y_amount)
+        }
+    }
+
+    #[test]
+    fn classify_fill_directions() {
+        assert_eq!(classify_fill((10, 5), (10, 5)), Fill::None);
+        assert_eq!(classify_fill((10, 5), (7, 8)), Fill::Sale(3));
+        assert_eq!(classify_fill((10, 5), (14, 1)), Fill::Buy(4));
+        assert_eq!(classify_fill((10, 5), (12, 9)), Fill::Other); // liquidity added
+        assert_eq!(classify_fill((10, 5), (4, 2)), Fill::Other);  // liquidity removed
+        assert_eq!(classify_fill((10, 5), (9, 5)), Fill::Other);  // one-sided dust
+    }
+
+    #[test]
+    fn first_sync_sets_baseline_without_booking() {
+        let mut p = pool(0, 1_000);
+        assert!(p.sync());
+        assert_eq!(p.books(), (1_000, 1_000));
+        assert_eq!(p.snapshot(), (1_100_000 * UNIT, 110_000 * UNIT));
+    }
+
+    #[test]
+    fn ceiling_fill_books_stablecoin_received_net_of_fee() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        // 10 USDT buy: 9.96 enters the bin after the 0.04 fee, 9.95 IRMA leaves
+        p.swap_in_bin(2, -9_950_000, 9_960_000);
+        assert!(p.sync());
+        // mint_irma(9.96): backing += ceil(9.96) = 10, circulation += ceil(9.96 / 1.001) = 10
+        assert_eq!(p.books(), (1_010, 1_010));
+        assert_eq!(p.snapshot(), (1_100_000 * UNIT - 9_950_000, 110_000 * UNIT + 9_960_000));
+    }
+
+    #[test]
+    fn fill_by_another_lp_books_nothing() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        // the trade fills an outside LP at bin 1, where Core has no shares
+        p.swap_in_bin(1, 0, 9_960_000);
+        assert!(p.sync());
+        assert_eq!(p.books(), (1_000, 1_000));
+    }
+
+    #[test]
+    fn shared_bin_books_only_cores_share() {
+        let mut p = pool(1_000, 1_000); // an LP holds half of bin 2
+        p.sync();
+        p.swap_in_bin(2, -20_000_000, 20_000_000);
+        assert!(p.sync());
+        // Core's half: 10 stablecoin -> backing +10, circulation +ceil(10 / 1.001) = 10
+        assert_eq!(p.books(), (1_010, 1_010));
+    }
+
+    #[test]
+    fn floor_fill_books_irma_bought_back() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        // 10 IRMA sold into the floor: 9.96 IRMA enters after the fee, 9.95 stablecoin leaves
+        p.swap_in_bin(0, 9_960_000, -9_950_000);
+        assert!(p.sync());
+        // redeem_irma(9.96 IRMA) -> ceil = 10 IRMA at redemption price 1
+        assert_eq!(p.books(), (990, 990));
+    }
+
+    #[test]
+    fn large_buy_back_is_split_under_the_redeem_limit() {
+        let mut p = pool(0, 1_000_000);
+        p.sync();
+        p.swap_in_bin(0, 150_000 * UNIT as i64, -100_000 * UNIT as i64);
+        assert!(p.sync());
+        assert_eq!(p.books().1, 1_000_000 - 150_000);
+    }
+
+    #[test]
+    fn pricing_error_leaves_books_unchanged_and_moves_on() {
+        let mut p = pool(0, 5); // only 5 IRMA in circulation
+        p.sync();
+        p.swap_in_bin(0, 9_960_000, -9_950_000); // buy-back of 10 > circulation
+        assert!(p.sync());
+        assert_eq!(p.books(), (5, 5));
+        assert_eq!(p.snapshot(), (1_100_000 * UNIT + 9_960_000, 110_000 * UNIT - 9_950_000));
+    }
+
+    #[test]
+    fn missing_position_account_postpones_booking() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        let before = p.snapshot();
+        p.swap_in_bin(2, -9_950_000, 9_960_000);
+        let without_position = &p.accounts[..2];
+        let synced = p.core.sync_protocol_fills(&mut p.state, without_position, p.lb_pair, "USDT").unwrap();
+        assert!(!synced);
+        assert_eq!(p.books(), (1_000, 1_000));
+        assert_eq!(p.snapshot(), before);
+        // with the position passed again, the fill is booked
+        assert!(p.sync());
+        assert_eq!(p.books(), (1_010, 1_010));
+        let _ = p.position;
+    }
+
+    #[test]
+    fn missing_bin_array_or_foreign_account_postpones_booking() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        p.swap_in_bin(2, -9_950_000, 9_960_000);
+        // without the bin array
+        let accounts: &'static [AccountInfo<'static>] = Box::leak(vec![p.accounts[0].clone(), p.accounts[2].clone()].into_boxed_slice());
+        assert!(!p.core.sync_protocol_fills(&mut p.state, accounts, p.lb_pair, "USDT").unwrap());
+        // the same bin array data, but in an account not owned by the DLMM program
+        let data: &'static mut [u8] = Box::leak(p.accounts[1].data.borrow().to_vec().into_boxed_slice());
+        let forged = account(*p.accounts[1].key, data, Pubkey::new_unique());
+        let accounts: &'static [AccountInfo<'static>] = Box::leak(vec![p.accounts[0].clone(), forged, p.accounts[2].clone()].into_boxed_slice());
+        assert!(!p.core.sync_protocol_fills(&mut p.state, accounts, p.lb_pair, "USDT").unwrap());
+        assert_eq!(p.books(), (1_000, 1_000));
+    }
+
+    #[test]
+    fn closed_position_resets_snapshot_instead_of_blocking() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        // the tracked position was closed: its key now holds an empty system account
+        let closed = account(p.position, Box::leak(Vec::new().into_boxed_slice()), anchor_lang::system_program::ID);
+        let accounts: &'static [AccountInfo<'static>] = Box::leak(vec![p.accounts[0].clone(), p.accounts[1].clone(), closed].into_boxed_slice());
+        assert!(p.core.sync_protocol_fills(&mut p.state, accounts, p.lb_pair, "USDT").unwrap());
+        assert_eq!(p.books(), (1_000, 1_000));
+        assert_eq!(p.snapshot(), (0, 0));
+    }
+
+    #[test]
+    fn program_liquidity_change_is_not_a_trade() {
+        let mut p = pool(0, 1_000);
+        p.sync();
+        // a shift withdraws the ceiling and redeposits elsewhere; store_fill_snapshot re-reads
+        p.swap_in_bin(2, -100 * UNIT as i64, 0);
+        p.core.store_fill_snapshot(p.accounts, p.lb_pair).unwrap();
+        assert!(p.sync());
+        assert_eq!(p.books(), (1_000, 1_000));
+        // if the totals cannot be read after liquidity moved, the snapshot is cleared and the
+        // next sync takes a new baseline instead of booking the move as a trade
+        p.core.store_fill_snapshot(&p.accounts[..2], p.lb_pair).unwrap();
+        assert_eq!(p.snapshot(), (0, 0));
+        p.swap_in_bin(2, -100 * UNIT as i64, 100 * UNIT as i64);
+        assert!(p.sync());
+        assert_eq!(p.books(), (1_000, 1_000));
     }
 }
