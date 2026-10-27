@@ -147,7 +147,7 @@ pub fn mint_irma(state_map: &mut Account<StateMap>, quote_token: &str, amount: u
     let amount = (amount as f64 / (10.0_f64).powi(stablecoin.backing_decimals as i32)) as f64;
 
     let stablecoin = state_map.get_mut_stablecoin(quote_token).unwrap();
-    stablecoin.backing_reserves += amount.ceil() as u128; // backing should not have a fractional part
+    stablecoin.backing_reserves += amount.floor() as u128; // whole tokens; never book more backing than was received
     stablecoin.irma_in_circulation += (amount / curr_price).ceil() as u128;
 
     Ok(())
@@ -210,8 +210,8 @@ pub fn get_redemption_price(reserves: &Vec<StableState>, quote_token: &str) -> R
     }
 
     let ten_pow_decimals =  10.0_f64.powi(IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32);
-    let redemption_price = (backing_reserves.checked_div(irma_in_circulation).unwrap_or(0) as f64) * ten_pow_decimals;
-    Ok(redemption_price)
+    let redemption_price = reserve_ratio(backing_reserves, irma_in_circulation) * ten_pow_decimals;
+    Ok(redemption_price.min(stablecoin.mint_price)) // redemption price never exceeds mint price
 }
 
 /// Get both mint and redemption prices for a given quote token.
@@ -443,7 +443,7 @@ impl StateMap {
             let ten_pow_decimals =  10.0_f64.powi(
                 IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
             );
-            let redemption_price = ((reserve.checked_div(ro_circulation).unwrap_or(0) as f64)
+            let redemption_price = (reserve_ratio(reserve, ro_circulation)
                  * ten_pow_decimals) as f64;
             let subject_adjustment: u64 = (irma_amount as f64 * redemption_price).ceil() as u64; // irma_amount is in whole numbers, so we can use it directly
 
@@ -481,7 +481,7 @@ impl StateMap {
                 let ten_pow_decimals = 10.0_f64.powi(
                     IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
                 );
-                let redemption_price = (backing_reserves.checked_div(circulation).unwrap_or(0) as f64)
+                let redemption_price = reserve_ratio(backing_reserves, circulation)
                      * (ten_pow_decimals as f64);
                 let mint_price = reserve.mint_price;
                 if mint_price == 0.0 || reserve.backing_decimals == 0 || reserve.active == false {
@@ -525,7 +525,7 @@ impl StateMap {
         let ten_pow_decimals =  10.0_f64.powi(
             IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
         );
-        let redemption_price = ((reserve.checked_div(ro_circulation).unwrap_or(0) as f64)
+        let redemption_price = (reserve_ratio(reserve, ro_circulation)
              * ten_pow_decimals) as f64;
         let subject_adjustment: u64 = (irma_amount as f64 * redemption_price).ceil() as u64; // irma_amount is in whole numbers, so we can use it directly
 
@@ -581,7 +581,7 @@ impl StateMap {
         let ten_pow_decimals =  10.0_f64.powi(
             IRMA.backing_decimals as i32 - stablecoin.backing_decimals as i32
         );
-        let other_red_price: f64 = ((other_reserve.checked_div(other_circulation).unwrap_or(0) as f64) 
+        let other_red_price: f64 = (reserve_ratio(other_reserve, other_circulation) 
             * ten_pow_decimals) as f64;
 
         let price: f64 = stablecoin.mint_price;
@@ -696,5 +696,15 @@ mod pricing_tests {
         // split, ceil(5.79) = 6 from PYUSD and the other 4 from USDT.
         assert_eq!(state.get_stablecoin("USDT").unwrap().irma_in_circulation, 46);
         assert_eq!(state.get_stablecoin("PYUSD").unwrap().irma_in_circulation, 4);
+    }
+
+    #[test]
+    fn redemption_price_never_exceeds_mint_price() {
+        let mut state = StateMap::new();
+        state.add_reserve(reserve("USDT", 150, 100, 1.2));
+        state.add_reserve(reserve("PYUSD", 114, 100, 1.2));
+
+        assert_eq!(get_redemption_price(&state.reserves, "USDT").unwrap(), 1.2); // 1.5 capped
+        assert!((get_redemption_price(&state.reserves, "PYUSD").unwrap() - 1.14).abs() < 1e-9); // fraction kept
     }
 }
