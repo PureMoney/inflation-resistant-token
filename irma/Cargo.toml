@@ -35,6 +35,8 @@ num-traits = "0.2.16"
 
 anyhow = "1.0.71"
 
+# pyth-solana-receiver-sdk = { version = "1.2.0", features = ["pro-compatible"] }
+
 commons = { path = "./commons" }
 
 [profile.release]

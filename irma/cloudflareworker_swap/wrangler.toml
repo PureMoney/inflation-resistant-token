@@ -108,14 +108,14 @@ IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
 TARGET_INFLATION_RATE = "2.0"
 ENABLE_TEST_SCAFFOLDING = "false"
 
-[env.fdusd]
-name = "irma-client-fdusd"
-[env.fdusd.triggers]
+[env.usd1]
+name = "irma-client-usd1"
+[env.usd1.triggers]
 crons = ["5 23 * * *"]
-[env.fdusd.vars]
+[env.usd1.vars]
 TRUFLATION_PROXY_URL = "https://truflation-proxy-one.vercel.app"
 POOL_ADDRESS = "hpmVtDBZxgm295nxFFuX5znVoo978GvntDjLoajLTS9"
-RESERVE_SYMBOL = "devFDUSD"
+RESERVE_SYMBOL = "devUSD1"
 RESERVE_MINT_STR = "4rDY847iWoNsbrHm1FNGzEyNBb6zJZT9gJMQL6FKQXfo"
 IRMA_MINT_STR = "EwotD7KQ8TgdvrKWaFVLPRgQnt98Ltjq98UggzFcKbDY"
 TARGET_INFLATION_RATE = "2.0"

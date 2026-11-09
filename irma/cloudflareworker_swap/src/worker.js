@@ -1,6 +1,5 @@
 // IRMA Cloudflare Worker - Compatible with Workers Runtime
 import {  SystemProgram } from "@solana/web3.js";
-import { PythHttpClient, getPythProgramKeyForCluster } from "@pythnetwork/client";
 
 import { Logger, logPriceUpdate, queryLogs, getActiveBins } from "./d1_logs.js";
 import { 
@@ -11,6 +10,8 @@ import {
 } from "./process_rebalance.js";
 import { getPrices } from "./dlmm.js";
 // Pool/token configuration comes from Worker environment variables — see config.js for the full list.
+
+import { PythLazerClient } from "@pythnetwork/pyth-lazer-sdk";
 
 /**
  * Target inflation rate (%) below which the mint price is not adjusted.
@@ -70,70 +71,136 @@ async function fetch_truflation_rate(env) {
  * Calculate IRMA mint price based on Truflation inflation rate
  * Formula: if inflation > target, adjust upward; otherwise use 1.0
  */
-function calculate_mint_price(inflation_rate, quote_token_price_usd, target_inflation_rate, current_mint_price) {
+function calculate_mint_price(inflation_rate, latest_price, yesterday_price, current_mint_price) {
   let mint_price;
+  const target_inflation_rate = get_target_inflation_rate(process.env);
 
   if (inflation_rate > target_inflation_rate) {
     // Inflation above target: adjust mint price upward for a single day
     let inflation_adjustment = (inflation_rate - target_inflation_rate) / 36525.0;
-    mint_price = current_mint_price * (1.00 + inflation_adjustment) / quote_token_price_usd;
+    mint_price = current_mint_price * (1.00 + inflation_adjustment) * yesterday_price / latest_price;
     console.log(`📊 Inflation ${inflation_rate}% > ${target_inflation_rate}%: adjustment = ${inflation_adjustment}`);
   } else {
     // Below target: no adjustment
-    mint_price = current_mint_price / quote_token_price_usd;
+    mint_price = current_mint_price * yesterday_price / latest_price;
     console.log(`📊 Inflation ${inflation_rate}% <= ${target_inflation_rate}%: no adjustment`);
   }
   
-  console.log(`💰 Calculated mint price: ${mint_price} (quote token price: ${quote_token_price_usd} USD)`);
+  console.log(`💰 Calculated mint price: ${mint_price} (quote token price: ${latest_price} USD)`);
   return mint_price;
 }
 
-/**
- * Get quote token price using Pyth oracle (compatible with Cloudflare Workers)
- * Replaces hardcoded 1.0 assumption for better accuracy
- */
-async function get_quote_token_price_usd(connection, pool_address, reserve_symbol) {
-  console.log(`📊 Fetching ${reserve_symbol} price from Pyth oracle...`);
-  
-  try {
-    // Pyth price feed IDs for stablecoins
-    // TODO: these are not base58-encoded, need to convert to PublicKey format or use correct IDs for devnet and prod
-    const price_feed_ids = {
-      'USDC': '0x41f3625971ca2ed2263e78573fe5ce23e13d2558ed3f2e47ab0f84fb9e7ae722',
-      'USDT': '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
-      'devUSDC': '0x41f3625971ca2ed2263e78573fe5ce23e13d2558ed3f2e47ab0f84fb9e7ae722',
-      'devUSDT': '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
-    };
-    
-    const price_feed_id = price_feed_ids[reserve_symbol];
-    if (!price_feed_id) {
-      console.log(`⚠️  No Pyth feed for ${reserve_symbol}, defaulting to $1.00`);
-      return 1.0;
-    }
-    
-    // Initialize Pyth client for Workers environment
-    const pyth_client = new PythHttpClient(connection, getPythProgramKeyForCluster('devnet'));
-    
-    // Fetch price data
-    const price_data = await pyth_client.getAssetPricesFromAccounts([price_feed_id]);
-    const price = price_data[0];
-    
-    if (!price || !price.price) {
-      console.log(`⚠️  Failed to get Pyth price for ${reserve_symbol}, defaulting to $1.00`);
-      return 1.0;
-    }
-    
-    const price_usd = price.price * Math.pow(10, price.expo);
-    console.log(`💰 Pyth ${reserve_symbol}/USD price: $${price_usd}`);
-    
-    return price_usd;
-    
-  } catch (error) {
-    console.error(`❌ Pyth oracle error for ${reserve_symbol}:`, error.message);
-    console.log(`⚠️  Falling back to $1.00 for ${reserve_symbol}`);
-    return 1.0;
+let priceYesterday = 1.000;
+
+/// Get quote token price from Pyth oracle
+// Requirements: Node.js 24 or later
+//   npm install @pythnetwork/pyth-lazer-sdk
+//   npm pkg set type=module
+//
+// Usage:
+//   node pyth-pro-example.ts
+async function get_quote_token_price(env) {
+  // Read your API key from the environment (never hard-code it)
+  const reserve_symbol = env.RESERVE_SYMBOL;
+  const token = env.PYTH_API_KEY;
+  if (!token) throw new Error("Set PYTH_API_KEY in your environment");
+
+  const price_feed_ids = {
+    'USDC': 7,
+    'USDT': 8,
+    'PYUSD': 156,
+    'USDS': 611,
+    'USDG': 232,
+    'USD1': 604,
+    'devUSDC': 7,
+    'devUSDT': 8,
+    'devPYUSD': 156,
+    'devUSDS': 611,
+    'devUSDG': 232,
+    'devUSD1': 604,
+  };
+  // const now = new Date();
+  // const secondsNow = Math.floor(now.getTime() / 1000);
+  // const secondsYesterday = secondsNow - 24*60*60;
+  // console.log(`Yesterday's timestamp in seconds: ${secondsYesterday}`);
+
+  // default prices in case Pyth feed is unavailable
+  let latest_price = 1.000;
+  let yesterday_price = priceYesterday;
+
+  const price_feed_id = price_feed_ids[reserve_symbol];
+  if (!price_feed_id) {
+    console.log(`⚠️  No Pyth feed for ${reserve_symbol}, defaulting to $1.00`);
+    return { latest_price, yesterday_price };
   }
+
+  // Create the Pyth Pro client with WebSocket pool configuration
+  const client = await PythLazerClient.create(
+    {
+      token,
+      // priceServiceUrl: "https://pyth-lazer-0.dourolabs.app", <-- getting a 404
+      webSocketPoolConfig: {
+        urls: [
+          "wss://pyth-lazer-0.dourolabs.app/v1/stream",
+          "wss://pyth-lazer-1.dourolabs.app/v1/stream",
+          "wss://pyth-lazer-2.dourolabs.app/v1/stream",
+        ],
+      },
+    }
+  );
+  console.log("ℹ️ Pyth Lazer client created");
+
+  // get the latest price for the specified feed ID
+  try {
+    client.subscribe({
+      type: "subscribe",
+      subscriptionId: 1,
+      priceFeedIds: [price_feed_id],
+      properties: ["price", "feedUpdateTimestamp", "confidence", "exponent"],
+      formats: ["solana"],
+      channel: "fixed_rate@1000ms",
+      jsonBinaryEncoding: "hex",
+      parsed: true,
+    });
+  } catch (error) {
+    console.log(`⚠️  Failed to subscribe for ${reserve_symbol}, defaulting to $1.00`);
+    return { latest_price, yesterday_price };
+  }
+  console.log(`ℹ️ Subscription for ${reserve_symbol} successful.`)
+
+  let exponent = 0;
+  // Listen for price updates
+  client.addMessageListener((message) => {
+    if (message.type === "json") {
+      // console.log("Received JSON update:", JSON.stringify(message.value, null, 2));
+      const priceUpdate = message.value.parsed.priceFeeds[0];
+      if (priceUpdate && priceUpdate.price !== undefined) {
+        exponent = priceUpdate.exponent !== undefined ? priceUpdate.exponent : 0;
+        latest_price = (priceUpdate.price) * Math.pow(10, exponent);
+        // console.log(`ℹ️ Updated latest price for ${reserve_symbol}: ${priceUpdate.price} with exponent ${exponent}`);
+      }
+    } else {
+      console.log("Received binary update:", {
+        subscriptionId: message.value.subscriptionId,
+        parsed: message.value.parsed,
+      });
+    }
+  });
+  // wait for 5 seconds to receive price updates
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(`ℹ️ Latest price for ${reserve_symbol}: ${latest_price}`);
+
+  // Handle connection errors
+  client.addAllConnectionsDownListener(() => {
+    console.error("All WebSocket connections are down!");
+  })
+  console.log(`ℹ️ Yesterday's price for ${reserve_symbol}: ${priceYesterday}`);
+  priceYesterday = latest_price;
+
+  return { latest_price, yesterday_price };
 }
+
+
 
 /**
  * Update IRMA mint price on-chain using Truflation data
@@ -141,9 +208,6 @@ async function get_quote_token_price_usd(connection, pool_address, reserve_symbo
 async function update_mint_price_from_truflation(env) {
   console.log("🔄 Starting mint price update from Truflation...");
   
-  const HELIUS_API_KEY = env.HELIUS_API_KEY;
-  const HELIUS_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-
   try {
     // 1. Fetch inflation rate from Truflation
     const inflation_rate = await fetch_truflation_rate(env);
@@ -151,16 +215,15 @@ async function update_mint_price_from_truflation(env) {
     const { connection, adminKeypair, wallet, provider, program, statePda, corePda } = await setupSolanaConnection(env);
     
     // 3. Get quote token price using Pyth oracle
-    const quote_token_price_usd = await get_quote_token_price_usd(connection, env.POOL_ADDRESS, env.RESERVE_SYMBOL);
+    const { latest_price, yesterday_price } = await get_quote_token_price(env);
 
     // 3a. fetch the current mint price from on-chain state
-    const { mintPrice: current_mint_price } = await getPrices(
+    const { mintPrice } = await getPrices(
       program, statePda, corePda, adminKeypair.publicKey, env.RESERVE_SYMBOL);
-    console.log(`ℹ️ Current mint price for ${env.RESERVE_SYMBOL}: ${current_mint_price}`);
+    console.log(`ℹ️ Current mint price for ${env.RESERVE_SYMBOL}: ${mintPrice}`);
 
     // 4. Calculate new mint price
-    const new_mint_price = calculate_mint_price(
-      inflation_rate, quote_token_price_usd, get_target_inflation_rate(env), current_mint_price);
+    const new_mint_price = calculate_mint_price(inflation_rate, latest_price, yesterday_price, mintPrice);
 
     // 5. Convert to format expected by on-chain program
     const price_as_number = new_mint_price;
@@ -191,7 +254,7 @@ async function update_mint_price_from_truflation(env) {
     return {
       success: true,
       inflation_rate,
-      quote_token_price_usd,
+      quote_token_price_usd: latest_price,
       new_mint_price,
       transaction: tx,
     };
